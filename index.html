@@ -464,8 +464,8 @@ function compressImage(file, cb){
 /* ============ storage (v2: company level + projects + subcon tags) ============ */
 const KEY='kkl-cms-v1';    /* legacy flat schema — migrated, never deleted */
 const KEY2='kkl-cms-v2';
-const COMPANY_STORES=['members','equipment','training','raLibrary'];
-const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities'];
+const COMPANY_STORES=['members','equipment','training','raLibrary','raMasters','raMasterVersions','legacyDocs','clientTemplates','auditEvents'];
+const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers'];
 const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
 function blankProject(name){
   const p={id:uid(), settings:structuredClone(BLANK.settings), manhours:{}, mandays:{}};
@@ -715,17 +715,30 @@ const NAV=[
  {group:'Site',    items:[['contacts','Contacts','contact'],['members','Member(s)','members'],['equipment','Equipment','equip'],
                           ['certexp','Cert Expiry','cert'],['documents','Documents','doc'],['actions','Actions','act']]},
  {group:'Safety',  items:[['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
-                          ['checklists','Checklists','check'],['ra','RA / SWP','ra'],['ralib','RA Library','ra'],['training','Training','train'],
+                          ['checklists','Checklists','check'],['rasys','RA / SWP','ra'],['training','Training','train'],
                           ['meetings','Meetings','meet'],['incidents','Incidents','incid']]},
  {group:'Quality', items:[['defects','Defects','defect']]},
  {group:'Reports', items:[['stats','Statistics','stats'],['report','Monthly Report','print']]}
 ];
 function buildNav(){
   const nav=document.getElementById('sidenav');
+  if(SB.profile&&SB.profile.role==='subcon'){
+    nav.innerHTML='<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'My Work</a>'+
+      '<div class="sn-group">My Site</div>'+
+      [['rasys','My RA / SWP','ra'],['observations','My Observations','obs'],['defects','My Defects','defect'],
+       ['members','My Workers','members'],['equipment','My Equipment','equip'],['training','My Training','train']]
+        .map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+'</a>').join('')+
+      '<div class="sn-group">Admin</div>'+
+      '<a class="sn-item" href="#/settings" data-nav="settings">'+ic('gear')+'Settings</a>';
+    return;
+  }
   nav.innerHTML =
     '<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'Project Home</a>'+
     NAV.map(g=>{
-      const items=g.items.filter(t=>!(t[0]==='ra'||t[0]==='ralib')||canRA());
+      const items=g.items.filter(t=>{
+        if(t[0]==='rasys') return !SB.profile||SB.profile.role!=='viewer';
+        if(t[0]==='ra'||t[0]==='ralib') return canRA();
+        return true; });
       if(!items.length) return '';
       return '<div class="sn-group">'+g.group+'</div>'+
       items.map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+
@@ -774,6 +787,22 @@ function initShell(){
 }
 
 function renderHome(){
+  if(SB.profile&&SB.profile.role==='subcon'){
+    const tile=(href,label,icon)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+'</span><span class="tl">'+label+'</span></a>';
+    const myObs=db.observations.filter(o=>o.status!=='Closed').length;
+    app.innerHTML=header(db.settings.project||'My Work', false)+
+      '<h2 class="sect">Today</h2>'+
+      '<div class="tiles">'+
+        '<a class="stile" href="#/observations"><div class="v'+(myObs?' w':'')+'">'+myObs+'</div><div class="l">Open observations</div></a>'+
+        '<a class="stile" href="#/rasys"><div class="v">'+db.raAdoptions.length+'</div><div class="l">My RA / SWP</div></a>'+
+      '</div>'+
+      '<h2 class="sect">My site</h2>'+
+      '<div class="grid">'+tile('rasys','My RA/SWP','ra')+tile('observations','Observations','obs')+
+        tile('defects','Defects','defect')+tile('members','My Workers','members')+
+        tile('equipment','My Equipment','equip')+tile('training','Training','train')+'</div>'+
+      '<div class="foot">Simplified subcontractor view — you see your own company\u2019s items only.</div>';
+    return;
+  }
   const s=db.settings;
   const nb=certBadgeCount();
   const tile=(href,label,icon,badge)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+
@@ -814,7 +843,7 @@ function renderHome(){
       tile('inspections','Inspection','insp')+
       tile('observations','Observation','obs')+
       tile('checklists','Checklist','check')+
-      (canRA()?tile('ra','RA/SWP','ra'):'')+
+      ((SB.profile&&SB.profile.role==='viewer')?'':tile('rasys','RA/SWP','ra'))+
       tile('training','Training','train')+
       tile('meetings','Meeting','meet')+
       tile('incidents','Incident','incid')+
@@ -915,12 +944,23 @@ function route(){
   if(p[0]==='team') return renderTeam();
   if(p[0]==='toolbox') return renderToolbox();
   if(p[0]==='checkin' && p[3]) return renderCheckin(p[1], p[2], decodeURIComponent(p[3]));
-  if((p[0]==='ra'||p[0]==='raimport'||p[0]==='ralib') && !canRA()){
+  if((p[0]==='rasys'||p[0]==='raver'||p[0]==='raworker') && SB.profile && SB.profile.role==='viewer'){
+    app.innerHTML=header('RA / SWP', true)+'<div class="empty">RA / SWP is restricted.</div>'; return;
+  }
+  if(p[0]==='rasys') return p[1]?renderRaDetail(p[1]):renderRaSys();
+  if(p[0]==='raver'&&p[1]) return renderRaVer(p[1]);
+  if(p[0]==='raworker'&&p[1]) return renderRaWorker(p[1]);
+  if((p[0]==='ra'||p[0]==='raimport'||p[0]==='ralib'||p[0]==='ramasters'||p[0]==='rareviews'||p[0]==='legacy'||p[0]==='raexport'||p[0]==='radiff') && !canRA()){
     app.innerHTML=header('RA / SWP', true)+
       '<div class="empty">The RA / SWP register is restricted to '+esc(root.company.name||'the main contractor')+'’s safety personnel<br>(admin / WSHO accounts).</div>';
     return;
   }
   if(p[0]==='raimport') return renderRaImport();
+  if(p[0]==='ramasters') return p[1]?renderRaMasterDetail(p[1]):renderRaMasters();
+  if(p[0]==='radiff'&&p[2]) return renderRaDiffView(p[1],p[2]);
+  if(p[0]==='rareviews') return renderRaReviews();
+  if(p[0]==='legacy') return renderLegacyDocs();
+  if(p[0]==='raexport'&&p[1]) return renderRaExport(p[1]);
   if(p[0]==='connect' && p[1]){ /* one-tap device setup: #/connect/<base64url cfg> */
     try{
       const cfg=JSON.parse(atob(decodeURIComponent(p[1]).replace(/-/g,'+').replace(/_/g,'/')));
@@ -1460,11 +1500,17 @@ const MODULES={
      {k:'equipmentId',label:'Equipment',type:'select',opts:()=>db.equipment.map(e=>[e.id,[e.type,e.regNo].filter(Boolean).join(' ')||e.name||e.id])},
      {k:'role',label:'Role / use'}]},
    {k:'raRefs',label:'RA / SWP in force — the revision is pinned when you save',type:'rows',add:'Link RA / SWP',cols:[
-     {k:'raId',label:'RA / SWP',type:'select',opts:()=>db.ra.map(r=>[r.id,r.activity+(r.rev?' (Rev '+r.rev+')':'')])},
+     {k:'raId',label:'RA / SWP',type:'select',opts:()=>db.raAdoptions.map(a=>['adopt:'+a.id,a.title+' ('+(a.currentRev||'no approved rev')+')'])
+        .concat(db.ra.map(r=>[r.id,'[legacy] '+r.activity+(r.rev?' (Rev '+r.rev+')':'')]))},
      {k:'rev',label:'Pinned rev (auto)'}]},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
   beforeSave:function(obj){
-    (obj.raRefs||[]).forEach(x=>{ if(x.raId&&!x.rev){ const r=db.ra.find(a=>a.id===x.raId); if(r) x.rev=r.rev||''; } });
+    (obj.raRefs||[]).forEach(x=>{
+      if(String(x.raId||'').startsWith('adopt:')){
+        const a=db.raAdoptions.find(z=>z.id===String(x.raId).slice(6));
+        if(a){ x.rev=a.currentRev||''; x.verId=a.currentVerId||''; }
+      }else if(x.raId&&!x.rev){ const r=db.ra.find(z=>z.id===x.raId); if(r) x.rev=r.rev||''; }
+    });
     recalcWA(obj);
   },
   afterRender:function(item){
@@ -1477,6 +1523,7 @@ const MODULES={
       const link=x.sourceEntity==='member'?'#/members/'+x.sourceEntityId:
                  x.sourceEntity==='equipment'?'#/equipment/'+x.sourceEntityId:
                  x.sourceEntity==='ra'?'#/ra/'+x.sourceEntityId:
+                 x.sourceEntity==='raAdoption'?'#/rasys/'+x.sourceEntityId:
                  x.sourceEntity==='observation'?'#/observations/'+x.sourceEntityId:
                  x.sourceEntity==='incident'?'#/incidents/'+x.sourceEntityId:null;
       return '<div class="lrow" '+(link?'onclick="location.hash=\''+link+'\'"':'style="cursor:default"')+'>'+
@@ -2183,6 +2230,15 @@ function checkWorkActivityReadiness(workActivityId){
   if(!raRefs.length)
     res.push(RR('WA-RA-NONE',PTW_REQUIRED.includes(wa.type)?'BLOCK':'WARN','No RA/SWP linked','No risk assessment is linked to this activity.','workActivity',wa.id));
   raRefs.forEach(ref=>{
+    if(String(ref.raId||'').startsWith('adopt:')){
+      const ad=db.raAdoptions.find(z=>z.id===String(ref.raId).slice(6));
+      if(!ad){ res.push(RR('WA-RA-GONE','WARN','Linked RA missing','A linked versioned RA/SWP no longer exists.','raAdoption',String(ref.raId).slice(6))); return; }
+      const cur=db.raProjectVersions.find(v=>v.id===ad.currentVerId);
+      if(!cur){ res.push(RR('WA-RA-UNAPPROVED',PTW_REQUIRED.includes(wa.type)?'BLOCK':'WARN','RA not approved yet',ad.title+' has no approved revision.','raAdoption',ad.id)); return; }
+      if(ref.verId&&ref.verId!==ad.currentVerId)
+        res.push(RR('WA-RA-REV','WARN','RA revision changed','Activity pinned '+(ref.rev||'?')+' but current approved is '+ad.currentRev+' — re-brief and re-link.','raAdoption',ad.id));
+      return;
+    }
     const ra=db.ra.find(r=>r.id===ref.raId);
     if(!ra){ res.push(RR('WA-RA-GONE','WARN','Linked RA missing','A linked RA/SWP was deleted from the register.','ra',ref.raId)); return; }
     if(ra.status==='Expired') res.push(RR('WA-RA-EXPIRED','BLOCK','RA expired',ra.activity+' is marked Expired.','ra',ra.id));
@@ -2355,6 +2411,705 @@ function renderRaImport(){
   draw();
 }
 
+/* ============ RA/SWP KNOWLEDGE SYSTEM ============
+   Master library -> immutable versions -> project adoption -> project
+   versions -> operations. Approved versions are LOCKED; revising clones a
+   new DRAFT. All rules deterministic; Claude-assisted migration happens
+   outside the app and lands here with provenance. */
+
+/* ---- helpers ---- */
+function raNow(){ return new Date().toISOString(); }
+function raWho(){ return SB.profile?(SB.profile.email||SB.profile.id):'local-device'; }
+function revNext(rev){ const m=/^([MP])(\d+)$/.exec(rev||''); return m?m[1]+String(+m[2]+1).padStart(2,'0'):(rev||'')+'+1'; }
+function riskBand(n){ return n>=15?['b','High']:n>=6?['w','Med']:['g','Low']; }
+function audit(action,entity,entityId,prev,next,reason){
+  db.auditEvents.push({id:uid(), at:raNow(), who:raWho(), action, entity, entityId,
+    prev:prev===undefined?null:prev, next:next===undefined?null:next, reason:reason||''});
+}
+function itemPrefix(title){ return (title||'RA').replace(/[^A-Za-z]/g,'').slice(0,3).toUpperCase()||'RA'; }
+function raApprovedStatuses(){ return ['APPROVED','LEGACY-APPROVED']; }
+function verLocked(v){ return raApprovedStatuses().concat(['SUPERSEDED']).includes(v.status); }
+function verStore(v){ return v.rev&&v.rev[0]==='M'?'raMasterVersions':'raProjectVersions'; }
+function findVer(id){ return db.raMasterVersions.find(v=>v.id===id)||db.raProjectVersions.find(v=>v.id===id); }
+function statusChip(st){
+  const c=st==='DRAFT'?'n':st==='SUBMITTED'?'w':st==='SUPERSEDED'?'n':'g';
+  return '<span class="chip '+c+'">'+esc(st)+'</span>';
+}
+
+/* ---- versioning engine (deterministic; no AI in any rule) ---- */
+function raNewItem(head){
+  head.itemSeq=(head.itemSeq||0)+1;
+  return {itemId:itemPrefix(head.title)+'-'+String(head.itemSeq).padStart(3,'0'),
+    activity:'',hazard:'',consequence:'',s0:'3',l0:'3',controls:[],addControls:[],s1:'3',l1:'1',resp:'',origin:null,changeLog:[]};
+}
+function raCreateMaster(title){
+  const head={id:uid(), title:title||'New master RA', tags:[], itemSeq:0, currentRev:null, currentVerId:null, status:'ACTIVE'};
+  const ver={id:uid(), masterId:head.id, rev:'M01', status:'DRAFT', items:[], swpSteps:[], links:[],
+    createdAt:raNow(), createdBy:raWho(), approvedBy:'', approvedAt:'', note:''};
+  db.raMasters.push(head); db.raMasterVersions.push(ver);
+  audit('created','raMaster',head.id,null,{title:head.title});
+  save(); return {head,ver};
+}
+function raCreateDraftFrom(ver){
+  if(!verLocked(ver)&&ver.status!=='SUBMITTED') return ver; /* already editable */
+  const isM=verStore(ver)==='raMasterVersions';
+  const head=isM?db.raMasters.find(m=>m.id===ver.masterId):db.raAdoptions.find(a=>a.id===ver.adoptionId);
+  const open=(isM?db.raMasterVersions:db.raProjectVersions).find(v=>
+    (isM?v.masterId===ver.masterId:v.adoptionId===ver.adoptionId)&&(v.status==='DRAFT'||v.status==='SUBMITTED'));
+  if(open){ toast('A '+open.status.toLowerCase()+' revision ('+open.rev+') already exists — continue there.'); return open; }
+  const cp=structuredClone(ver);
+  cp.id=uid(); cp.rev=revNext(ver.rev); cp.status='DRAFT';
+  cp.createdAt=raNow(); cp.createdBy=raWho(); cp.approvedBy=''; cp.approvedAt='';
+  cp.comments=[]; cp.note='Revision of '+ver.rev;
+  (isM?db.raMasterVersions:db.raProjectVersions).push(cp);
+  audit('revision-created', isM?'raMasterVersion':'raProjectVersion', cp.id, {from:ver.rev}, {rev:cp.rev});
+  save(); return cp;
+}
+function raApprove(ver){
+  if(!canRA()){ alert('Only company safety personnel can approve.'); return false; }
+  if(verLocked(ver)){ alert('This revision is locked.'); return false; }
+  const isM=verStore(ver)==='raMasterVersions';
+  const list=isM?db.raMasterVersions:db.raProjectVersions;
+  const headList=isM?db.raMasters:db.raAdoptions;
+  const head=headList.find(h=>isM?h.id===ver.masterId:h.id===ver.adoptionId);
+  list.forEach(v=>{
+    const same=isM?v.masterId===ver.masterId:v.adoptionId===ver.adoptionId;
+    if(same&&v.id!==ver.id&&raApprovedStatuses().includes(v.status)){
+      const prev=v.status; v.status='SUPERSEDED';
+      audit('superseded', isM?'raMasterVersion':'raProjectVersion', v.id, {status:prev}, {status:'SUPERSEDED'});
+    }
+  });
+  ver.status='APPROVED'; ver.approvedBy=raWho(); ver.approvedAt=raNow();
+  if(head){ head.currentRev=ver.rev; head.currentVerId=ver.id; }
+  audit('approved', isM?'raMasterVersion':'raProjectVersion', ver.id, null, {rev:ver.rev, by:ver.approvedBy});
+  if(isM){ /* master approval -> deterministic impact: flag every adoption on an older base */
+    root.projects.forEach(p=>(p.raAdoptions||[]).forEach(a=>{
+      if(a.masterId===ver.masterId&&a.baseMasterVerId!==ver.id){
+        if(!(p.reviewTriggers||[]).some(t=>t.sourceId===ver.id&&t.adoptionId===a.id&&t.status==='OPEN')){
+          (p.reviewTriggers=p.reviewTriggers||[]).push({id:uid(), at:raNow(), source:'Master Library Update',
+            sourceId:ver.id, adoptionId:a.id, masterId:ver.masterId,
+            reason:'Master "'+(head?head.title:'')+'" revised to '+ver.rev+'; this project is based on '+(a.baseMasterRev||'?')+'.',
+            reviewer:'', status:'OPEN', outcome:''});
+        }
+      }
+    }));
+  }
+  save(); EV.emit('record:changed',{store:isM?'raMasterVersions':'raProjectVersions', id:ver.id});
+  return true;
+}
+function raSubmit(ver){
+  if(verLocked(ver)) return;
+  ver.status='SUBMITTED'; ver.submittedAt=raNow(); ver.submittedBy=raWho();
+  audit('submitted', verStore(ver)==='raMasterVersions'?'raMasterVersion':'raProjectVersion', ver.id, null, {rev:ver.rev});
+  save();
+}
+function raAdoptMaster(master){
+  const mv=db.raMasterVersions.find(v=>v.id===master.currentVerId);
+  if(!mv||!raApprovedStatuses().includes(mv.status)){ alert('This master has no approved revision to adopt yet.'); return null; }
+  const head={id:uid(), masterId:master.id, title:master.title, subcon:'', baseMasterVerId:mv.id,
+    baseMasterRev:mv.rev, currentRev:null, currentVerId:null, status:'ACTIVE', itemSeq:master.itemSeq||0};
+  const ver={id:uid(), adoptionId:head.id, rev:'P01', status:'DRAFT', subcon:head.subcon||'',
+    basedOnMasterVerId:mv.id, basedOnMasterRev:mv.rev,
+    items:structuredClone(mv.items||[]), swpSteps:structuredClone(mv.swpSteps||[]), links:structuredClone(mv.links||[]),
+    overrides:{added:[],excluded:[],modified:[]}, comments:[],
+    createdAt:raNow(), createdBy:raWho(), approvedBy:'', approvedAt:'',
+    note:'Adopted from master '+master.title+' '+mv.rev};
+  db.raAdoptions.push(head); db.raProjectVersions.push(ver);
+  audit('project-adopted','raAdoption',head.id,null,{master:master.title, baseRev:mv.rev});
+  save(); return head;
+}
+function raAdoptionUpdateFromMaster(adoption){
+  const master=db.raMasters.find(m=>m.id===adoption.masterId); if(!master) return null;
+  const mv=db.raMasterVersions.find(v=>v.id===master.currentVerId); if(!mv) return null;
+  const cur=db.raProjectVersions.find(v=>v.id===adoption.currentVerId)||
+            db.raProjectVersions.find(v=>v.adoptionId===adoption.id);
+  const draft=raCreateDraftFrom(cur||{rev:'P00',status:'APPROVED',adoptionId:adoption.id,items:[],swpSteps:[],links:[],overrides:{added:[],excluded:[],modified:[]}});
+  if(!draft) return null;
+  const excluded=new Set((draft.overrides&&draft.overrides.excluded)||[]);
+  const projItems=(draft.items||[]).filter(i=>i.origin==='project');
+  const merged=structuredClone((mv.items||[]).filter(i=>!excluded.has(i.itemId)));
+  projItems.forEach(pi=>{ if(!merged.some(i=>i.itemId===pi.itemId)) merged.push(structuredClone(pi)); });
+  draft.items=merged;
+  draft.swpSteps=structuredClone(mv.swpSteps||[]).concat((draft.swpSteps||[]).filter(sp=>sp.origin==='project'));
+  draft.links=structuredClone(mv.links||[]);
+  draft.basedOnMasterVerId=mv.id; draft.basedOnMasterRev=mv.rev;
+  draft.note='Updated to master '+mv.rev+' (project items & exclusions preserved)';
+  adoption.baseMasterVerId=mv.id; adoption.baseMasterRev=mv.rev;
+  audit('master-update-adopted','raProjectVersion',draft.id,null,{toMasterRev:mv.rev});
+  save(); return draft;
+}
+
+/* ---- deterministic structural diff (§22) ---- */
+function raDiff(a,b){
+  const A=Object.fromEntries((a.items||[]).map(i=>[i.itemId,i]));
+  const B=Object.fromEntries((b.items||[]).map(i=>[i.itemId,i]));
+  const added=Object.keys(B).filter(k=>!A[k]).map(k=>B[k]);
+  const removed=Object.keys(A).filter(k=>!B[k]).map(k=>A[k]);
+  const changed=[];
+  Object.keys(B).filter(k=>A[k]).forEach(k=>{
+    const x=A[k], y=B[k], ch=[];
+    ['activity','hazard','consequence','resp','s0','l0','s1','l1'].forEach(f=>{
+      if(String(x[f]||'')!==String(y[f]||'')) ch.push({field:f, from:x[f]||'', to:y[f]||''});
+    });
+    const xc=(x.controls||[]).concat(x.addControls||[]), yc=(y.controls||[]).concat(y.addControls||[]);
+    const cAdd=yc.filter(c=>!xc.includes(c)), cRem=xc.filter(c=>!yc.includes(c));
+    if(ch.length||cAdd.length||cRem.length) changed.push({itemId:k, hazard:y.hazard||x.hazard, changes:ch, ctrlAdded:cAdd, ctrlRemoved:cRem});
+  });
+  const As=Object.fromEntries((a.swpSteps||[]).map(s=>[s.stepId,s]));
+  const Bs=Object.fromEntries((b.swpSteps||[]).map(s=>[s.stepId,s]));
+  return {added, removed, changed,
+    stepsAdded:Object.keys(Bs).filter(k=>!As[k]).map(k=>Bs[k]),
+    stepsRemoved:Object.keys(As).filter(k=>!Bs[k]).map(k=>As[k]),
+    stepsChanged:Object.keys(Bs).filter(k=>As[k]&&As[k].text!==Bs[k].text).map(k=>({stepId:k, from:As[k].text, to:Bs[k].text}))};
+}
+
+/* ---- one-time wrap of the legacy flat registers (Phase 1 data safety) ---- */
+function raWrapLegacy(){
+  if(root.raV2Wrapped) return;
+  db.raLibrary.forEach(l=>{
+    if(db.raMasters.some(m=>m.legacySrc===l.id)) return;
+    const head={id:uid(), legacySrc:l.id, title:l.activity||'(untitled master)', tags:[], itemSeq:0,
+      currentRev:null, currentVerId:null, status:'ACTIVE'};
+    const items=(l.hazards||[]).map(h=>{ head.itemSeq++;
+      return {itemId:itemPrefix(head.title)+'-'+String(head.itemSeq).padStart(3,'0'),
+        activity:l.activity||'', hazard:h.desc||'', consequence:'', s0:h.s||'3', l0:h.l||'3',
+        controls:String(h.controls||'').split(/\n|;/).map(x=>x.trim()).filter(Boolean),
+        addControls:[], s1:h.s||'3', l1:h.l||'1', resp:'', origin:null,
+        changeLog:[{rev:'M01', change:'Wrapped from legacy library record', reason:'v2 migration', srcType:'raLibrary', srcId:l.id}]};
+    });
+    const ver={id:uid(), masterId:head.id, rev:'M01', status:'LEGACY-APPROVED', items, swpSteps:[], links:[],
+      createdAt:raNow(), createdBy:'migration', approvedBy:'(legacy)', approvedAt:raNow(),
+      note:'Wrapped from legacy RA library — original record retained', provenance:{store:'raLibrary', id:l.id}};
+    head.currentRev='M01'; head.currentVerId=ver.id;
+    db.raMasters.push(head); db.raMasterVersions.push(ver);
+    audit('created','raMaster',head.id,null,{title:head.title, from:'legacy raLibrary'});
+  });
+  root.projects.forEach(p=>{
+    (p.ra||[]).forEach(l=>{
+      p.raAdoptions=p.raAdoptions||[]; p.raProjectVersions=p.raProjectVersions||[];
+      if(p.raAdoptions.some(a=>a.legacySrc===l.id)) return;
+      const head={id:uid(), legacySrc:l.id, masterId:null, title:l.activity||'(untitled RA)', subcon:'',
+        baseMasterVerId:null, baseMasterRev:null, currentRev:null, currentVerId:null, status:'ACTIVE', itemSeq:0};
+      const items=(l.hazards||[]).map(h=>{ head.itemSeq++;
+        return {itemId:itemPrefix(head.title)+'-'+String(head.itemSeq).padStart(3,'0'),
+          activity:l.activity||'', hazard:h.desc||'', consequence:'', s0:h.s||'3', l0:h.l||'3',
+          controls:String(h.controls||'').split(/\n|;/).map(x=>x.trim()).filter(Boolean),
+          addControls:[], s1:h.s||'3', l1:h.l||'1', resp:l.prepared||'', origin:null,
+          changeLog:[{rev:'P01', change:'Wrapped from legacy project register', reason:'v2 migration', srcType:'ra', srcId:l.id}]};
+      });
+      const ver={id:uid(), adoptionId:head.id, rev:'P01',
+        status:raApprovedStatuses().includes('LEGACY-APPROVED')&&l.approved?'LEGACY-APPROVED':'DRAFT',
+        basedOnMasterVerId:null, basedOnMasterRev:null, items, swpSteps:[], links:[],
+        overrides:{added:[],excluded:[],modified:[]}, comments:[],
+        createdAt:raNow(), createdBy:'migration',
+        approvedBy:l.approved||'', approvedAt:l.approvedDate||'',
+        note:'Wrapped from legacy register (was Rev '+(l.rev||'?')+', status '+(l.status||'?')+')',
+        provenance:{store:'ra', id:l.id, projectId:p.id}};
+      if(ver.status==='LEGACY-APPROVED'){ head.currentRev='P01'; head.currentVerId=ver.id; }
+      p.raAdoptions.push(head); p.raProjectVersions.push(ver);
+    });
+  });
+  root.raV2Wrapped=true;
+  save();
+}
+
+/* ---- linkage helpers (§15/§17) ---- */
+function waAdoptRefs(wa){
+  return (wa.raRefs||[]).filter(r=>String(r.raId||'').startsWith('adopt:'))
+    .map(r=>({adoptionId:String(r.raId).slice(6), rev:r.rev||'', verId:r.verId||''}));
+}
+function adoptionLinkedWAs(adoptionId){
+  return db.workActivities.filter(w=>waAdoptRefs(w).some(x=>x.adoptionId===adoptionId));
+}
+function adoptionLearning(adoptionId){
+  const was=adoptionLinkedWAs(adoptionId).map(w=>w.id);
+  const d30=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+  return {obs:db.observations.filter(o=>was.includes(o.waId)&&(o.date||'')>=d30).length,
+    inc:db.incidents.filter(i=>was.includes(i.waId)).length,
+    reviews:db.reviewTriggers.filter(t=>t.adoptionId===adoptionId&&t.status==='OPEN').length};
+}
+function waPinnedRaItems(wa){
+  const out=[];
+  waAdoptRefs(wa).forEach(ref=>{
+    const ver=db.raProjectVersions.find(v=>v.id===ref.verId)||
+      db.raProjectVersions.find(v=>v.adoptionId===ref.adoptionId&&raApprovedStatuses().includes(v.status));
+    if(ver) (ver.items||[]).forEach(i=>out.push({rev:ver.rev, item:i}));
+  });
+  return out.sort((a,b)=>((+b.item.s1||0)*(+b.item.l1||0))-((+a.item.s1||0)*(+a.item.l1||0)));
+}
+
+/* ---- screens ---- */
+function raItemsHtml(ver, editable){
+  const risk=(s,l)=>{ const n=(+s||0)*(+l||0); const b=riskBand(n);
+    return '<span class="chip '+b[0]+'">'+n+' '+b[1]+'</span>'; };
+  return (ver.items||[]).map((it,idx)=>{
+    const ctl=[...(it.controls||[]).map(c=>[c,0]),...(it.addControls||[]).map(c=>[c,1])];
+    return '<div class="card" data-item="'+idx+'" style="border-left:3px solid var(--acc)">'+
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+        '<span class="chip">'+esc(it.itemId)+'</span>'+
+        (it.origin==='project'?'<span class="chip w">project-specific</span>':'')+
+        '<div class="spacer" style="flex:1"></div>'+
+        'Initial '+risk(it.s0,it.l0)+' &rarr; Residual '+risk(it.s1,it.l1)+
+        (editable?' <button class="iconbtn" data-rmitem="'+idx+'" title="Remove" style="width:30px;height:30px;color:var(--bad-ink)">×</button>':'')+
+      '</div>'+
+      (editable
+        ?'<div class="fgrid">'+
+          '<div class="fld"><label>Work activity</label><input data-if="activity" data-idx="'+idx+'" value="'+esc(it.activity)+'"></div>'+
+          '<div class="fld half"><label>Hazard</label><textarea data-if="hazard" data-idx="'+idx+'" rows="2">'+esc(it.hazard)+'</textarea></div>'+
+          '<div class="fld half"><label>Possible consequence</label><textarea data-if="consequence" data-idx="'+idx+'" rows="2">'+esc(it.consequence)+'</textarea></div>'+
+          '<div class="fld half"><label>Initial S × L</label><div style="display:flex;gap:6px">'+
+            '<select data-if="s0" data-idx="'+idx+'">'+[1,2,3,4,5].map(n=>'<option'+(String(n)===String(it.s0)?' selected':'')+'>'+n+'</option>').join('')+'</select>'+
+            '<select data-if="l0" data-idx="'+idx+'">'+[1,2,3,4,5].map(n=>'<option'+(String(n)===String(it.l0)?' selected':'')+'>'+n+'</option>').join('')+'</select></div></div>'+
+          '<div class="fld half"><label>Residual S × L</label><div style="display:flex;gap:6px">'+
+            '<select data-if="s1" data-idx="'+idx+'">'+[1,2,3,4,5].map(n=>'<option'+(String(n)===String(it.s1)?' selected':'')+'>'+n+'</option>').join('')+'</select>'+
+            '<select data-if="l1" data-idx="'+idx+'">'+[1,2,3,4,5].map(n=>'<option'+(String(n)===String(it.l1)?' selected':'')+'>'+n+'</option>').join('')+'</select></div></div>'+
+          '<div class="fld"><label>Controls</label><div class="tbx-chips">'+
+            ctl.map((c,ci)=>'<span class="tbx-chip" style="cursor:default">'+esc(c[0])+
+              ' <a data-rmctl="'+idx+':'+ci+'" style="cursor:pointer;color:var(--bad-ink)">×</a></span>').join('')+
+            '</div><div style="display:flex;gap:6px;margin-top:6px">'+
+            '<input data-newctl="'+idx+'" placeholder="Add a control and press Enter" style="flex:1">'+
+          '</div></div>'+
+          '<div class="fld half"><label>Responsible</label><input data-if="resp" data-idx="'+idx+'" value="'+esc(it.resp)+'"></div>'+
+        '</div>'
+        :'<div style="margin-top:8px"><b>'+esc(it.hazard||'(hazard)')+'</b>'+
+          (it.consequence?'<div class="hint">'+esc(it.consequence)+'</div>':'')+
+          '<div class="tbx-chips" style="margin-top:6px">'+ctl.map(c=>'<span class="tbx-chip" style="cursor:default">'+esc(c[0])+'</span>').join('')+'</div>'+
+          (it.resp?'<div class="hint" style="margin-top:4px">Responsible: '+esc(it.resp)+'</div>':'')+'</div>')+
+      ((it.changeLog||[]).length?'<details style="margin-top:8px"><summary>History ('+(it.changeLog||[]).length+')</summary>'+
+        (it.changeLog||[]).map(cl=>'<div class="hint">'+esc(cl.rev)+': '+esc(cl.change)+(cl.reason?' — '+esc(cl.reason):'')+'</div>').join('')+'</details>':'')+
+    '</div>';
+  }).join('');
+}
+function raStepsHtml(ver, editable){
+  const steps=(ver.swpSteps||[]);
+  if(!steps.length&&!editable) return '';
+  return '<div class="card"><label style="margin-top:0">SWP — safe work procedure steps</label>'+
+    steps.map((sp,idx)=>'<div class="lrow" style="cursor:default"><span class="chip n">'+esc(sp.stepId)+'</span>'+
+      '<div class="lmain">'+(editable
+        ?'<input data-step="'+idx+'" value="'+esc(sp.text)+'">'
+        :'<div class="lt" style="color:var(--ink);white-space:normal">'+esc(sp.text)+'</div>')+
+      '</div>'+(editable?'<button class="iconbtn" data-rmstep="'+idx+'" style="width:30px;height:30px;color:var(--bad-ink)">×</button>':'')+'</div>').join('')+
+    (editable?'<button class="minor" id="raAddStep">+ Add SWP step</button>':'')+
+  '</div>';
+}
+let RAED=null; /* current draft editing buffer {ver} */
+function renderRaVer(verId){
+  const ver=findVer(verId);
+  if(!ver){ location.hash='#/rasys'; return; }
+  const isM=verStore(ver)==='raMasterVersions';
+  const head=isM?db.raMasters.find(m=>m.id===ver.masterId):db.raAdoptions.find(a=>a.id===ver.adoptionId);
+  const editable=!verLocked(ver)&&canRA()||(!verLocked(ver)&&SB.profile&&SB.profile.role==='subcon');
+  if(editable){ if(!RAED||RAED.ver.id!==ver.id) RAED={ver}; }
+  else RAED=null;
+  const v=editable?RAED.ver:ver;
+  app.innerHTML=header((head?head.title:'RA')+' — '+v.rev, true)+
+    '<div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
+      statusChip(v.status)+
+      (v.basedOnMasterRev?'<span class="chip n">based on master '+esc(v.basedOnMasterRev)+'</span>':'')+
+      (v.approvedAt?'<span class="chip g">approved '+fmtD(v.approvedAt.slice(0,10))+' by '+esc(v.approvedBy)+'</span>':'')+
+      (verLocked(v)?'<span class="chip b">LOCKED — create a revision to change</span>':'')+
+    '</div>'+(v.note?'<div class="hint" style="margin-top:6px">'+esc(v.note)+'</div>':'')+
+    (v.provenance?'<div class="hint">Source: legacy record '+esc(v.provenance.store)+'/'+esc(v.provenance.id)+' (retained unchanged)</div>':'')+
+    '</div>'+
+    raItemsHtml(v, editable)+
+    (editable?'<button class="minor" id="raAddItem" style="margin-bottom:12px">+ Add hazard item</button>':'')+
+    raStepsHtml(v, editable)+
+    raCommentsHtml(v)+
+    '<div class="btnrow">'+
+      (editable?'<button class="btn" id="raSaveDraft">Save draft</button>':'')+
+      (editable&&v.status==='DRAFT'?'<button class="btn ghost" id="raSubmitBtn">Submit for approval</button>':'')+
+      (v.status==='SUBMITTED'&&canRA()?'<button class="btn" id="raApproveBtn">Approve &amp; lock '+esc(v.rev)+'</button>':'')+
+      (verLocked(v)?'<button class="btn ghost" id="raReviseBtn">Create revision</button>':'')+
+      '<button class="btn ghost" onclick="history.back()">Back</button>'+
+    '</div>';
+  if(editable){
+    app.querySelectorAll('[data-if]').forEach(el=>el.addEventListener('change',()=>{
+      RAED.ver.items[+el.dataset.idx][el.dataset.if]=el.value; }));
+    app.querySelectorAll('[data-newctl]').forEach(el=>el.addEventListener('keydown',e=>{
+      if(e.key==='Enter'&&el.value.trim()){ const it=RAED.ver.items[+el.dataset.newctl];
+        (it.addControls=it.addControls||[]).push(el.value.trim()); renderRaVer(verId); } }));
+    app.querySelectorAll('[data-rmctl]').forEach(el=>el.onclick=()=>{
+      const [i,ci]=el.dataset.rmctl.split(':').map(Number);
+      const it=RAED.ver.items[i]; const all=[...(it.controls||[]),...(it.addControls||[])];
+      const val=all[ci];
+      it.controls=(it.controls||[]).filter(c=>c!==val); it.addControls=(it.addControls||[]).filter(c=>c!==val);
+      renderRaVer(verId); });
+    app.querySelectorAll('[data-rmitem]').forEach(el=>el.onclick=()=>{
+      if(confirm('Remove this hazard item from the draft?')){ RAED.ver.items.splice(+el.dataset.rmitem,1); renderRaVer(verId); } });
+    app.querySelectorAll('[data-step]').forEach(el=>el.addEventListener('change',()=>{
+      RAED.ver.swpSteps[+el.dataset.step].text=el.value; }));
+    app.querySelectorAll('[data-rmstep]').forEach(el=>el.onclick=()=>{
+      RAED.ver.swpSteps.splice(+el.dataset.rmstep,1); renderRaVer(verId); });
+    const ai=document.getElementById('raAddItem');
+    if(ai) ai.onclick=()=>{ RAED.ver.items.push(raNewItem(head)); save(); renderRaVer(verId); };
+    const as=document.getElementById('raAddStep');
+    if(as) as.onclick=()=>{ RAED.ver.swpSteps=RAED.ver.swpSteps||[];
+      RAED.ver.swpSteps.push({stepId:'S'+String(RAED.ver.swpSteps.length+1).padStart(2,'0'), text:''}); renderRaVer(verId); };
+    const sd=document.getElementById('raSaveDraft');
+    if(sd) sd.onclick=()=>{ Object.assign(ver,RAED.ver); audit('edited', 'raVersion', ver.id, null, {rev:ver.rev});
+      save(); toast('Draft saved'); };
+    const sb=document.getElementById('raSubmitBtn');
+    if(sb) sb.onclick=()=>{ Object.assign(ver,RAED.ver); raSubmit(ver); renderRaVer(verId); };
+  }
+  const ap=document.getElementById('raApproveBtn');
+  if(ap) ap.onclick=()=>{ if(confirm('Approve and permanently lock '+ver.rev+'? Superseded revisions stay retrievable.')){ raApprove(ver); renderRaVer(verId); } };
+  const rv=document.getElementById('raReviseBtn');
+  if(rv) rv.onclick=()=>{ const d=raCreateDraftFrom(ver); if(d) location.hash='#/raver/'+d.id; };
+  raBindComments(ver, verId);
+}
+function raCommentsHtml(v){
+  const cs=v.comments||[];
+  if(!cs.length&&verLocked(v)) return '';
+  return '<div class="card"><label style="margin-top:0">Main contractor comments</label>'+
+    (cs.length?cs.map((c,i)=>'<div class="lrow" style="cursor:default"><div class="lmain">'+
+      '<div class="lt" style="color:var(--ink);white-space:normal">'+esc(c.text)+'</div>'+
+      '<div class="ls">'+esc(c.by)+' · '+fmtD((c.at||'').slice(0,10))+(c.resolution?' · <b>'+esc(c.resolution)+'</b>':'')+'</div></div>'+
+      (!c.resolution&&canRA()?'<div class="lmeta"><button class="btn ghost" style="min-height:32px;padding:4px 10px" data-rescom="'+i+'">Resolve</button></div>':'')+
+      '</div>').join(''):'<div class="hint">No comments yet.</div>')+
+    (verLocked(v)?'':'<div style="display:flex;gap:6px;margin-top:8px"><input id="raNewCom" placeholder="Add a comment…" style="flex:1">'+
+      '<button class="btn ghost" id="raComGo" style="min-height:40px">Comment</button></div>')+
+  '</div>';
+}
+function raBindComments(ver, verId){
+  const go=document.getElementById('raComGo');
+  if(go) go.onclick=()=>{
+    const t=document.getElementById('raNewCom').value.trim(); if(!t) return;
+    (ver.comments=ver.comments||[]).push({id:uid(), by:raWho(), role:SB.profile?SB.profile.role:'local', text:t, at:raNow(), resolution:''});
+    audit('commented','raVersion',ver.id,null,{text:t.slice(0,80)});
+    save(); renderRaVer(verId);
+  };
+  app.querySelectorAll('[data-rescom]').forEach(el=>el.onclick=()=>{
+    const c=(ver.comments||[])[+el.dataset.rescom]; if(!c) return;
+    const pick=prompt('Resolve as:\n1 = Accepted — project only\n2 = Accepted — propose change to company master\n3 = Rejected / not applicable','1');
+    if(!pick) return;
+    c.resolution=pick==='2'?'Accepted — proposed to master':pick==='3'?'Rejected':'Accepted — project only';
+    c.resolvedBy=raWho(); c.resolvedAt=raNow();
+    if(pick==='2'){
+      const ad=db.raAdoptions.find(a=>a.id===ver.adoptionId);
+      db.reviewTriggers.push({id:uid(), at:raNow(), source:'Client Instruction', sourceId:c.id,
+        adoptionId:ver.adoptionId||'', masterId:ad?ad.masterId:'',
+        reason:'MC comment proposed for company master: "'+c.text.slice(0,140)+'"',
+        reviewer:'', status:'OPEN', outcome:''});
+    }
+    audit('comment-resolved','raVersion',ver.id,null,{resolution:c.resolution});
+    save(); renderRaVer(verId);
+  });
+}
+function renderRaSys(){
+  raWrapLegacy();
+  const subconMode=SB.profile&&SB.profile.role==='subcon';
+  let ads=db.raAdoptions;
+  if(subconMode) ads=ads.filter(a=>(a.subcon||'').toLowerCase()===(SB.profile.subcon||'').toLowerCase());
+  const rows=ads.map(a=>{
+    const cur=db.raProjectVersions.find(v=>v.id===a.currentVerId);
+    const open=db.raProjectVersions.find(v=>v.adoptionId===a.id&&(v.status==='DRAFT'||v.status==='SUBMITTED'));
+    const master=a.masterId?db.raMasters.find(m=>m.id===a.masterId):null;
+    const stale=master&&master.currentVerId&&a.baseMasterVerId!==master.currentVerId;
+    const learn=adoptionLearning(a.id);
+    return '<div class="lrow" onclick="location.hash=\'#/rasys/'+a.id+'\'">'+
+      '<div class="lmain"><div class="lt">'+esc(a.title)+'</div>'+
+      '<div class="ls">'+(a.currentRev?('Current '+a.currentRev):'no approved revision')+
+      (a.baseMasterRev?' · based on master '+esc(a.baseMasterRev):' · standalone')+
+      (a.subcon?' · '+esc(a.subcon):'')+'</div></div>'+
+      '<div class="lmeta">'+(cur?statusChip('CURRENT').replace('CURRENT',esc(a.currentRev)):'')+
+      (open?statusChip(open.status):'')+
+      (stale?'<span class="chip w">master updated</span>':'')+
+      (learn.reviews?'<span class="chip b">'+learn.reviews+' review</span>':'')+
+      '</div></div>';
+  }).join('');
+  app.innerHTML=header('RA / SWP', true,
+      canRA()?'<button class="iconbtn" title="Legacy register" onclick="location.hash=\'#/ra\'">'+ic('doc')+'</button>':'')+
+    (canRA()?'<div class="btnrow" style="margin:2px 0 12px">'+
+      '<button class="btn ghost" style="flex:1" onclick="location.hash=\'#/ramasters\'">Company master library</button>'+
+      '<button class="btn ghost" style="flex:1" onclick="location.hash=\'#/rareviews\'">Review triggers'+
+        (db.reviewTriggers.filter(t=>t.status==='OPEN').length?' ('+db.reviewTriggers.filter(t=>t.status==='OPEN').length+')':'')+'</button>'+
+    '</div>':'')+
+    (rows||'<div class="empty">No versioned RA/SWPs in this project yet.<br>Adopt one from the company master library, or your legacy register was empty.</div>');
+}
+function renderRaDetail(adoptionId){
+  const a=db.raAdoptions.find(x=>x.id===adoptionId);
+  if(!a){ location.hash='#/rasys'; return; }
+  const vers=db.raProjectVersions.filter(v=>v.adoptionId===a.id)
+    .sort((x,y)=>(y.rev||'').localeCompare(x.rev||''));
+  const cur=vers.find(v=>v.id===a.currentVerId);
+  const master=a.masterId?db.raMasters.find(m=>m.id===a.masterId):null;
+  const mv=master?db.raMasterVersions.find(v=>v.id===master.currentVerId):null;
+  const stale=master&&mv&&a.baseMasterVerId!==mv.id;
+  const was=adoptionLinkedWAs(a.id);
+  const learn=adoptionLearning(a.id);
+  app.innerHTML=header(a.title, true)+
+    '<div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap">'+
+      (a.currentRev?'<span class="chip g">Current '+esc(a.currentRev)+'</span>':'<span class="chip w">no approved revision</span>')+
+      (a.baseMasterRev?'<span class="chip n">based on master '+esc(a.baseMasterRev)+'</span>':'<span class="chip n">standalone</span>')+
+      (cur&&cur.approvedAt?'<span class="chip n">approved '+fmtD(cur.approvedAt.slice(0,10))+'</span>':'')+
+    '</div>'+
+    '<div class="repmeta" style="margin-top:8px">Linked operations: <b>'+was.length+'</b> work activities'+
+    ' &nbsp;·&nbsp; Learning (30d): <b>'+learn.obs+'</b> observations · <b>'+learn.inc+'</b> incidents'+
+    (learn.reviews?' &nbsp;·&nbsp; <b style="color:var(--bad-ink)">'+learn.reviews+' open review trigger(s)</b>':'')+
+    '</div></div>'+
+    (stale?'<div class="card" style="border-left:3px solid var(--warn-ink)"><label style="margin-top:0">New master revision available — '+esc(mv.rev)+'</label>'+
+      '<p class="hint">This project is based on '+esc(a.baseMasterRev||'?')+'. The approved project revision stays unchanged until a new revision is approved here.</p>'+
+      '<div class="btnrow" style="margin-top:8px">'+
+        (cur?'<button class="btn ghost" style="flex:1" onclick="location.hash=\'#/radiff/'+cur.id+'/'+mv.id+'\'">View changes</button>':'')+
+        (canRA()?'<button class="btn" style="flex:1" id="raAdoptUpd">Create updated draft</button>':'')+
+      '</div></div>':'')+
+    '<div class="card"><label style="margin-top:0">Revisions</label>'+
+      vers.map(v=>'<div class="lrow" onclick="location.hash=\'#/raver/'+v.id+'\'">'+
+        '<div class="lmain"><div class="lt" style="color:var(--ink)">'+esc(v.rev)+(v.basedOnMasterRev?' <span class="hint">(master '+esc(v.basedOnMasterRev)+')</span>':'')+'</div>'+
+        '<div class="ls">'+esc((v.note||'').slice(0,70))+'</div></div>'+
+        '<div class="lmeta">'+statusChip(v.status)+'</div></div>').join('')+
+    '</div>'+
+    '<div class="btnrow">'+
+      (cur?'<button class="btn" onclick="location.hash=\'#/raver/'+cur.id+'\'">View RA/SWP</button>':'')+
+      (cur?'<button class="btn ghost" onclick="location.hash=\'#/raworker/'+a.id+'\'">Worker view</button>':'')+
+      (cur&&vers.length>1?'<button class="btn ghost" onclick="location.hash=\'#/radiff/'+vers[1].id+'/'+vers[0].id+'\'">Compare latest</button>':'')+
+      (cur?'<button class="btn ghost" onclick="location.hash=\'#/raexport/'+cur.id+'\'">Export</button>':'')+
+      (canRA()?'<button class="btn ghost" id="raAssignSub">'+(a.subcon?'Subcon: '+esc(a.subcon):'Assign to subcontractor')+'</button>':'')+
+    '</div>';
+  const asb=document.getElementById('raAssignSub');
+  if(asb) asb.onclick=()=>{
+    const v=prompt('Subcontractor company (exactly as on their account profile) — their Lite login will then see and submit revisions of this RA:', a.subcon||'');
+    if(v===null) return;
+    a.subcon=v.trim();
+    db.raProjectVersions.filter(x=>x.adoptionId===a.id).forEach(x=>x.subcon=a.subcon);
+    audit('edited','raAdoption',a.id,null,{subcon:a.subcon});
+    save(); renderRaDetail(a.id);
+  };
+  const au=document.getElementById('raAdoptUpd');
+  if(au) au.onclick=()=>{ const d=raAdoptionUpdateFromMaster(a); if(d) location.hash='#/raver/'+d.id; };
+}
+function renderRaMasters(){
+  raWrapLegacy();
+  const rows=db.raMasters.map(m=>{
+    const adoptions=[]; root.projects.forEach(p=>(p.raAdoptions||[]).forEach(x=>{ if(x.masterId===m.id) adoptions.push({p,x}); }));
+    const stale=adoptions.filter(({x})=>m.currentVerId&&x.baseMasterVerId!==m.currentVerId).length;
+    return '<div class="lrow" onclick="location.hash=\'#/ramasters/'+m.id+'\'">'+
+      '<div class="lmain"><div class="lt">'+esc(m.title)+'</div>'+
+      '<div class="ls">'+(m.currentRev?('Current '+m.currentRev):'no approved revision')+' · used by '+adoptions.length+' project(s)'+'</div></div>'+
+      '<div class="lmeta">'+(stale?'<span class="chip w">'+stale+' behind</span>':'')+'</div></div>';
+  }).join('');
+  app.innerHTML=header('Company Master Library', true,
+      '<button class="iconbtn" title="Legacy library" onclick="location.hash=\'#/ralib\'">'+ic('doc')+'</button>'+
+      '<button class="iconbtn" title="Legacy documents" onclick="location.hash=\'#/legacy\'">'+ic('cert')+'</button>')+
+    '<div class="btnrow" style="margin:2px 0 12px"><button class="btn" style="flex:1" id="raNewMaster">+ New master RA/SWP</button></div>'+
+    (rows||'<div class="empty">No masters yet. Create one, or migrate legacy documents from the RA-SWP Legacy Inbox.</div>');
+  document.getElementById('raNewMaster').onclick=()=>{
+    const t=prompt('Master RA/SWP title (e.g. "Excavation — General"):'); if(!t) return;
+    const {ver}=raCreateMaster(t.trim()); location.hash='#/raver/'+ver.id;
+  };
+}
+function renderRaMasterDetail(masterId){
+  const m=db.raMasters.find(x=>x.id===masterId);
+  if(!m){ location.hash='#/ramasters'; return; }
+  const vers=db.raMasterVersions.filter(v=>v.masterId===m.id).sort((x,y)=>(y.rev||'').localeCompare(x.rev||''));
+  const cur=vers.find(v=>v.id===m.currentVerId);
+  const impact=[];
+  root.projects.forEach(p=>(p.raAdoptions||[]).forEach(x=>{ if(x.masterId===m.id)
+    impact.push({project:p.settings.project||'(unnamed)', adoption:x,
+      state:!m.currentVerId?'—':x.baseMasterVerId===m.currentVerId?'Current':'Review required'}); }));
+  app.innerHTML=header(m.title, true)+
+    '<div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap">'+
+      (m.currentRev?'<span class="chip g">Current '+esc(m.currentRev)+'</span>':'<span class="chip w">no approved revision</span>')+
+      '<span class="chip n">'+impact.length+' adoption(s)</span></div></div>'+
+    '<div class="card"><label style="margin-top:0">Revisions</label>'+
+      vers.map(v=>'<div class="lrow" onclick="location.hash=\'#/raver/'+v.id+'\'">'+
+        '<div class="lmain"><div class="lt" style="color:var(--ink)">'+esc(v.rev)+'</div>'+
+        '<div class="ls">'+esc((v.note||'').slice(0,70))+'</div></div>'+
+        '<div class="lmeta">'+statusChip(v.status)+'</div></div>').join('')+
+    '</div>'+
+    (impact.length?'<div class="card"><label style="margin-top:0">Live project impact</label>'+
+      impact.map(i=>'<div class="lrow" style="cursor:default"><div class="lmain">'+
+        '<div class="lt" style="color:var(--ink)">'+esc(i.project)+'</div>'+
+        '<div class="ls">based on '+esc(i.adoption.baseMasterRev||'?')+'</div></div>'+
+        '<div class="lmeta"><span class="chip '+(i.state==='Current'?'g':'w')+'">'+i.state+'</span></div></div>').join('')+
+    '</div>':'')+
+    '<div class="btnrow">'+
+      (cur?'<button class="btn" id="raAdoptBtn">Adopt into '+esc(curProj().settings.project||'current project')+'</button>':'')+
+      (cur?'<button class="btn ghost" id="raMRevise">Create revision</button>':'')+
+    '</div>';
+  const ab=document.getElementById('raAdoptBtn');
+  if(ab) ab.onclick=()=>{ const h=raAdoptMaster(m); if(h) location.hash='#/rasys/'+h.id; };
+  const mr=document.getElementById('raMRevise');
+  if(mr) mr.onclick=()=>{ const d=raCreateDraftFrom(cur); if(d) location.hash='#/raver/'+d.id; };
+}
+function renderRaDiffView(aId,bId){
+  const va=findVer(aId), vb=findVer(bId);
+  if(!va||!vb){ location.hash='#/rasys'; return; }
+  const d=raDiff(va,vb);
+  const sec=(title,arr,fmt,cls)=>arr.length?'<div class="card"><label style="margin-top:0">'+title+' ('+arr.length+')</label>'+
+    arr.map(fmt).join('')+'</div>':'';
+  app.innerHTML=header('Compare '+esc(va.rev)+' → '+esc(vb.rev), true)+
+    sec('Added', d.added, i=>'<div class="lrow" style="cursor:default;border-left:3px solid var(--good-ink)"><div class="lmain"><div class="lt" style="color:var(--ink)">'+esc(i.itemId)+' — '+esc(i.hazard)+'</div></div></div>')+
+    sec('Removed', d.removed, i=>'<div class="lrow" style="cursor:default;border-left:3px solid var(--bad-ink)"><div class="lmain"><div class="lt" style="color:var(--ink)">'+esc(i.itemId)+' — '+esc(i.hazard)+'</div></div></div>')+
+    sec('Changed', d.changed, c=>'<div class="lrow" style="cursor:default;border-left:3px solid var(--warn-ink)"><div class="lmain">'+
+      '<div class="lt" style="color:var(--ink)">'+esc(c.itemId)+' — '+esc(c.hazard)+'</div>'+
+      '<div class="ls" style="white-space:normal">'+
+        c.changes.map(x=>esc(x.field)+': '+esc(String(x.from))+' → '+esc(String(x.to))).join(' · ')+
+        (c.ctrlAdded.length?' · +control: '+c.ctrlAdded.map(esc).join('; '):'')+
+        (c.ctrlRemoved.length?' · −control: '+c.ctrlRemoved.map(esc).join('; '):'')+
+      '</div></div></div>')+
+    sec('SWP steps added', d.stepsAdded, s=>'<div class="hint">+ '+esc(s.text)+'</div>')+
+    sec('SWP steps removed', d.stepsRemoved, s=>'<div class="hint">− '+esc(s.text)+'</div>')+
+    sec('SWP steps changed', d.stepsChanged, s=>'<div class="hint">'+esc(s.from)+' → '+esc(s.to)+'</div>')+
+    ((d.added.length+d.removed.length+d.changed.length+d.stepsAdded.length+d.stepsRemoved.length+d.stepsChanged.length)===0
+      ?'<div class="empty">No structural differences.</div>':'')+
+    '<div class="btnrow"><button class="btn ghost" onclick="history.back()">Back</button></div>';
+}
+function renderRaWorker(adoptionId){
+  const a=db.raAdoptions.find(x=>x.id===adoptionId);
+  const ver=a?db.raProjectVersions.find(v=>v.id===a.currentVerId):null;
+  if(!ver){ app.innerHTML=header('Worker view',true)+'<div class="empty">No approved revision yet.</div>'; return; }
+  const items=[...(ver.items||[])].sort((x,y)=>((+y.s1||0)*(+y.l1||0))-((+x.s1||0)*(+x.l1||0)));
+  const risks=items.slice(0,5);
+  const musts={};
+  items.forEach(i=>[...(i.controls||[]),...(i.addControls||[])].forEach(c=>{ musts[c]=musts[c]||{n:0,item:i}; musts[c].n++; }));
+  const mustList=Object.entries(musts).sort((x,y)=>y[1].n-x[1].n).slice(0,8);
+  app.innerHTML=header(a.title, true)+
+    '<div class="card"><label style="margin-top:0">Main risks today</label>'+
+      risks.map(i=>'<div class="lrow" style="cursor:default"><div class="lmain"><div class="lt" style="color:var(--ink);white-space:normal;font-size:16px">'+esc(i.hazard)+'</div></div></div>').join('')+
+    '</div>'+
+    '<div class="card"><label style="margin-top:0">What you must do</label>'+
+      mustList.map(([c,m])=>'<div class="lrow" data-why="'+esc(m.item.itemId)+'" style="cursor:pointer"><div class="lmain">'+
+        '<div class="lt" style="color:var(--ink);white-space:normal;font-size:16px">✔ '+esc(c)+'</div>'+
+        '<div class="ls">tap to see why</div></div></div>').join('')+
+    '</div>'+
+    '<div class="hint">Generated from approved '+esc(ver.rev)+(ver.basedOnMasterRev?' (master '+esc(ver.basedOnMasterRev)+')':'')+'. '+
+    '<a onclick="location.hash=\'#/raver/'+ver.id+'\'" style="cursor:pointer;color:var(--blue)">View full RA/SWP</a></div>';
+  app.querySelectorAll('[data-why]').forEach(el=>el.onclick=()=>{
+    const it=(ver.items||[]).find(i=>i.itemId===el.dataset.why); if(!it) return;
+    alert('WHY: '+it.itemId+'\n\nHazard: '+it.hazard+'\n'+(it.consequence?('Consequence: '+it.consequence+'\n'):'')+
+      '\nRequired by '+ver.rev+(ver.basedOnMasterRev?' (master '+ver.basedOnMasterRev+')':''));
+  });
+}
+function renderRaReviews(){
+  const open=db.reviewTriggers.filter(t=>t.status==='OPEN');
+  const done=db.reviewTriggers.filter(t=>t.status!=='OPEN');
+  const row=t=>{
+    const ad=db.raAdoptions.find(a=>a.id===t.adoptionId);
+    return '<div class="lrow" style="cursor:default"><div class="lmain">'+
+      '<div class="lt" style="color:var(--ink);white-space:normal"><span class="chip n">'+esc(t.source)+'</span> '+esc(t.reason)+'</div>'+
+      '<div class="ls">'+fmtD((t.at||'').slice(0,10))+(ad?' · '+esc(ad.title):'')+(t.outcome?' · outcome: '+esc(t.outcome):'')+'</div></div>'+
+      '<div class="lmeta">'+(t.status==='OPEN'&&canRA()
+        ?'<button class="btn ghost" style="min-height:32px;padding:4px 10px" data-res="'+t.id+'">Resolve</button>'
+        :'<span class="chip '+(t.status==='RESOLVED'?'g':'n')+'">'+esc(t.status)+'</span>')+'</div></div>';
+  };
+  app.innerHTML=header('RA Review Triggers', true)+
+    (open.length?'<div class="exphead w">Open ('+open.length+')</div>'+open.map(row).join(''):'<div class="empty">No open review triggers.</div>')+
+    (done.length?'<div class="exphead n">Closed ('+done.length+')</div>'+done.slice(-15).map(row).join(''):'');
+  app.querySelectorAll('[data-res]').forEach(el=>el.onclick=()=>{
+    const t=db.reviewTriggers.find(x=>x.id===el.dataset.res); if(!t) return;
+    const pick=prompt('Outcome:\nA = Hazard missing from RA — revise\nB = Control missing from RA — revise\nC = Control exists but was not implemented\nD = Existing control may be ineffective — revise\nE = No RA revision required\nX = Dismiss (not applicable)','E');
+    if(!pick) return;
+    const map={A:'Hazard missing — revision raised',B:'Control missing — revision raised',C:'Implementation failure — no revision',D:'Control ineffective — revision raised',E:'No revision required',X:'Dismissed'};
+    t.outcome=map[pick.toUpperCase()]||pick; t.reviewer=raWho();
+    t.status=pick.toUpperCase()==='X'?'DISMISSED':'RESOLVED'; t.resolvedAt=raNow();
+    audit('review-resolved','reviewTrigger',t.id,null,{outcome:t.outcome});
+    save(); renderRaReviews();
+  });
+}
+function renderLegacyDocs(){
+  let q='';
+  const draw=()=>{
+    const ql=q.toLowerCase();
+    const docs=db.legacyDocs.filter(d=>!ql||JSON.stringify([d.filename,d.tags,d.text]).toLowerCase().includes(ql));
+    document.getElementById('ldRows').innerHTML=docs.length?docs.map(d=>
+      '<div class="lrow" style="cursor:default"><div class="lmain">'+
+      '<div class="lt" style="color:var(--ink)">'+esc(d.filename)+'</div>'+
+      '<div class="ls">'+(d.tags||[]).map(t=>'<span class="chip n">'+esc(t)+'</span>').join(' ')+
+      (d.addedAt?' added '+fmtD(d.addedAt.slice(0,10)):'')+(d.convertedMasterId?' · <span class="chip g">converted</span>':'')+'</div></div>'+
+      '<div class="lmeta"><button class="btn ghost" style="min-height:32px;padding:4px 10px" data-path="'+esc(d.path||'')+'">Path</button></div></div>').join('')
+      :'<div class="empty">'+(q?'No matches.':'No legacy documents indexed yet.<br>Drop files into Skytopia\\Safety\\RA-SWP Legacy Inbox and ask Claude to migrate them.')+'</div>';
+    document.querySelectorAll('[data-path]').forEach(el=>el.onclick=()=>{
+      prompt('Original file location (copy):', el.dataset.path||'(not recorded)'); });
+  };
+  app.innerHTML=header('Legacy RA/SWP Documents', true)+
+    '<div class="searchwrap"><input id="ldQ" type="search" placeholder="Search filenames, tags and extracted text… e.g. sheet piling"></div>'+
+    '<div id="ldRows"></div>'+
+    '<p class="hint">Originals live in OneDrive (Skytopia \\ Safety \\ RA-SWP Legacy Inbox) and are never modified. '+
+    'Migration into structured masters is Claude-assisted with human review; provenance is kept on every converted item.</p>';
+  document.getElementById('ldQ').oninput=e=>{ q=e.target.value; draw(); };
+  draw();
+}
+function renderRaExport(verId){
+  const ver=findVer(verId);
+  if(!ver){ location.hash='#/rasys'; return; }
+  const isM=verStore(ver)==='raMasterVersions';
+  const head=isM?db.raMasters.find(m=>m.id===ver.masterId):db.raAdoptions.find(a=>a.id===ver.adoptionId);
+  const FIELDS=[['itemId','Item ref'],['activity','Work activity'],['hazard','Hazard'],['consequence','Possible consequence'],
+    ['s0','Initial severity'],['l0','Initial likelihood'],['risk0','Initial risk'],
+    ['controls','Existing risk controls'],['addControls','Additional controls'],
+    ['s1','Residual severity'],['l1','Residual likelihood'],['risk1','Residual risk'],['resp','Implementation person']];
+  const tpls=[{id:'std',name:'Company Standard',map:Object.fromEntries(FIELDS)}].concat(db.clientTemplates);
+  let tplId='std';
+  const rowsOf=()=> (ver.items||[]).map(i=>({itemId:i.itemId, activity:i.activity, hazard:i.hazard, consequence:i.consequence,
+    s0:i.s0, l0:i.l0, risk0:(+i.s0||0)*(+i.l0||0),
+    controls:(i.controls||[]).join('; '), addControls:(i.addControls||[]).join('; '),
+    s1:i.s1, l1:i.l1, risk1:(+i.s1||0)*(+i.l1||0), resp:i.resp}));
+  const draw=()=>{
+    app.innerHTML=header('Export — '+esc(head?head.title:'')+' '+esc(ver.rev), true)+
+      '<div class="card"><div class="fld"><label>Template</label><select id="rxTpl">'+
+        tpls.map(t=>'<option value="'+t.id+'"'+(t.id===tplId?' selected':'')+'>'+esc(t.name)+'</option>').join('')+
+      '</select></div>'+
+      '<p class="hint">One structured dataset → any client format. Map our fields to the client’s column headers once; reuse forever.</p>'+
+      '<div class="btnrow" style="margin-top:8px">'+
+        '<button class="btn" id="rxCsv">Export CSV (Excel)</button>'+
+        '<button class="btn ghost" id="rxPrint">Print / PDF</button>'+
+        (canRA()?'<button class="btn ghost" id="rxNewTpl">+ New client template</button>':'')+
+      '</div></div>'+
+      (tplId!=='std'&&canRA()?'<div class="card"><label style="margin-top:0">Field mapping — '+esc(tpls.find(t=>t.id===tplId).name)+'</label>'+
+        FIELDS.map(f=>'<div class="fgrid"><div class="fld half"><label>'+esc(f[1])+' (ours)</label>'+
+          '<input data-map="'+f[0]+'" value="'+esc((tpls.find(t=>t.id===tplId).map||{})[f[0]]||'')+'" placeholder="(omit)"></div></div>').join('')+
+        '<div class="btnrow"><button class="btn ghost" id="rxSaveTpl">Save template</button></div></div>':'');
+    document.getElementById('rxTpl').onchange=e=>{ tplId=e.target.value; draw(); };
+    document.getElementById('rxCsv').onclick=()=>{
+      const tpl=tpls.find(t=>t.id===tplId);
+      const cols=FIELDS.map(f=>f[0]).filter(k=>(tpl.map||{})[k]);
+      const lines=[cols.map(k=>csvEsc(tpl.map[k])).join(',')]
+        .concat(rowsOf().map(r=>cols.map(k=>csvEsc(r[k])).join(',')));
+      saveOrDownload('RA-SWP', (head?head.title:'ra').replace(/[^A-Za-z0-9 ]/g,'')+' '+ver.rev+' ('+tpl.name+').csv',
+        lines.join('\r\n'), 'text/csv;charset=utf-8');
+      audit('export-generated','raVersion',ver.id,null,{template:tpl.name, format:'csv'});
+      save();
+    };
+    document.getElementById('rxPrint').onclick=()=>{ location.hash='#/raver/'+ver.id; setTimeout(()=>window.print(),300); };
+    const nt=document.getElementById('rxNewTpl');
+    if(nt) nt.onclick=()=>{
+      const n=prompt('Client template name (e.g. "Main Contractor A"):'); if(!n) return;
+      const t={id:uid(), name:n.trim(), map:Object.fromEntries(FIELDS)};
+      db.clientTemplates.push(t); save(); tplId=t.id; draw();
+    };
+    const st=document.getElementById('rxSaveTpl');
+    if(st) st.onclick=()=>{
+      const tpl=db.clientTemplates.find(t=>t.id===tplId); if(!tpl) return;
+      app.querySelectorAll('[data-map]').forEach(el=>{ if(el.value.trim()) tpl.map[el.dataset.map]=el.value.trim(); else delete tpl.map[el.dataset.map]; });
+      save(); toast('Template saved — reusable on every export');
+    };
+  };
+  draw();
+}
+
+/* ---- operational hooks: observations & incidents raise review triggers (§18–19) ---- */
+EV.on('record:changed',({store,id})=>{
+  if(!canRA()) return;
+  if(store!=='observations'&&store!=='incidents') return;
+  const rec=(db[store]||[]).find(x=>x.id===id);
+  if(!rec||!rec.waId) return;
+  const serious=store==='incidents'||rec.severity==='Critical'||rec.severity==='Major';
+  if(!serious) return;
+  const wa=db.workActivities.find(w=>w.id===rec.waId); if(!wa) return;
+  waAdoptRefs(wa).forEach(ref=>{
+    if(db.reviewTriggers.some(t=>t.sourceId===id&&t.adoptionId===ref.adoptionId)) return;
+    db.reviewTriggers.push({id:uid(), at:raNow(),
+      source:store==='incidents'?(rec.type==='Near Miss'?'Near Miss':'Incident'):'Observation',
+      sourceId:id, adoptionId:ref.adoptionId, masterId:'',
+      reason:(store==='incidents'?('Incident on linked activity: '):(''+(rec.severity||'')+' observation on linked activity: '))+
+        String(rec.description||rec.desc||rec.category||'').split('\n')[0].slice(0,120)+
+        ' — review whether a hazard/control is missing, ineffective, or was not implemented (pinned '+ref.rev+').',
+      reviewer:'', status:'OPEN', outcome:''});
+  });
+  save();
+});
+
 /* ============ SMART TOOLBOX (e-Toolbox) ============
    Activity-driven briefings from a built-in SG-construction hazard library
    + the project's own RA register; work-area photos; optional AI 60-second
@@ -2497,6 +3252,19 @@ function tbxComposeBrief(){
   tbxTopRisks().forEach((r,i)=>{ L.push((i+1)+'. '+r.h); L.push('   → '+r.c); });
   const ra=tbxRaMatches(TBX.acts);
   if(ra.length) L.push('Refer to RA/SWP: '+ra.map(r=>r.activity+(r.ref?' ('+r.ref+')':'')).join('; ')+'.');
+  if(TBX.waId){
+    const wa=db.workActivities.find(w=>w.id===TBX.waId);
+    const pin=wa?waPinnedRaItems(wa).slice(0,3):[];
+    if(pin.length){
+      L.push('');
+      L.push('FROM THE APPROVED RA ('+pin[0].rev+') FOR THIS ACTIVITY:');
+      pin.forEach(x=>{
+        L.push('\u2022 '+x.item.hazard);
+        const cs=[...(x.item.controls||[]),...(x.item.addControls||[])].slice(0,3);
+        if(cs.length) L.push('   \u2192 '+cs.join('; '));
+      });
+    }
+  }
   const yl=tbxYesterday();
   if(yl.length){ L.push(''); L.push('YESTERDAY’S LESSON: '+yl[0].t+' — '+yl[0].d); }
   L.push('');

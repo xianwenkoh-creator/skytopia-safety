@@ -92,6 +92,8 @@ language sql stable as $$
             and lower(coalesce(data->>'subcon',''))  = lower(coalesce(public.my_subcon(),'')))
       or (store in ('members','equipment','training')
             and lower(coalesce(data->>'company','')) = lower(coalesce(public.my_subcon(),'')))
+      or (store in ('raAdoptions','raProjectVersions')
+            and lower(coalesce(data->>'subcon','')) = lower(coalesce(public.my_subcon(),'')))
 $$;
 
 -- ---------- row-level security ----------
@@ -120,7 +122,8 @@ create policy rec_read on public.records
   for select using (
     org_id = public.my_org()
     and ( public.my_role() in ('admin','wsho')
-          or (public.my_role() = 'viewer' and store not in ('ra','raLibrary'))
+          or (public.my_role() = 'viewer' and store not in
+              ('ra','raLibrary','raMasters','raMasterVersions','legacyDocs','raAdoptions','raProjectVersions','reviewTriggers','auditEvents'))
           or ( public.my_role() = 'subcon'
                and (store in ('_project','_meta') or public.subcon_scope(store, data)) ) )
   );
