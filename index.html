@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-16-1330">
+<meta name="build" content="2026-08-16-1500">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -257,6 +257,18 @@
   .thumb img{width:100%; height:100%; object-fit:cover; display:block;}
   .thumb .rmp{position:absolute; top:3px; right:3px; width:22px; height:22px; border:none; border-radius:50%;
               background:rgba(0,0,0,.55); color:#fff; font-size:13px; line-height:1; cursor:pointer; padding:0;}
+  .thumb .mkp{position:absolute; bottom:3px; right:3px; width:24px; height:24px; border:none; border-radius:50%;
+              background:rgba(0,0,0,.6); color:#fff; font-size:13px; line-height:1; cursor:pointer; padding:0;}
+  .mkwrap{position:fixed; inset:0; z-index:220; background:rgba(8,12,15,.94); display:flex; flex-direction:column;}
+  .mkbar{display:flex; gap:8px; align-items:center; padding:10px 12px; flex-wrap:wrap;}
+  .mkt{font:inherit; font-size:13px; font-weight:650; padding:8px 12px; border-radius:6px; border:1px solid #46525c;
+       background:#1d252c; color:#dfe5e9; cursor:pointer;}
+  .mkt.on{background:#dfe5e9; color:#1d252c;}
+  .mkt.mksave{background:var(--acc); border-color:var(--acc); color:#fff;}
+  .mkc{width:26px; height:26px; border-radius:50%; border:2px solid transparent; cursor:pointer; display:inline-block;}
+  .mkc.on{border-color:#fff;}
+  .mkcv{flex:1; display:flex; align-items:center; justify-content:center; overflow:auto; padding:8px;}
+  .mkcv canvas{max-width:96vw; max-height:74vh; touch-action:none; background:#000;}
 
   /* ranked horizontal bars */
   .hbar{margin:8px 0;}
@@ -488,7 +500,7 @@ function compressImage(file, cb){
 const KEY='kkl-cms-v1';    /* legacy flat schema — migrated, never deleted */
 const KEY2='kkl-cms-v2';
 const COMPANY_STORES=['members','equipment','training','raLibrary','raMasters','raMasterVersions','legacyDocs','clientTemplates','auditEvents','competencyTypes','workerCompetencies','sicProfiles','organisations','memberPrivate','companyDocs'];
-const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers','workerProjectAccess','sicSessions','locations','layouts','layoutVersions','locGeoms','spatialZones','zoneGeoms'];
+const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers','workerProjectAccess','sicSessions','locations','layouts','layoutVersions','locGeoms','spatialZones','zoneGeoms','lmra','recurringChecks','visitors'];
 const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
 function blankProject(name){
   const p={id:uid(), settings:structuredClone(BLANK.settings), manhours:{}, mandays:{}};
@@ -642,7 +654,9 @@ function rowsHtml(f, arr){
 }
 
 function thumbHtml(dataUrl){
-  return '<div class="thumb"><img src="'+dataUrl+'" alt="photo"><button type="button" class="rmp" title="Remove photo" aria-label="Remove photo">&times;</button></div>';
+  return '<div class="thumb"><img src="'+dataUrl+'" alt="photo">'+
+    '<button type="button" class="rmp" title="Remove photo" aria-label="Remove photo">&times;</button>'+
+    '<button type="button" class="mkp" title="Mark up photo" aria-label="Mark up photo">&#9998;</button></div>';
 }
 function photosHtml(f, arr){
   return '<div class="fld"><label>'+esc(f.label)+'</label>'+
@@ -715,7 +729,9 @@ app.addEventListener('click', e=>{
     return;
   }
   const rp=e.target.closest('.thumb .rmp');
-  if(rp){ rp.closest('.thumb').remove(); }
+  if(rp){ rp.closest('.thumb').remove(); return; }
+  const mk=e.target.closest('.thumb .mkp');
+  if(mk){ openMarkup(mk.closest('.thumb').querySelector('img')); }
 });
 app.addEventListener('change', e=>{
   const inp=e.target.closest('[data-photofile]');
@@ -740,8 +756,8 @@ const NAV=[
  {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic']]},
  {group:'Site',    items:[['layout','Site Layouts','folder'],['locations','Locations','folder'],
                           ['contacts','Contacts','contact'],['equipment','Equipment','equip'],
-                          ['documents','Documents','doc'],['actions','Actions','act']]},
- {group:'Safety',  items:[['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
+                          ['documents','Documents','doc'],['actions','Actions','act'],['recurringChecks','Recurring Inspections','insp'],['visitors','Visitors','contact']]},
+ {group:'Safety',  items:[['lmra','LMRA','check'],['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
                           ['checklists','Checklists','check'],['rasys','RA / SWP','ra'],
                           ['meetings','Meetings','meet'],['incidents','Incidents','incid']]},
  {group:'Quality', items:[['defects','Defects','defect']]},
@@ -1051,6 +1067,9 @@ function route(){
     /* organisations falls through to the generic module below */
   }
   if(key==='layout')   return sub?renderLayoutEditor(sub):renderLayouts();
+  if(key==='lmracheck') return renderLmraCheck();
+  if(key==='eq'&&sub)  return renderEqQuick(sub);
+  if(key==='eqposters') return renderEqPosters();
   if(key==='matrix')   return renderMatrix();
   if(key==='finder')   return renderFinder();
   if(key==='dupes'){
@@ -1104,7 +1123,7 @@ const NEGCATS={
 const POSCATS=['Good Work-At-Height provision','Good provision for prevention of Hit-By-Falling Objects','Good Housekeeping','Provisions in accordance to PE design','Good provision for prevention of Struck by Moving Objects','Compliances relating to lifting operations and equipment','Compliances relating to electrical appliances','Good traffic management','Compliances relating to RAs, SWPs or PTWs','Good PPE provision','Good provision to prevent collapse of temporary structures','Others'];
 const OBS_NEG='Negative — safety non-compliance', OBS_POS='Positive — good practice';
 function companyList(){
-  return [...new Set([].concat(db.members.map(m=>m.company), db.equipment.map(e=>e.owner), db.contacts.map(c=>c.company)).filter(Boolean))];
+  return [...new Set([].concat(db.organisations.map(o=>o.name), db.members.map(m=>m.company), db.equipment.map(e=>e.owner), db.contacts.map(c=>c.company)).filter(Boolean))];
 }
 
 const CHECKTPL={
@@ -1278,6 +1297,7 @@ const MODULES={
     cols:[{k:'name',label:'Cert (e.g. LM cert, PE test, calibration)',w:'full'},{k:'no',label:'Cert no.'},{k:'expiry',label:'Expiry',type:'date'}]},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
   siteFilter:items=>{ const pIds=projectPlantIds(); return items.filter(e=>equipOnSite(e,pIds)); },
+  listHeader:items=>items.length?'<div style="margin:0 0 10px"><button class="btn ghost" onclick="location.hash=\'#/eqposters\'">QR posters for site plant</button></div>':'',
   sort:(a,b)=>(a.type||'').localeCompare(b.type||'')||(a.regNo||'').localeCompare(b.regNo||''),
   line1:i=>esc([i.type,i.regNo].filter(Boolean).join(' — ')),
   line2:i=>esc([i.name,i.owner].filter(Boolean).join(' · ')),
@@ -1360,6 +1380,8 @@ const MODULES={
    {k:'block',label:'Block / zone',half:1},
    {k:'storey',label:'Storey',half:1},
    {k:'unit',label:'Unit',half:1},
+   {k:'waId',label:'Linked work activity',type:'select',half:1,opts:()=>[['','\u2014 none \u2014']].concat(db.workActivities.map(w=>[w.id,w.title]))},
+   {k:'equipmentId',label:'Linked equipment',type:'select',half:1,opts:()=>[['','\u2014 none \u2014']].concat(db.equipment.map(e=>[e.id,[e.type,e.regNo].filter(Boolean).join(' ')]))},
    {k:'location',label:'Exact location / area'},
    {k:'waId',label:'Linked work activity',type:'select',opts:()=>db.workActivities.map(w=>[w.id,w.title]),half:1},
    {k:'category',label:'Category (standard list)',type:'select',opts:Object.keys(NEGCATS),req:1},
@@ -1410,6 +1432,8 @@ const MODULES={
 
  checklists:{ title:'Checklist', store:'checklists',
   fields:[
+   {k:'equipmentId',label:'Equipment (for pre-start checks)',type:'select',half:1,
+    opts:()=>[['','\u2014 none \u2014']].concat(db.equipment.map(e=>[e.id,[e.type,e.regNo].filter(Boolean).join(' ')]))},
    {k:'template',label:'Checklist type',type:'select',opts:Object.keys(CHECKTPL),req:1,
     hint:'Picking a type loads its standard items below — edit, add or remove items as needed.'},
    {k:'date',label:'Date',type:'date',req:1,def:'today',half:1},
@@ -1616,6 +1640,65 @@ const MODULES={
   meta:function(i){ return (i.code?'<span class="chip n">'+esc(i.code)+'</span>':'')+(i.status==='ARCHIVED'?'<span class="chip b">ARCHIVED</span>':''); },
   empty:'Logical locations — the stable tree (Project → Zone → Subzone → Asset) that drawings, records and future PTW/observations reference. Draw them on a Site Layout, or add them here.'},
 
+ lmra:{ title:'LMRA', store:'lmra', newRoute:'#/lmracheck',
+  fields:[
+   {k:'date',label:'Date',type:'date',req:1,half:1},
+   {k:'time',label:'Time',half:1},
+   {k:'waId',label:'Work activity',type:'select',req:1,opts:()=>db.workActivities.map(w=>[w.id,w.title||w.type])},
+   {k:'by',label:'Carried out by',req:1,half:1},
+   {k:'safe',label:'Outcome',type:'select',half:1,opts:['YES','CONTROLS','STOP']},
+   {k:'hazard',label:'Hazard / issue found'},
+   {k:'action',label:'Control / action taken'},
+   {k:'resolved',label:'Stop-work status',type:'select',half:1,opts:['Resolved','Open']},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  beforeSave:function(obj){ if(obj.safe!=='STOP'&&!obj.resolved) obj.resolved='Resolved'; },
+  sort:(a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||'')),
+  line1:i=>{ const w=db.workActivities.find(x=>x.id===i.waId); return esc((w?(w.title||w.type):'(activity)')); },
+  line2:i=>esc([fmtD(i.date),i.time,i.by].filter(Boolean).join(' \u00b7 ')),
+  meta:i=>i.safe==='STOP'?(i.resolved==='Resolved'?'<span class="chip w">STOP \u00b7 resolved</span>':'<span class="chip b">STOP WORK</span>')
+        :i.safe==='CONTROLS'?'<span class="chip w">CONTROLS</span>':'<span class="chip g">CLEAR</span>',
+  empty:'Last-minute risk assessments \u2014 the 2-minute workface check before starting. A STOP here blocks the activity until resolved.'},
+
+ recurringChecks:{ title:'Recurring Inspection', store:'recurringChecks',
+  fields:[
+   {k:'title',label:'Inspection',req:1,ph:'e.g. Weekly scaffold inspection'},
+   {k:'freq',label:'Frequency',type:'select',req:1,half:1,opts:['Daily','Weekly','Fortnightly','Monthly','Quarterly','6-Monthly','Yearly']},
+   {k:'assignTo',label:'Assigned to',half:1},
+   {k:'area',label:'Area / equipment',half:1},
+   {k:'lastDone',label:'Last done',type:'date',half:1},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  afterRender:function(item){
+    if(!item) return;
+    const bar=document.querySelector('#app .btnrow');
+    if(bar){ const b=document.createElement('button'); b.type='button'; b.className='btn ghost';
+      b.textContent='Mark done today'; b.onclick=()=>{ item.lastDone=today(); save(); toast('Logged \u2014 next due '+fmtD(recNextDue(item))); route(); };
+      bar.appendChild(b); }
+  },
+  sort:(a,b)=>(recNextDue(a)||'').localeCompare(recNextDue(b)||''),
+  line1:i=>esc(i.title),
+  line2:i=>esc([i.freq,i.area,i.assignTo].filter(Boolean).join(' \u00b7 ')),
+  meta:i=>{ const d=daysTo(recNextDue(i));
+    return d<0?'<span class="chip b">overdue '+(-d)+'d</span>':d<=7?'<span class="chip w">due '+fmtD(recNextDue(i))+'</span>':'<span class="chip g">next '+fmtD(recNextDue(i))+'</span>'; },
+  empty:'Statutory / scheduled inspections \u2014 weekly scaffold, monthly LEW, AE cycles. Overdue items raise corrective actions automatically.'},
+
+ visitors:{ title:'Visitor', store:'visitors',
+  fields:[
+   {k:'date',label:'Date',type:'date',req:1,def:'today',half:1},
+   {k:'name',label:'Visitor name',req:1,half:1},
+   {k:'company',label:'Company',half:1,list:companyList},
+   {k:'host',label:'Host / visiting who',half:1},
+   {k:'purpose',label:'Purpose',half:1},
+   {k:'vehicle',label:'Vehicle no.',half:1},
+   {k:'inTime',label:'Time in',half:1},
+   {k:'outTime',label:'Time out',half:1},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  beforeSave:function(obj){ if(!obj.inTime) obj.inTime=new Date().toTimeString().slice(0,5); },
+  sort:(a,b)=>((b.date||'')+(b.inTime||'')).localeCompare((a.date||'')+(a.inTime||'')),
+  line1:i=>esc(i.name),
+  line2:i=>esc([i.company,i.host,i.purpose].filter(Boolean).join(' \u00b7 ')),
+  meta:i=>i.outTime?'<span class="chip n">'+esc(i.inTime||'')+'\u2013'+esc(i.outTime)+'</span>':'<span class="chip g">ON SITE '+esc(i.inTime||'')+'</span>',
+  empty:'Site visitor log \u2014 sign in on arrival, sign out on leaving.'},
+
  organisations:{ title:'Organisation', store:'organisations',
   fields:[
    {k:'name',label:'Company name (exactly as used on records)',req:1},
@@ -1673,6 +1756,7 @@ const MODULES={
    {k:'type',label:'Classification',type:'select',opts:INCTYPES,req:1},
    {k:'location',label:'Location'},
    {k:'waId',label:'Linked work activity',type:'select',opts:()=>db.workActivities.map(w=>[w.id,w.title]),half:1},
+   {k:'injuredIds',label:'Injured / involved workers (registered)',type:'members'},
    {k:'description',label:'What happened',type:'textarea',req:1},
    {k:'persons',label:'Person(s) involved',half:1},
    {k:'injury',label:'Injury / damage details',half:1},
@@ -1746,6 +1830,9 @@ const MODULES={
    {k:'block',label:'Block / zone',half:1},
    {k:'storey',label:'Storey',half:1},
    {k:'location',label:'Exact location / area'},
+   {k:'liftLoad',label:'Lifting: load (t)',half:1,ph:'e.g. 8.5'},
+   {k:'liftCapacity',label:'Lifting: capacity at radius (t)',half:1,ph:'from load chart'},
+   {k:'liftRadius',label:'Lifting: working radius (m)',half:1},
    {k:'ptw',label:'ePTW permit no(s). — fill in AFTER approval',half:1,hint:'Leave blank while Planned; apply in Sky ePTW, then paste the approved permit number here. Permit-class work (hot works, confined space, WAH, lifting, excavation) cannot go Active without it.'},
    {k:'crew',label:'Crew — assigned members & their roles',type:'rows',add:'Add member',cols:[
      {k:'memberId',label:'Member',type:'select',opts:()=>db.members.map(m=>[m.id,memberLabel(m)])},
@@ -1840,25 +1927,44 @@ const MODULES={
 /* ============ open-actions hub ============ */
 function allOpenActions(){
   const out=[];
-  const add=(due,label,detail,link,src)=>out.push({due:due||'', days:daysTo(due), label, detail, link, src});
+  const add=(due,label,detail,link,src,by)=>out.push({due:due||'', days:daysTo(due), label, detail, link, src, by:by||''});
   db.observations.forEach(o=>{ if(o.kind!==OBS_POS && o.status!=='Closed')
-    add(o.due, o.category||'Observation', [o.subitem||o.desc, o.subcon].filter(Boolean).join(' · '), '#/observations/'+o.id, 'Observation'); });
+    add(o.due, o.category||'Observation', [o.subitem||o.desc, o.subcon].filter(Boolean).join(' · '), '#/observations/'+o.id, 'Observation', o.by); });
   db.defects.forEach(o=>{ if(o.status!=='Closed')
-    add(o.due, [o.element,o.grouping].filter(Boolean).join(' — ')||'Defect', [o.desc, o.subcon].filter(Boolean).join(' · '), '#/defects/'+o.id, 'Defect'); });
+    add(o.due, [o.element,o.grouping].filter(Boolean).join(' — ')||'Defect', [o.desc, o.subcon].filter(Boolean).join(' · '), '#/defects/'+o.id, 'Defect', o.subcon); });
   db.inspections.forEach(i=>(i.findings||[]).forEach(f=>{ if(f.status!=='Closed' && (f.desc||f.action))
-    add(f.due, f.desc||'Finding', [f.action, f.by].filter(Boolean).join(' · '), '#/inspections/'+i.id, 'Inspection'); }));
+    add(f.due, f.desc||'Finding', [f.action, f.by].filter(Boolean).join(' · '), '#/inspections/'+i.id, 'Inspection', f.by); }));
   db.incidents.forEach(i=>(i.actions||[]).forEach(a=>{ if(a.status!=='Closed' && (a.desc||a.by))
-    add(a.due, a.desc||'Incident action', [a.by, fmtD(i.date)].filter(Boolean).join(' · '), '#/incidents/'+i.id, 'Incident'); }));
+    add(a.due, a.desc||'Incident action', [a.by, fmtD(i.date)].filter(Boolean).join(' · '), '#/incidents/'+i.id, 'Incident', a.by); }));
   db.meetings.forEach(m=>(m.agenda||[]).forEach(a=>{ if(a.status!=='Closed' && (a.item||a.action))
-    add(a.due, a.action||a.item, [a.by, fmtD(m.date)].filter(Boolean).join(' · '), '#/meetings/'+m.id, 'Meeting'); }));
+    add(a.due, a.action||a.item, [a.by, fmtD(m.date)].filter(Boolean).join(' · '), '#/meetings/'+m.id, 'Meeting', a.by); }));
+  /* expired statutory items become corrective actions automatically */
+  certRows('site').filter(r=>r.days<0).slice(0,60).forEach(r=>
+    add(r.expiry, 'Renew: '+r.name, r.owner+' \u00b7 expired '+fmtD(r.expiry), r.link, 'Cert'));
+  /* recurring statutory inspections due/overdue */
+  db.recurringChecks.forEach(rc=>{
+    const due=recNextDue(rc);
+    if(due&&(daysTo(due)??1)<=7)
+      add(due, rc.title||'Recurring inspection', [rc.area, rc.freq, rc.assignTo].filter(Boolean).join(' \u00b7 '), '#/recurringChecks/'+rc.id, 'Recurring', rc.assignTo);
+  });
   return out.sort((a,b)=>(a.days??9e9)-(b.days??9e9));
+}
+const REC_FREQ={'Daily':1,'Weekly':7,'Fortnightly':14,'Monthly':30,'Quarterly':91,'6-Monthly':182,'Yearly':365};
+function recNextDue(rc){
+  const days=REC_FREQ[rc.freq]||7;
+  if(!rc.lastDone) return today();
+  const d=new Date(rc.lastDone+'T00:00'); d.setDate(d.getDate()+days);
+  return d.toISOString().slice(0,10);
 }
 function openActionCounts(){
   const acts=allOpenActions();
   return { total:acts.length, overdue:acts.filter(a=>a.days!==null&&a.days<0).length };
 }
+let ACTF={mine:false};
 function renderActions(){
-  const acts=allOpenActions();
+  let acts=allOpenActions();
+  const myName=(SB.profile&&(SB.profile.display_name||SB.profile.email||'').split('@')[0]||'').toLowerCase();
+  if(ACTF.mine&&myName) acts=acts.filter(a=>(a.by||'').toLowerCase().includes(myName));
   const groups=[
    {t:'Overdue', c:'b', f:a=>a.days!==null&&a.days<0},
    {t:'Due within 7 days', c:'w', f:a=>a.days!==null&&a.days>=0&&a.days<=7},
@@ -1868,10 +1974,16 @@ function renderActions(){
     '<div class="ls">'+esc(a.detail||'')+'</div></div>'+
     '<div class="lmeta"><span class="chip">'+a.src+'</span>'+(a.due?'<br><span class="chip '+(a.days<0?'b':a.days<=7?'w':'n')+'">'+fmtD(a.due)+'</span>':'')+'</div></div>';
   app.innerHTML = header('Open Actions', true)+
+    ((SB.profile)?'<div class="btnrow" style="margin:0 0 10px">'+
+      '<button class="btn'+(ACTF.mine?' ghost':'')+'" id="actAll" style="flex:1">All</button>'+
+      '<button class="btn'+(ACTF.mine?'':' ghost')+'" id="actMine" style="flex:1">Assigned to me</button></div>':'')+
     (acts.length
       ? groups.map(g=>{ const gr=acts.filter(g.f); if(!gr.length) return '';
           return '<div class="exphead '+g.c+'">'+g.t+' ('+gr.length+')</div>'+gr.map(row).join(''); }).join('')
-      : '<div class="empty">No open corrective actions.<br>Actions from observations, inspections, incidents, meetings and defects all roll up here.</div>');
+      : '<div class="empty">No open corrective actions.<br>Actions from observations, inspections, incidents, meetings, defects, recurring inspections and expired certs all roll up here.</div>');
+  const aa=document.getElementById('actAll'), am=document.getElementById('actMine');
+  if(aa) aa.onclick=()=>{ ACTF.mine=false; renderActions(); };
+  if(am) am.onclick=()=>{ ACTF.mine=true; renderActions(); };
 }
 
 /* ============ per-record report (print / PDF) ============ */
@@ -2543,7 +2655,7 @@ function checkEquipmentReadiness(equipmentId, workActivityId){
   const ml=e.hdbML?daysTo(e.hdbML):null;
   if(ml!==null&&ml<0) out.push(RR('EQP-HDBML','WARN','Material list registration expired',label+': material list registration expired '+fmtD(e.hdbML)+'.','equipment',e.id));
   if(wa&&wa.status==='Active'&&e.regNo){
-    const pre=db.checklists.some(c=>c.date===today()&&((c.area||'')+' '+(c.template||'')).toLowerCase().includes(String(e.regNo).toLowerCase()));
+    const pre=db.checklists.some(c=>c.date===today()&&(c.equipmentId===e.id||((c.area||'')+' '+(c.template||'')).toLowerCase().includes(String(e.regNo).toLowerCase())));
     if(!pre) out.push(RR('EQP-PRESTART','WARN','No pre-start check today','No checklist today references '+label+' while the activity is Active.','equipment',e.id));
   }
   if(e.operatorMemberId){
@@ -2616,6 +2728,25 @@ function checkWorkActivityReadiness(workActivityId){
   });
   db.incidents.filter(i=>i.waId===wa.id&&i.status!=='Closed').forEach(i=>
     res.push(RR('WA-INC-OPEN','BLOCK','Open incident',(i.type||'Incident')+' on '+fmtD(i.date)+' is not closed.','incident',i.id)));
+  /* lifting plan utilisation (deterministic, from the WA's own numbers) */
+  if(wa.type==='Lifting Operations'){
+    const load=parseFloat(wa.liftLoad), cap=parseFloat(wa.liftCapacity);
+    if(load&&cap){
+      const u=load/cap;
+      if(u>1) res.push(RR('WA-LIFT-OVER','BLOCK','Lift exceeds capacity','Load '+load+'t is over the crane capacity '+cap+'t at '+(wa.liftRadius||'?')+'m radius.','workActivity',wa.id));
+      else if(u>0.85) res.push(RR('WA-LIFT-UTIL','WARN','High lift utilisation',Math.round(u*100)+'% of crane capacity \u2014 verify the load chart and rigging.','workActivity',wa.id));
+    }else if(active){
+      res.push(RR('WA-LIFT-PLAN','WARN','No lift plan figures','Record load, capacity and radius for this lifting operation.','workActivity',wa.id));
+    }
+  }
+  /* LMRA at the workface */
+  if(active){
+    const todayLm=db.lmra.filter(l=>l.waId===wa.id&&l.date===today());
+    if(!todayLm.length)
+      res.push(RR('WA-LMRA-TODAY','WARN','No LMRA today','No last-minute risk assessment recorded for this activity today.','workActivity',wa.id));
+    if(todayLm.some(l=>l.safe==='STOP'&&l.resolved!=='Resolved'))
+      res.push(RR('WA-LMRA-STOP','BLOCK','STOP WORK raised at LMRA','A worker stopped work at the last-minute check \u2014 resolve and close it out before restarting.','workActivity',wa.id));
+  }
   /* authorised overrides: downgrade a BLOCK to WARN, audited, time-limited.
      Statutory rules can never be overridden. */
   (wa.overrides||[]).forEach(o=>{
@@ -2706,6 +2837,8 @@ function affectedWAs(store,id){
       const m=t?(t.memberId?db.members.find(x=>x.id===t.memberId)
                           :db.members.find(x=>(x.name||'').trim().toLowerCase()===(t.name||'').trim().toLowerCase())):null;
       return m?W.filter(w=>(w.crew||[]).some(c=>c.memberId===m.id)):[]; }
+    case 'lmra': { const l=db.lmra.find(x=>x.id===id);
+      return l&&l.waId?W.filter(w=>w.id===l.waId):[]; }
     case 'workerCompetencies': case 'workerProjectAccess': {
       const r=(db[store]||[]).find(x=>x.id===id);
       return r?W.filter(w=>(w.crew||[]).some(c=>c.memberId===r.memberId)):[]; }
@@ -4577,7 +4710,8 @@ function renderPassport(mid){
     '<h2 class="sect">History</h2>'+
     '<div class="card">Toolbox attendance: <b>'+tbxHist.length+'</b>'+(tbxHist[0]?' · last '+esc(fmtD(tbxHist[0].date)):'')+
     '<br>Training records: <b>'+train.length+'</b>'+
-    '<br>SIC sessions: <b>'+db.sicSessions.filter(s=>(s.workers||[]).some(w=>w.memberId===mid&&w.present)).length+'</b></div>'+
+    '<br>SIC sessions: <b>'+db.sicSessions.filter(s=>(s.workers||[]).some(w=>w.memberId===mid&&w.present)).length+'</b>'+
+    '<br>Incidents involving this worker: <b>'+db.incidents.filter(i=>(i.injuredIds||[]).includes(mid)).length+'</b></div>'+
     (train.length?train.slice(0,6).map(t=>'<div class="lrow" onclick="location.hash=\'#/training/'+t.id+'\'"><div><div class="l1">'+esc(t.course||'')+'</div>'+
       '<div class="l2">'+esc(fmtD(t.date||''))+'</div></div><div class="lmeta">'+(t.expiry?expChip(t.expiry):'')+'</div></div>').join(''):'');
   const pv=document.getElementById('ppPriv');
@@ -4718,6 +4852,7 @@ function renderCompanyHome(){
       '<div class="hint" style="margin-top:6px">'+
         s.obsOpen+' open observation(s) · '+s.defOpen+' open defect(s) · '+s.inc+' incident(s) this year · '+
         s.waBlk+' blocked activit'+(s.waBlk===1?'y':'ies')+' · '+s.sicOk+' worker(s) SIC-complete</div></div>').join('')+
+    subconScorecardHtml()+
     '<h2 class="sect">Company administration</h2>'+
     '<div class="grid">'+
       '<a class="tile" href="#/ramasters"><span class="ic">'+ic('ra')+'</span><span class="tl">Master RA Library</span></a>'+
@@ -4726,7 +4861,8 @@ function renderCompanyHome(){
       '<a class="tile" href="#/sicProfiles"><span class="ic">'+ic('sic')+'</span><span class="tl">SIC Profiles</span></a>'+
       '<a class="tile" href="#/audit"><span class="ic">'+ic('doc')+'</span><span class="tl">Audit Log</span></a>'+
       '<a class="tile" href="#/team"><span class="ic">'+ic('members')+'</span><span class="tl">Team</span></a>'+
-    '</div>';
+    '</div>'+
+    '<div class="btnrow" style="margin-top:14px"><button class="btn ghost" onclick="waShareDigest()" style="flex:1">Share summary via WhatsApp</button></div>';
   app.querySelectorAll('[data-proj]').forEach(c=>c.onclick=()=>{ switchProject(c.dataset.proj); location.hash='#/'; });
 }
 let AUD={q:'',n:200};
@@ -5108,6 +5244,239 @@ function bindLocationPicker(pfx, onChange){
       if(onChange) onChange(l.id);
     });
   };
+}
+
+/* ============ FIELD TOOLS: photo markup, LMRA, equipment QR, digests ============ */
+
+/* ---- photo markup editor: draw on evidence photos before saving ---- */
+let MK=null;
+function openMarkup(imgEl){
+  const base=new Image();
+  base.onload=()=>{
+    const maxW=1600, sc=Math.min(1,maxW/base.width);
+    const W=Math.round(base.width*sc), H=Math.round(base.height*sc);
+    const wrap=document.createElement('div'); wrap.className='mkwrap';
+    wrap.innerHTML='<div class="mkbar">'+
+      '<button class="mkt on" data-mk="pen">Pen</button>'+
+      '<button class="mkt" data-mk="arrow">Arrow</button>'+
+      '<button class="mkt" data-mk="circle">Circle</button>'+
+      '<span class="mkc on" data-mc="#e11b12" style="background:#e11b12"></span>'+
+      '<span class="mkc" data-mc="#ffd23d" style="background:#ffd23d"></span>'+
+      '<span class="mkc" data-mc="#ffffff" style="background:#fff"></span>'+
+      '<button class="mkt" id="mkUndo" style="margin-left:auto">Undo</button>'+
+      '<button class="mkt" id="mkCancel">Cancel</button>'+
+      '<button class="mkt mksave" id="mkSave">Save</button></div>'+
+      '<div class="mkcv"><canvas width="'+W+'" height="'+H+'"></canvas></div>';
+    document.body.appendChild(wrap);
+    const cv=wrap.querySelector('canvas'), ctx=cv.getContext('2d');
+    MK={tool:'pen', color:'#e11b12', strokes:[], cur:null};
+    const lw=Math.max(4, Math.round(W/200));
+    function drawStroke(s){
+      ctx.strokeStyle=s.color; ctx.lineWidth=lw; ctx.lineCap='round'; ctx.lineJoin='round';
+      if(s.tool==='pen'&&s.pts.length>1){
+        ctx.beginPath(); ctx.moveTo(s.pts[0][0],s.pts[0][1]);
+        s.pts.forEach(p=>ctx.lineTo(p[0],p[1])); ctx.stroke();
+      }
+      if(s.tool==='arrow'&&s.pts.length===2){
+        const [a,b]=s.pts, ang=Math.atan2(b[1]-a[1],b[0]-a[0]), hl=lw*4;
+        ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(b[0],b[1]);
+        ctx.lineTo(b[0]-hl*Math.cos(ang-0.45), b[1]-hl*Math.sin(ang-0.45));
+        ctx.moveTo(b[0],b[1]);
+        ctx.lineTo(b[0]-hl*Math.cos(ang+0.45), b[1]-hl*Math.sin(ang+0.45)); ctx.stroke();
+      }
+      if(s.tool==='circle'&&s.pts.length===2){
+        const [a,b]=s.pts;
+        ctx.beginPath();
+        ctx.ellipse((a[0]+b[0])/2,(a[1]+b[1])/2, Math.abs(b[0]-a[0])/2||1, Math.abs(b[1]-a[1])/2||1, 0, 0, Math.PI*2);
+        ctx.stroke();
+      }
+    }
+    function redraw(){
+      ctx.drawImage(base,0,0,W,H);
+      MK.strokes.forEach(drawStroke);
+      if(MK.cur) drawStroke(MK.cur);
+    }
+    redraw();
+    const pos=e=>{ const r=cv.getBoundingClientRect();
+      return [(e.clientX-r.left)*W/r.width, (e.clientY-r.top)*H/r.height]; };
+    cv.addEventListener('pointerdown',e=>{ e.preventDefault(); cv.setPointerCapture(e.pointerId);
+      const p=pos(e);
+      MK.cur=MK.tool==='pen'?{tool:'pen',color:MK.color,pts:[p]}:{tool:MK.tool,color:MK.color,pts:[p,p]}; });
+    cv.addEventListener('pointermove',e=>{ if(!MK.cur) return; e.preventDefault();
+      const p=pos(e);
+      if(MK.tool==='pen') MK.cur.pts.push(p); else MK.cur.pts[1]=p;
+      redraw(); });
+    cv.addEventListener('pointerup',()=>{ if(MK.cur){ MK.strokes.push(MK.cur); MK.cur=null; redraw(); } });
+    wrap.querySelectorAll('[data-mk]').forEach(b=>b.onclick=()=>{ MK.tool=b.dataset.mk;
+      wrap.querySelectorAll('[data-mk]').forEach(x=>x.classList.toggle('on',x===b)); });
+    wrap.querySelectorAll('[data-mc]').forEach(b=>b.onclick=()=>{ MK.color=b.dataset.mc;
+      wrap.querySelectorAll('[data-mc]').forEach(x=>x.classList.toggle('on',x===b)); });
+    wrap.querySelector('#mkUndo').onclick=()=>{ MK.strokes.pop(); redraw(); };
+    wrap.querySelector('#mkCancel').onclick=()=>wrap.remove();
+    wrap.querySelector('#mkSave').onclick=()=>{
+      imgEl.src=cv.toDataURL('image/jpeg',0.8);
+      wrap.remove(); toast('Markup saved onto the photo');
+    };
+  };
+  base.src=imgEl.src;
+}
+
+/* ---- LMRA: last minute risk assessment at the workface ---- */
+const LMRA_QS=[
+ 'I understand the task and have been briefed (toolbox / RA)',
+ 'I am trained and competent for this task',
+ 'Work area is safe — access, housekeeping, barricades in place',
+ 'Tools, plant and equipment are correct and in good condition',
+ 'Required PPE is available and worn',
+ 'Energy sources / services are isolated where required',
+ 'Weather and surroundings are acceptable for this task'
+];
+let LMX=null;
+function renderLmraCheck(){
+  if(!LMX) LMX={waId:'', by:'', ans:{}, hazard:'', action:''};
+  const was=db.workActivities.filter(w=>w.status!=='Completed');
+  const allAnswered=LMRA_QS.every((q,i)=>LMX.ans[i]);
+  const anyNo=LMRA_QS.some((q,i)=>LMX.ans[i]==='NO');
+  app.innerHTML=header('LMRA — Last Minute Risk Assessment', true)+
+    '<div class="card"><div class="fgrid">'+
+    '<div class="fld half"><label>Work activity *</label><select id="lmWa">'+
+      '<option value=""></option>'+was.map(w=>'<option value="'+w.id+'"'+(LMX.waId===w.id?' selected':'')+'>'+esc(w.title||w.type)+'</option>').join('')+'</select></div>'+
+    '<div class="fld half"><label>Carried out by *</label><input id="lmBy" value="'+esc(LMX.by)+'" list="dl-lmby">'+
+      '<datalist id="dl-lmby">'+db.members.map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist></div>'+
+    '</div></div>'+
+    '<h2 class="sect">Take 2 minutes — check before you start</h2>'+
+    LMRA_QS.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px">'+
+      '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
+      '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+(LMX.ans[i]===a?(a==='NO'?'danger':''):'ghost')+'" data-lm="'+i+'" data-a="'+a+'" style="flex:1;min-height:38px;padding:6px">'+a+'</button>').join('')+'</div></div>').join('')+
+    (anyNo?'<div class="card" style="border-color:var(--bad-ink)">'+
+      '<label style="margin-top:0">Something is not right</label>'+
+      '<div class="fld"><label>What is the hazard / issue?</label><input id="lmHaz" value="'+esc(LMX.hazard)+'"></div>'+
+      '<div class="fld"><label>Control / action taken</label><input id="lmAct" value="'+esc(LMX.action)+'"></div>'+
+      '<div class="btnrow" style="margin-top:10px">'+
+      '<button class="btn danger" id="lmStop" style="flex:1">STOP WORK — escalate</button>'+
+      '<button class="btn" id="lmCtrl" style="flex:1">Controls in place — proceed</button></div></div>'
+     :'<div class="btnrow"><button class="btn" id="lmGo" style="flex:1"'+(allAnswered?'':' disabled')+'>All clear — start work</button></div>');
+  document.getElementById('lmWa').onchange=e=>{ LMX.waId=e.target.value; };
+  document.getElementById('lmBy').oninput=e=>{ LMX.by=e.target.value; };
+  app.querySelectorAll('[data-lm]').forEach(b=>b.onclick=()=>{
+    const h=document.getElementById('lmHaz'), a=document.getElementById('lmAct');
+    if(h) LMX.hazard=h.value; if(a) LMX.action=a.value;
+    LMX.ans[b.dataset.lm]=b.dataset.a; renderLmraCheck(); });
+  const doSave=safe=>{
+    if(!LMX.waId){ alert('Select the work activity.'); return; }
+    if(!LMX.by.trim()){ alert('Enter who carried out this LMRA.'); return; }
+    const h=document.getElementById('lmHaz'), a=document.getElementById('lmAct');
+    const rec={id:uid(), date:today(), time:new Date().toTimeString().slice(0,5),
+      waId:LMX.waId, by:LMX.by.trim(),
+      answers:LMRA_QS.map((q,i)=>({q, a:LMX.ans[i]||''})),
+      hazard:h?h.value.trim():'', action:a?a.value.trim():'',
+      safe, resolved:safe!=='STOP'?'Resolved':'Open'};
+    db.lmra.push(rec);
+    audit('lmra','workActivity',LMX.waId,null,{safe, by:rec.by});
+    save(); EV.emit('record:changed',{store:'lmra', id:rec.id});
+    toast(safe==='STOP'?'STOP WORK recorded — activity is now blocked':'LMRA recorded — safe to start');
+    LMX=null; location.hash='#/lmra';
+  };
+  const g=document.getElementById('lmGo'); if(g) g.onclick=()=>doSave('YES');
+  const st=document.getElementById('lmStop'); if(st) st.onclick=()=>doSave('STOP');
+  const ct=document.getElementById('lmCtrl'); if(ct) ct.onclick=()=>doSave('CONTROLS');
+}
+
+/* ---- equipment QR: scan the machine, act in two taps ---- */
+function renderEqQuick(id){
+  const e=db.equipment.find(x=>x.id===id);
+  if(!e){ location.hash='#/equipment'; return; }
+  const label=[e.type,e.regNo].filter(Boolean).join(' ');
+  const rr=checkEquipmentReadiness(e.id,null);
+  const worst=rr.some(r=>r.status==='BLOCK')?'BLOCKED':rr.some(r=>r.status==='WARN')?'WARNINGS':'READY';
+  app.innerHTML=header(label, true)+
+    '<div class="card"><span class="chip '+(worst==='READY'?'g':worst==='BLOCKED'?'b':'w')+'">'+worst+'</span> '+
+    esc([e.owner,e.operator||''].filter(Boolean).join(' · '))+
+    rr.filter(r=>r.status!=='PASS').map(r=>'<div class="hint" style="margin-top:6px">'+esc(r.title)+' — '+esc(r.reason)+'</div>').join('')+'</div>'+
+    '<div class="btnrow" style="flex-direction:column;gap:10px;margin-top:12px">'+
+      '<button class="btn" id="eqPass" style="width:100%">Pre-start check — PASS</button>'+
+      '<button class="btn ghost" id="eqFail" style="width:100%">Pre-start with defects&hellip;</button>'+
+      '<button class="btn ghost" id="eqFault" style="width:100%">Report a fault / observation&hellip;</button>'+
+      '<button class="btn ghost" onclick="location.hash=\'#/equipment/'+e.id+'\'" style="width:100%">Open full record</button></div>';
+  const mkCheck=(result)=>{
+    const rec={id:uid(), date:today(), template:(e.type||'Plant')+' daily pre-start', area:label,
+      equipmentId:e.id, by:raWho(), result, items:[]};
+    db.checklists.push(rec); save(); EV.emit('record:changed',{store:'checklists', id:rec.id});
+    return rec;
+  };
+  document.getElementById('eqPass').onclick=()=>{ mkCheck('Pass'); toast('Pre-start PASS logged for '+label); location.hash='#/'; };
+  document.getElementById('eqFail').onclick=()=>{ const r=mkCheck('Fail'); location.hash='#/checklists/'+r.id; };
+  document.getElementById('eqFault').onclick=()=>{
+    const rec={id:uid(), date:today(), time:new Date().toTimeString().slice(0,5), kind:OBS_NEG,
+      category:'Others', desc:'[Plant fault] '+label+': ', location:label, subcon:e.owner||'',
+      initiator:raWho(), severity:'2', status:'Open'};
+    db.observations.push(rec); save();
+    location.hash='#/observations/'+rec.id;
+  };
+}
+async function renderEqPosters(){
+  const pIds=projectPlantIds();
+  const es=db.equipment.filter(e=>equipOnSite(e,pIds));
+  app.innerHTML=header('Equipment QR posters', true)+
+    '<p class="hint">Print and stick one on each machine — scanning opens that machine’s pre-start / fault page. '+es.length+' machine(s) on this project.</p>'+
+    '<div class="grid" id="qrGrid">'+es.map(e=>'<div class="tile" style="cursor:default"><div class="qrbox" data-eq="'+e.id+'" style="width:110px;height:110px;margin:0 auto 8px"></div>'+
+    '<span class="tl">'+esc([e.type,e.regNo].filter(Boolean).join(' '))+'</span></div>').join('')+'</div>'+
+    (es.length?'<div class="btnrow" style="margin-top:12px"><button class="btn ghost" onclick="window.print()" style="flex:1">Print</button></div>':'');
+  if(!es.length) return;
+  try{ await loadQrLib(); }catch(err){ toast(err.message,true); return; }
+  document.querySelectorAll('.qrbox').forEach(el=>{
+    new QRCode(el,{text:location.origin+location.pathname+'#/eq/'+el.dataset.eq, width:110, height:110, correctLevel:QRCode.CorrectLevel.M});
+  });
+}
+
+/* ---- WhatsApp digest (no infrastructure: share sheet does the sending) ---- */
+function waDigestText(){
+  const L=['KKL CMS summary — '+today()];
+  root.projects.forEach(p=>{
+    const obs=(p.observations||[]).filter(o=>o.status!=='Closed').length;
+    const blk=(p.workActivities||[]).filter(w=>(w.readiness||{}).status==='BLOCKED'&&w.status!=='Completed').length;
+    const inc=(p.incidents||[]).filter(i=>i.status!=='Closed').length;
+    L.push('- '+(p.settings.project||'(project)')+': '+obs+' open obs, '+blk+' blocked activities, '+inc+' open incidents');
+  });
+  const e30=certRows('company').filter(r=>r.days>=0&&r.days<=30).length;
+  const exp=certRows('company').filter(r=>r.days<0).length;
+  L.push('Certs: '+exp+' expired, '+e30+' expiring within 30 days');
+  return L.join('\n');
+}
+function waShareDigest(){ window.open('https://wa.me/?text='+encodeURIComponent(waDigestText())); }
+
+/* ---- subcontractor scorecard (company level) ---- */
+function subconScorecard(){
+  const yr=String(new Date().getFullYear());
+  const names=[...new Set(db.organisations.filter(o=>o.type==='subcon').map(o=>o.name)
+    .concat(db.members.map(m=>m.company||'')))].map(n=>n.trim()).filter(n=>n&&!/^kkl/i.test(n));
+  return names.map(n=>{
+    const L=n.toLowerCase();
+    const workers=db.members.filter(m=>(m.company||'').trim().toLowerCase()===L&&m.status!=='INACTIVE'&&!m.mergedInto);
+    let sic=0;
+    workers.forEach(m=>{ if(root.projects.some(p=>(p.workerProjectAccess||[]).some(a=>a.memberId===m.id&&a.sicStatus==='COMPLETE'))) sic++; });
+    let obs=0, defx=0, inc=0;
+    root.projects.forEach(p=>{
+      obs+=(p.observations||[]).filter(o=>(o.subcon||'').trim().toLowerCase()===L&&o.status!=='Closed').length;
+      defx+=(p.defects||[]).filter(o=>(o.subcon||'').trim().toLowerCase()===L&&o.status!=='Closed').length;
+      inc+=(p.incidents||[]).filter(i=>(i.subcon||'').trim().toLowerCase()===L&&(i.date||'').slice(0,4)===yr).length;
+    });
+    return {n, workers:workers.length, sic, obs, defx, inc};
+  }).filter(r=>r.workers||r.obs||r.defx||r.inc)
+    .sort((a,b)=>(b.obs+b.defx+b.inc)-(a.obs+a.defx+a.inc));
+}
+function subconScorecardHtml(){
+  const rows=subconScorecard();
+  if(!rows.length) return '';
+  return '<h2 class="sect">Subcontractor scorecard</h2>'+
+    '<div style="overflow-x:auto"><table class="mxt" style="min-width:520px"><tr>'+
+    '<th style="text-align:left">Company</th><th>Workers</th><th>SIC %</th><th>Open obs</th><th>Open defects</th><th>Incidents '+new Date().getFullYear()+'</th></tr>'+
+    rows.map(r=>'<tr style="cursor:default"><td style="text-align:left">'+esc(r.n)+'</td><td>'+r.workers+'</td>'+
+      '<td>'+(r.workers?Math.round(100*r.sic/r.workers)+'%':'—')+'</td>'+
+      '<td'+(r.obs?' style="color:#b76e00;font-weight:700"':'')+'>'+r.obs+'</td>'+
+      '<td'+(r.defx?' style="color:#b76e00;font-weight:700"':'')+'>'+r.defx+'</td>'+
+      '<td'+(r.inc?' style="color:#c5221f;font-weight:700"':'')+'>'+r.inc+'</td></tr>').join('')+'</table></div>';
 }
 
 /* ============ cloud sync (Supabase, offline-first) ============
