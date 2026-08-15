@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-16-1500">
+<meta name="build" content="2026-08-17-0900">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -500,7 +500,7 @@ function compressImage(file, cb){
 const KEY='kkl-cms-v1';    /* legacy flat schema — migrated, never deleted */
 const KEY2='kkl-cms-v2';
 const COMPANY_STORES=['members','equipment','training','raLibrary','raMasters','raMasterVersions','legacyDocs','clientTemplates','auditEvents','competencyTypes','workerCompetencies','sicProfiles','organisations','memberPrivate','companyDocs'];
-const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers','workerProjectAccess','sicSessions','locations','layouts','layoutVersions','locGeoms','spatialZones','zoneGeoms','lmra','recurringChecks','visitors'];
+const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers','workerProjectAccess','sicSessions','locations','layouts','layoutVersions','locGeoms','spatialZones','zoneGeoms','lmra','recurringChecks','visitors','siteDiary','materialRequests'];
 const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
 function blankProject(name){
   const p={id:uid(), settings:structuredClone(BLANK.settings), manhours:{}, mandays:{}};
@@ -754,7 +754,8 @@ function goBack(){ if(history.length>1) history.back(); else location.hash='#/';
 const NAV=[
  {group:'Operations', items:[['work','Work Activities','work']]},
  {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic']]},
- {group:'Site',    items:[['layout','Site Layouts','folder'],['locations','Locations','folder'],
+ {group:'Site',    items:[['diary','Site Diary','doc'],['materialRequests','Material Requests','doc'],
+                          ['layout','Site Layouts','folder'],['locations','Locations','folder'],
                           ['contacts','Contacts','contact'],['equipment','Equipment','equip'],
                           ['documents','Documents','doc'],['actions','Actions','act'],['recurringChecks','Recurring Inspections','insp'],['visitors','Visitors','contact']]},
  {group:'Safety',  items:[['lmra','LMRA','check'],['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
@@ -893,6 +894,7 @@ function renderHome(){
     '<h2 class="sect">Operations</h2>'+
     '<div class="grid">'+
       tile('work','Work Activities','work',waBlocked||'')+
+      tile('diary','Site Diary','doc')+
       tile('toolbox','Toolbox Meeting','tbm')+
     '</div>'+
     '<h2 class="sect">Workforce</h2>'+
@@ -979,25 +981,55 @@ function renderList(key){
   const fs=document.getElementById('fSub'); if(fs) fs.onchange=draw;
 }
 
+let PREFILL=null;
 function renderEdit(key, id){
   const mod=MODULES[key];
   const item=id?db[mod.store].find(x=>x.id===id):null;
   if(id && !item){ location.hash='#/'+key; return; }
   curEdit={key,id};
+  /* entry memory: new records prefill remembered fields (who conducted, which
+     provider, ...) and can copy the whole previous entry */
+  let mem={}; try{ mem=item?{}:JSON.parse(localStorage.getItem('kkl-mem-'+key)||'{}'); }catch(e){}
+  const pre=(!item&&PREFILL&&PREFILL.key===key)?PREFILL.vals:null;
+  PREFILL=null;
   app.innerHTML = header((item?'Edit — ':'New — ')+mod.title, true)+
     '<div class="card"><div class="fgrid">'+
     mod.fields.map(f=>{
-      const v=item?item[f.k]:undefined;
+      const v=item?item[f.k]
+        :(pre&&pre[f.k]!==undefined)?pre[f.k]
+        :(f.mem&&mem[f.k]!==undefined)?mem[f.k]
+        :undefined;
       if(f.type==='rows') return rowsHtml(f, v);
       if(f.type==='members') return membersHtml(f, v);
       if(f.type==='photos') return photosHtml(f, v);
       return fieldHtml(f, v);
     }).join('')+
     '</div><div class="btnrow"><button class="btn" id="saveBtn">Save</button>'+
+    ((!item&&mod.copyLast&&db[mod.store].length&&!pre)?'<button class="btn ghost" type="button" id="copyLastBtn">Copy last entry</button>':'')+
     (item?'<button class="btn ghost" title="Print / PDF report" onclick="location.hash=\'#/'+key+'/'+id+'/print\'" style="padding:12px 14px">'+ic('print')+'</button>':'')+
     (item?'<button class="btn danger" id="delBtn">Delete</button>':'')+'</div></div>';
+  const clb=document.getElementById('copyLastBtn');
+  if(clb) clb.onclick=()=>{
+    const last=[...db[mod.store]].sort(mod.sort||((a,b)=>(b.date||'').localeCompare(a.date||'')))[0];
+    if(!last) return;
+    const SKIP=['id','date','time','status','photos','beforePhotos','afterPhotos','checkins','attendees',
+                'closedDate','rectifiedDate','verifiedDate','deliveredDate','qrToken','readiness','overrides','contextSnapshot'];
+    const vals={};
+    mod.fields.forEach(f=>{
+      if(SKIP.includes(f.k)||f.type==='photos') return;
+      if(last[f.k]!==undefined) vals[f.k]=JSON.parse(JSON.stringify(last[f.k]));
+    });
+    PREFILL={key, vals};
+    renderEdit(key, null);
+    toast('Copied from the last entry — adjust and save');
+  };
   document.getElementById('saveBtn').onclick=()=>{
     const obj=collectForm(mod); if(!obj) return;
+    const memFs=mod.fields.filter(f=>f.mem);
+    if(memFs.length){
+      const m={}; memFs.forEach(f=>{ if(obj[f.k]) m[f.k]=obj[f.k]; });
+      try{ localStorage.setItem('kkl-mem-'+key, JSON.stringify(m)); }catch(e){}
+    }
     if(item){ Object.assign(item,obj); }
     else{ obj.id=uid(); db[mod.store].push(obj); }
     if(mod.beforeSave) mod.beforeSave(item||obj);
@@ -1067,6 +1099,7 @@ function route(){
     /* organisations falls through to the generic module below */
   }
   if(key==='layout')   return sub?renderLayoutEditor(sub):renderLayouts();
+  if(key==='diary')    return renderDiary();
   if(key==='lmracheck') return renderLmraCheck();
   if(key==='eq'&&sub)  return renderEqQuick(sub);
   if(key==='eqposters') return renderEqPosters();
@@ -1699,6 +1732,41 @@ const MODULES={
   meta:i=>i.outTime?'<span class="chip n">'+esc(i.inTime||'')+'\u2013'+esc(i.outTime)+'</span>':'<span class="chip g">ON SITE '+esc(i.inTime||'')+'</span>',
   empty:'Site visitor log \u2014 sign in on arrival, sign out on leaving.'},
 
+ materialRequests:{ title:'Material Request', store:'materialRequests',
+  fields:[
+   {k:'date',label:'Date raised',type:'date',req:1,def:'today',half:1},
+   {k:'requestedBy',label:'Requested by',req:1,half:1},
+   {k:'waId',label:'For work activity',type:'select',half:1,opts:()=>[['','\u2014 general \u2014']].concat(db.workActivities.map(w=>[w.id,w.title||w.type]))},
+   {k:'neededBy',label:'Needed on site by',type:'date',half:1},
+   {k:'priority',label:'Priority',type:'select',half:1,opts:['Normal','Urgent']},
+   {k:'status',label:'Status',type:'select',half:1,opts:['Requested','Approved','Ordered','Delivered','Rejected']},
+   {k:'items',label:'Items',type:'rows',add:'Add item',
+    cols:[{k:'desc',label:'Material / item',w:'full'},{k:'qty',label:'Qty'},{k:'unit',label:'Unit'}]},
+   {k:'supplier',label:'Supplier (once known)',half:1},
+   {k:'approvedBy',label:'Approved by',half:1},
+   {k:'deliveredDate',label:'Delivered on',type:'date',half:1},
+   {k:'photos',label:'Delivery / material photos',type:'photos'},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  beforeSave:function(obj){
+    if(!obj.status) obj.status='Requested';
+    const prev=db.materialRequests.find(x=>x.id===obj.id);
+    if(prev&&prev.status!==obj.status)
+      audit('material-status','materialRequest',obj.id,{status:prev.status},{status:obj.status});
+    if(obj.status==='Delivered'&&!obj.deliveredDate) obj.deliveredDate=today();
+  },
+  sort:(a,b)=>(b.date||'').localeCompare(a.date||''),
+  line1:i=>{ const n=(i.items||[]).length; const f=(i.items||[])[0];
+    return esc((f?f.desc:'Material request')+(n>1?' +'+(n-1)+' more':'')); },
+  line2:i=>esc([i.requestedBy,i.neededBy?('needed '+fmtD(i.neededBy)):'',i.supplier].filter(Boolean).join(' \u00b7 ')),
+  meta:i=>{
+    const c=i.status==='Delivered'?'g':i.status==='Rejected'?'n':i.status==='Requested'?'w':'n';
+    let out='<span class="chip '+c+'">'+esc(i.status||'Requested')+'</span>';
+    if(i.priority==='Urgent'&&i.status!=='Delivered'&&i.status!=='Rejected') out='<span class="chip b">URGENT</span>'+out;
+    const d=i.neededBy&&i.status!=='Delivered'&&i.status!=='Rejected'?daysTo(i.neededBy):null;
+    if(d!==null&&d<0) out+='<span class="chip b">late '+(-d)+'d</span>';
+    return out; },
+  empty:'Site material requisitions \u2014 site raises, office approves and orders, delivery confirmed with photos. Keeps requests out of WhatsApp.'},
+
  organisations:{ title:'Organisation', store:'organisations',
   fields:[
    {k:'name',label:'Company name (exactly as used on records)',req:1},
@@ -1941,6 +2009,13 @@ function allOpenActions(){
   /* expired statutory items become corrective actions automatically */
   certRows('site').filter(r=>r.days<0).slice(0,60).forEach(r=>
     add(r.expiry, 'Renew: '+r.name, r.owner+' \u00b7 expired '+fmtD(r.expiry), r.link, 'Cert'));
+  /* material requests approaching or past their needed-by date */
+  db.materialRequests.forEach(m=>{
+    if(m.status==='Delivered'||m.status==='Rejected'||!m.neededBy) return;
+    if((daysTo(m.neededBy)??1)<=3)
+      add(m.neededBy, 'Material: '+(((m.items||[])[0]||{}).desc||'request'),
+          [m.status, m.requestedBy].filter(Boolean).join(' \u00b7 '), '#/materialRequests/'+m.id, 'Material', m.approvedBy||m.requestedBy);
+  });
   /* recurring statutory inspections due/overdue */
   db.recurringChecks.forEach(rc=>{
     const due=recNextDue(rc);
@@ -1954,7 +2029,7 @@ function recNextDue(rc){
   const days=REC_FREQ[rc.freq]||7;
   if(!rc.lastDone) return today();
   const d=new Date(rc.lastDone+'T00:00'); d.setDate(d.getDate()+days);
-  return d.toISOString().slice(0,10);
+  return isoLocal(d);
 }
 function openActionCounts(){
   const acts=allOpenActions();
@@ -5478,6 +5553,125 @@ function subconScorecardHtml(){
       '<td'+(r.defx?' style="color:#b76e00;font-weight:700"':'')+'>'+r.defx+'</td>'+
       '<td'+(r.inc?' style="color:#c5221f;font-weight:700"':'')+'>'+r.inc+'</td></tr>').join('')+'</table></div>';
 }
+
+/* ============ ENTRY MEMORY + SITE DIARY ============ */
+
+/* which modules remember field values / offer copy-last (assigned post-hoc so
+   the module registry itself stays untouched) */
+(function(){
+  const MEMF={observations:['initiator'], inspections:['inspector','type'], checklists:['inspector','template'],
+    meetings:['chairman','venue'], visitors:['host','company'], training:['provider'],
+    workerCompetencies:['issuer'], tbm:['conductor','area'], materialRequests:['requestedBy','supplier']};
+  Object.keys(MEMF).forEach(k=>{ const m=MODULES[k]; if(!m) return;
+    m.fields.forEach(f=>{ if(MEMF[k].includes(f.k)) f.mem=1; }); });
+  ['checklists','inspections','tbm','meetings','workActivities','visitors','training','observations','materialRequests']
+    .forEach(k=>{ if(MODULES[k]) MODULES[k].copyLast=1; });
+})();
+
+/* ---- site diary: assembled from what the app already captured today ---- */
+let DIA={date:today()};
+function diaryRec(d){ return db.siteDiary.find(x=>x.date===d); }
+function diaryShift(days){
+  const dt=new Date(DIA.date+'T00:00'); dt.setDate(dt.getDate()+days);
+  DIA.date=isoLocal(dt); renderDiary();
+}
+function diaryData(d){
+  const tbms=db.tbm.filter(t=>t.date===d);
+  const ids=new Set(); const byCo={};
+  tbms.forEach(t=>{ (t.checkins||[]).forEach(c=>{ if(c.memberId&&!ids.has(c.memberId)){ ids.add(c.memberId);
+      const co=c.company||'—'; byCo[co]=(byCo[co]||0)+1; } });
+    (t.attendees||[]).forEach(id=>{ if(!ids.has(id)){ ids.add(id);
+      const m=db.members.find(x=>x.id===id); const co=(m&&m.company)||'—'; byCo[co]=(byCo[co]||0)+1; } }); });
+  return {
+    tbms,
+    manN:ids.size, byCo,
+    was:db.workActivities.filter(w=>w.status==='Active'||(w.date===d)),
+    lmras:db.lmra.filter(l=>l.date===d),
+    obs:db.observations.filter(o=>o.date===d),
+    incs:db.incidents.filter(i=>i.date===d),
+    insp:db.inspections.filter(i=>i.date===d),
+    chks:db.checklists.filter(c=>c.date===d),
+    vis:db.visitors.filter(v=>v.date===d),
+    plant:db.equipment.filter(e=>equipOnSite(e)),
+    mats:db.materialRequests.filter(m=>m.date===d)
+  };
+}
+function diaryBodyHtml(d, r, x){
+  const li=(arr,fn)=>arr.length?'<ul style="margin:4px 0 0 18px;padding:0">'+arr.map(a=>'<li>'+fn(a)+'</li>').join('')+'</ul>':'<span class="hint">none</span>';
+  return '<div class="card"><label style="margin-top:0">Weather</label>'+(esc(r.weather||'')||'<span class="hint">not captured</span>')+'</div>'+
+    '<div class="card"><label style="margin-top:0">Manpower on site (from toolbox attendance)</label>'+
+      '<b>'+x.manN+'</b> worker(s)'+(Object.keys(x.byCo).length?' — '+Object.entries(x.byCo).map(e=>esc(e[0])+': '+e[1]).join(' · '):'')+'</div>'+
+    '<div class="card"><label style="margin-top:0">Work activities</label>'+li(x.was,w=>esc(w.title||w.type)+(w.location?' — '+esc(w.location):''))+'</div>'+
+    '<div class="card"><label style="margin-top:0">Toolbox meetings ('+x.tbms.length+') &amp; LMRAs ('+x.lmras.length+
+      (x.lmras.some(l=>l.safe==='STOP')?', <b style="color:var(--bad-ink)">STOP WORK raised</b>':'')+')</label>'+
+      li(x.tbms,t=>esc(t.topic||'Toolbox')+' — '+esc(t.conductor||''))+'</div>'+
+    '<div class="card"><label style="margin-top:0">Inspections &amp; checks</label>'+
+      li(x.insp.concat(x.chks),i=>esc(i.type||i.template||'Check')+(i.by?' — '+esc(i.by):''))+'</div>'+
+    '<div class="card"><label style="margin-top:0">Observations ('+x.obs.length+') / Incidents ('+x.incs.length+')</label>'+
+      li(x.obs.concat(x.incs),o=>esc((o.category||o.type||'')+': '+(o.desc||'').split('\n')[0].slice(0,90)))+'</div>'+
+    '<div class="card"><label style="margin-top:0">Plant on site ('+x.plant.length+')</label>'+
+      (x.plant.length?esc(x.plant.map(e=>[e.type,e.regNo].filter(Boolean).join(' ')).join(' · ')):'<span class="hint">none recorded</span>')+'</div>'+
+    '<div class="card"><label style="margin-top:0">Visitors ('+x.vis.length+') · Material requests ('+x.mats.length+')</label>'+
+      li(x.vis,v=>esc(v.name)+(v.company?' ('+esc(v.company)+')':'')+(v.inTime?' '+esc(v.inTime):''))+'</div>';
+}
+function renderDiary(){
+  const d=DIA.date;
+  const r=diaryRec(d)||{date:d, weather:'', notes:'', delays:'', instructions:''};
+  const x=diaryData(d);
+  app.innerHTML=header('Site Diary', true,
+      '<button class="iconbtn" title="Export / print" id="diaExp">'+ic('print')+'</button>')+
+    '<div class="btnrow" style="margin:0 0 10px">'+
+      '<button class="btn ghost" id="diaPrev">&lsaquo;</button>'+
+      '<input type="date" id="diaDate" value="'+d+'" style="flex:1;text-align:center">'+
+      '<button class="btn ghost" id="diaNext"'+(d>=today()?' disabled':'')+'>&rsaquo;</button></div>'+
+    diaryBodyHtml(d,r,x)+
+    '<div class="card"><label style="margin-top:0">Work progress / notes</label>'+
+      '<textarea id="diaNotes" rows="3">'+esc(r.notes||'')+'</textarea>'+
+      '<label>Delays / stoppages / idling</label>'+
+      '<textarea id="diaDelays" rows="2">'+esc(r.delays||'')+'</textarea>'+
+      '<label>Instructions received (RE / SO / client)</label>'+
+      '<textarea id="diaInstr" rows="2">'+esc(r.instructions||'')+'</textarea>'+
+      '<div class="btnrow" style="margin-top:10px">'+
+        '<button class="btn" id="diaSave" style="flex:1">Save diary</button>'+
+        (diaryRec(prevDate(d))?'<button class="btn ghost" id="diaCopy">Copy yesterday’s notes</button>':'')+
+      '</div></div>';
+  document.getElementById('diaPrev').onclick=()=>diaryShift(-1);
+  document.getElementById('diaNext').onclick=()=>diaryShift(1);
+  document.getElementById('diaDate').onchange=e=>{ if(e.target.value){ DIA.date=e.target.value; renderDiary(); } };
+  const saveDia=()=>{
+    let rec=diaryRec(d);
+    if(!rec){ rec={id:'sd-'+d, date:d, weather:''}; db.siteDiary.push(rec); }
+    rec.notes=document.getElementById('diaNotes').value;
+    rec.delays=document.getElementById('diaDelays').value;
+    rec.instructions=document.getElementById('diaInstr').value;
+    if(!rec.weather&&d===today())
+      tbxWeather().then(w=>{ if(w&&w.line){ rec.weather=w.line; save(); if(DIA.date===d) renderDiary(); } }).catch(()=>{});
+    save(); toast('Diary saved for '+fmtD(d));
+    return rec;
+  };
+  document.getElementById('diaSave').onclick=()=>{ saveDia(); renderDiary(); };
+  const cp=document.getElementById('diaCopy');
+  if(cp) cp.onclick=()=>{
+    const y=diaryRec(prevDate(d)); if(!y) return;
+    document.getElementById('diaNotes').value=y.notes||'';
+    document.getElementById('diaDelays').value=y.delays||'';
+    document.getElementById('diaInstr').value=y.instructions||'';
+    toast('Copied from '+fmtD(prevDate(d))+' — edit then Save');
+  };
+  document.getElementById('diaExp').onclick=()=>{
+    const rec=saveDia();
+    const body='<h2>Site Diary — '+esc(fmtD(d))+'</h2>'+
+      '<p>'+esc(db.settings.project||'')+(db.settings.company?' · '+esc(db.settings.company):'')+'</p>'+
+      diaryBodyHtml(d,rec,x)+
+      '<div class="card"><label>Work progress / notes</label>'+esc(rec.notes||'').replace(/\n/g,'<br>')+
+      '<label style="margin-top:10px">Delays</label>'+esc(rec.delays||'').replace(/\n/g,'<br>')+
+      '<label style="margin-top:10px">Instructions received</label>'+esc(rec.instructions||'').replace(/\n/g,'<br>')+'</div>'+
+      '<p class="hint">Assembled automatically by KKL CMS from toolbox attendance, work activities, LMRAs, inspections, observations, incidents, plant and visitor records. Generated '+esc(today())+'.</p>';
+    saveOrDownload('Site Diary','site-diary-'+d+'.html', reportDocHtml('Site Diary — '+fmtD(d), body), 'text/html');
+  };
+}
+function isoLocal(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
+function prevDate(d){ const dt=new Date(d+'T00:00'); dt.setDate(dt.getDate()-1); return isoLocal(dt); }
 
 /* ============ cloud sync (Supabase, offline-first) ============
    Local storage stays the source of truth on-device; changes diff-push to a
