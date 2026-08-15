@@ -724,9 +724,12 @@ function buildNav(){
   const nav=document.getElementById('sidenav');
   nav.innerHTML =
     '<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'Project Home</a>'+
-    NAV.map(g=>'<div class="sn-group">'+g.group+'</div>'+
-      g.items.map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+
-        '<span class="sbdg" data-bdg="'+t[0]+'" style="display:none"></span></a>').join('')).join('')+
+    NAV.map(g=>{
+      const items=g.items.filter(t=>t[0]!=='ra'||canRA());
+      if(!items.length) return '';
+      return '<div class="sn-group">'+g.group+'</div>'+
+      items.map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+
+        '<span class="sbdg" data-bdg="'+t[0]+'" style="display:none"></span></a>').join(''); }).join('')+
     '<div class="sn-group">Admin</div>'+
     '<a class="sn-item" href="#/team" data-nav="team">'+ic('members')+'Team</a>'+
     '<a class="sn-item" href="#/settings" data-nav="settings">'+ic('gear')+'Settings</a>';
@@ -811,7 +814,7 @@ function renderHome(){
       tile('inspections','Inspection','insp')+
       tile('observations','Observation','obs')+
       tile('checklists','Checklist','check')+
-      tile('ra','RA/SWP','ra')+
+      (canRA()?tile('ra','RA/SWP','ra'):'')+
       tile('training','Training','train')+
       tile('meetings','Meeting','meet')+
       tile('incidents','Incident','incid')+
@@ -912,6 +915,12 @@ function route(){
   if(p[0]==='team') return renderTeam();
   if(p[0]==='toolbox') return renderToolbox();
   if(p[0]==='checkin' && p[3]) return renderCheckin(p[1], p[2], decodeURIComponent(p[3]));
+  if((p[0]==='ra'||p[0]==='raimport') && !canRA()){
+    app.innerHTML=header('RA / SWP', true)+
+      '<div class="empty">The RA / SWP register is restricted to '+esc(root.company.name||'the main contractor')+'’s safety personnel<br>(admin / WSHO accounts).</div>';
+    return;
+  }
+  if(p[0]==='raimport') return renderRaImport();
   if(p[0]==='connect' && p[1]){ /* one-tap device setup: #/connect/<base64url cfg> */
     try{
       const cfg=JSON.parse(atob(decodeURIComponent(p[1]).replace(/-/g,'+').replace(/_/g,'/')));
@@ -1277,6 +1286,8 @@ const MODULES={
   empty:'Standard inspection checklists — scaffold, lifting, excavation, WAH, hot work, confined space, housekeeping, electrical.'},
 
  ra:{ title:'RA / SWP', store:'ra',
+  listHeader:()=>(canRA()&&root.projects.length>1)?
+    '<div class="btnrow" style="margin:2px 0 12px"><button class="btn ghost" style="flex:1" onclick="location.hash=\'#/raimport\'">⤓ Import from another project — company RA library</button></div>':'',
   fields:[
    {k:'activity',label:'Work activity',req:1},
    {k:'ref',label:'RA ref no.',half:1},
@@ -2206,9 +2217,56 @@ EV.on('record:deleted',({store,id})=>{
   if(was.length){ was.forEach(recalcWA); save(); }
 });
 EV.on('sync:applied',()=>{                            /* teammate changed something */
+  if(SB.profile && !['admin','wsho'].includes(SB.profile.role)) return; /* partial-data roles must not recompute gates */
   const W=db.workActivities;
   if(W.length){ W.forEach(recalcWA); localStorage.setItem(KEY2, JSON.stringify(root)); }
 });
+
+/* RA/SWP register is restricted to the company's own safety personnel.
+   Unsigned local-only devices see only their own local data, so they pass. */
+function canRA(){ return !SB.profile || ['admin','wsho'].includes(SB.profile.role); }
+
+/* ---- company RA library: import RAs from another project as fresh drafts ---- */
+function renderRaImport(){
+  const others=root.projects.filter(p=>p.id!==root.cur);
+  if(!others.length){ location.hash='#/ra'; return; }
+  let srcId=others[0].id;
+  const draw=()=>{
+    const proj=root.projects.find(p=>p.id===srcId);
+    const ras=(proj.ra||[]);
+    app.innerHTML=header('Import RA / SWP', true)+
+      '<div class="card"><label style="margin-top:0">Company RA library — copy from another project</label>'+
+      '<p class="hint">Copies arrive as <b>Rev A drafts, status "Under review"</b>, with approval cleared — each RA must be reviewed and endorsed for THIS site’s conditions before use (WSH Risk Management Regs).</p>'+
+      '<div class="fld"><label>Copy from project</label><select id="riProj">'+
+        others.map(p=>'<option value="'+p.id+'"'+(p.id===srcId?' selected':'')+'>'+esc(p.settings.project||'(unnamed)')+' — '+(p.ra||[]).length+' RA(s)</option>').join('')+'</select></div>'+
+      (ras.length?'<div style="margin-top:10px">'+ras.map(r=>'<label class="pick" style="display:flex;margin-bottom:6px"><input type="checkbox" data-ra="'+r.id+'">'+
+        '<span>'+esc(r.activity||'(untitled)')+(r.rev?' · Rev '+r.rev:'')+(r.status?' · '+r.status:'')+'</span></label>').join('')+'</div>'
+       :'<div class="empty" style="margin-top:10px">That project has no RA/SWP records.</div>')+
+      '<div class="btnrow"><button class="btn" id="riGo"'+(ras.length?'':' disabled')+'>Import selected</button>'+
+      '<button class="btn ghost" onclick="location.hash=\'#/ra\'">Cancel</button></div></div>';
+    document.getElementById('riProj').onchange=e=>{ srcId=e.target.value; draw(); };
+    document.getElementById('riGo').onclick=()=>{
+      const ids=[...app.querySelectorAll('[data-ra]:checked')].map(c=>c.dataset.ra);
+      if(!ids.length){ alert('Tick at least one RA to import.'); return; }
+      const src=root.projects.find(p=>p.id===srcId);
+      let n=0;
+      ids.forEach(id=>{
+        const orig=(src.ra||[]).find(r=>r.id===id); if(!orig) return;
+        const cp=structuredClone(orig);
+        cp.id=uid(); cp.rev='A'; cp.status='Under review';
+        cp.approved=''; cp.approvedDate=''; cp.reviewDate='';
+        cp.remarks=((cp.remarks?cp.remarks+'\n':'')+
+          'Imported from "'+(src.settings.project||'project')+'" (was Rev '+(orig.rev||'—')+') on '+fmtD(today())+' — review & endorse for this site.');
+        db.ra.push(cp); n++;
+        EV.emit('record:changed',{store:'ra',id:cp.id});
+      });
+      save();
+      toast(n+' RA(s) imported as drafts — review & endorse for this site');
+      location.hash='#/ra';
+    };
+  };
+  draw();
+}
 
 /* ============ SMART TOOLBOX (e-Toolbox) ============
    Activity-driven briefings from a built-in SG-construction hazard library
@@ -2814,6 +2872,7 @@ async function sbAfterLogin(){
   const {data:prof,error}=await SB.client.from('profiles').select('*').eq('id',user.id).single();
   if(error||!prof){ sbSetStatus('err','Signed in, but no profile found — ask your admin to add you (SETUP.md step 5).'); return; }
   SB.profile=prof;
+  buildNav(); /* role may hide restricted modules (RA/SWP) */
   sbSetStatus('ok','Signed in as <b>'+esc(prof.email||user.email||'')+'</b> — role: <b>'+esc(prof.role)+'</b>'+
     (prof.subcon?' ('+esc(prof.subcon)+')':'')+'. Sync is on.');
   try{ await pullNow(); }catch(e){ console.warn('initial pull',e); }
