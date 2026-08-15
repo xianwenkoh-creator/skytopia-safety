@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="build" content="2026-08-15-2330">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -65,6 +66,9 @@
          background:var(--acc); color:#fff; font-size:14px; font-weight:800;}
   .bword{font-size:14.5px; font-weight:750; letter-spacing:.14em;}
   .blogo{height:26px; background:#fff; border-radius:4px; padding:2px 6px; display:block;}
+  #updBar{position:fixed; left:12px; right:12px; bottom:14px; z-index:120; background:var(--acc); color:#fff;
+          font:inherit; font-size:14px; font-weight:750; border:none; border-radius:8px; padding:13px;
+          box-shadow:0 6px 20px rgba(0,0,0,.28); cursor:pointer;}
   .bdiv{width:1px; height:22px; background:rgba(255,255,255,.25); margin:0 8px;}
   .projsel{display:flex; align-items:center; gap:6px; max-width:44vw; background:none; border:none; color:var(--hdr-ink);
            font:inherit; font-size:13.5px; font-weight:600; padding:6px 8px; border-radius:4px; cursor:pointer;}
@@ -2532,6 +2536,31 @@ EV.on('sync:applied',()=>{                            /* teammate changed someth
   const W=db.workActivities;
   if(W.length){ W.forEach(recalcWA); localStorage.setItem(KEY2, JSON.stringify(root)); }
 });
+
+/* ---- new-build detection ----
+   The app is one cached HTML file, so an open tab can run a stale build for
+   days. Poll the first 2KB of our own URL, compare the baked build stamp, and
+   offer a one-tap cache-busted reload when the server has a newer version. */
+let UPD_SHOWN=false;
+async function updCheck(){
+  if(UPD_SHOWN||location.protocol==='file:') return;
+  try{
+    const r=await fetch(location.pathname,{headers:{'Range':'bytes=0-2047'},cache:'no-store'});
+    const t=await r.text();
+    const srv=(/name="build" content="([^"]+)"/.exec(t)||[])[1];
+    const mine=(document.querySelector('meta[name="build"]')||{}).content||'';
+    if(srv&&mine&&srv!==mine){
+      UPD_SHOWN=true;
+      const b=document.createElement('button');
+      b.id='updBar'; b.type='button';
+      b.textContent='App updated — tap to load the new version';
+      b.onclick=()=>{ location.href=location.pathname+'?u='+Date.now()+location.hash; };
+      document.body.appendChild(b);
+    }
+  }catch(e){ /* offline or range unsupported — try again next poll */ }
+}
+setTimeout(updCheck, 8000);
+setInterval(updCheck, 10*60e3);
 
 /* ---- OneDrive filing: daily auto-backup + worker document mirror ----
    Both are best-effort and silent when the Safety folder is not connected or
