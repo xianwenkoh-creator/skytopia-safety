@@ -284,6 +284,27 @@
   .lg-s{font-size:12.5px; color:var(--sub);}
   .lg-err{color:var(--bad-ink); font-size:13px; font-weight:600; margin-top:10px; display:none;}
 
+  /* smart toolbox */
+  .tbx-chips{display:flex; flex-wrap:wrap; gap:7px;}
+  .tbx-chip{border:1px solid var(--line2); background:var(--card); color:var(--ink); border-radius:16px;
+            font:inherit; font-size:13px; font-weight:600; padding:7px 14px; cursor:pointer;}
+  .tbx-chip.on{background:var(--acc); border-color:var(--acc); color:#fff;}
+  .tbx-risk{border-left:3px solid var(--acc); background:var(--bg); border-radius:0 4px 4px 0; padding:9px 12px; margin:8px 0;}
+  .tbx-risk b{display:block; font-size:13.5px;}
+  .tbx-risk span{font-size:12.5px; color:var(--sub);}
+  .tbx-langs{display:flex; gap:6px; flex-wrap:wrap; margin:8px 0;}
+  .tbx-lang{border:1px solid var(--line2); background:var(--card); border-radius:4px; font:inherit; font-size:12.5px;
+            font-weight:700; padding:5px 10px; cursor:pointer; color:var(--ink);}
+  .tbx-lang.on{background:var(--blue); border-color:var(--blue); color:#fff;}
+  .tbx-brief{white-space:pre-wrap; font-size:14.5px; line-height:1.6; background:var(--bg); border:1px solid var(--line);
+             border-radius:4px; padding:12px;}
+  .tbx-qr{display:flex; gap:16px; align-items:center; flex-wrap:wrap;}
+  .tbx-qr .qrbox{background:#fff; padding:10px; border-radius:6px; border:1px solid var(--line);}
+  .tbx-count{font-size:26px; font-weight:750;}
+  .tbx-quiz{background:var(--blue-soft); border:1px solid var(--line); border-radius:4px; padding:10px 12px; margin:8px 0;
+            font-size:13.5px;}
+  .tbx-step{font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--acc); margin-bottom:4px;}
+
   /* sync status dot */
   .syncdot{position:absolute; bottom:5px; right:5px; width:9px; height:9px; border-radius:50%; border:1.5px solid var(--hdr); background:#7a8791;}
   .syncdot.ok{background:#2fbf4f;} .syncdot.err{background:#e04b4b;} .syncdot.off{background:#7a8791;}
@@ -799,9 +820,11 @@ function renderList(key){
   items.sort(mod.sort || ((a,b)=>(b.date||'').localeCompare(a.date||'')));
   const subconField=mod.fields.some(f=>f.k==='subcon');
   const subcons=subconField?[...new Set(items.map(i=>(i.subcon||'').trim()).filter(Boolean))].sort():[];
+  const newHash=mod.newRoute||('#/'+key+'/new');
   app.innerHTML = header(mod.title, true,
       (items.length?'<button class="iconbtn" aria-label="Export CSV" title="Export CSV (Excel)" onclick="exportModuleCsv(\''+key+'\')">'+ic('dl')+'</button>':'')+
-      '<button class="iconbtn" aria-label="Add" onclick="location.hash=\'#/'+key+'/new\'">'+ic('plus')+'</button>')+
+      '<button class="iconbtn" aria-label="Add" onclick="location.hash=\''+newHash+'\'">'+ic('plus')+'</button>')+
+    (mod.listHeader?mod.listHeader(items):'')+
     '<div class="searchwrap" style="display:flex;gap:8px;flex-wrap:wrap">'+
       '<input id="q" type="search" placeholder="Search '+mod.title.toLowerCase()+'&hellip;" autocomplete="off" style="flex:1;min-width:180px">'+
       (subcons.length?'<select id="fSub" style="width:auto;max-width:220px"><option value="">All subcontractors</option>'+
@@ -821,7 +844,7 @@ function renderList(key){
         '<div class="ls">'+(mod.line2?mod.line2(i):'')+'</div></div>'+
         '<div class="lmeta">'+(mod.meta?mod.meta(i):'')+'</div></div>').join('')
      : '<div class="empty">'+((q||sub)?'No matches.':(mod.empty||'No records yet.'))+
-       ((q||sub)?'':'<br><button class="btn" style="margin-top:12px" onclick="location.hash=\'#/'+key+'/new\'">+ Add first record</button>')+'</div>';
+       ((q||sub)?'':'<br><button class="btn" style="margin-top:12px" onclick="location.hash=\''+newHash+'\'">+ Add first record</button>')+'</div>';
   };
   draw();
   document.getElementById('q').oninput=draw;
@@ -873,6 +896,8 @@ function route(){
   }
   if(p[0]==='setpw') return renderSetPw();
   if(p[0]==='team') return renderTeam();
+  if(p[0]==='toolbox') return renderToolbox();
+  if(p[0]==='checkin' && p[3]) return renderCheckin(p[1], p[2], decodeURIComponent(p[3]));
   if(p[0]==='connect' && p[1]){ /* one-tap device setup: #/connect/<base64url cfg> */
     try{
       const cfg=JSON.parse(atob(decodeURIComponent(p[1]).replace(/-/g,'+').replace(/_/g,'/')));
@@ -1103,13 +1128,16 @@ const MODULES={
   meta:i=>i.expiry?expChip(i.expiry):(i.date?'<span class="chip n">'+fmtD(i.date)+'</span>':''),
   empty:'Controlled document register — safety plan, permits, insurances, method statements, MOM correspondence.'},
 
- tbm:{ title:'Toolbox Meeting', store:'tbm',
+ tbm:{ title:'Toolbox Meeting', store:'tbm', newRoute:'#/toolbox',
+  listHeader:items=>tbmDashboardHtml(items),
   fields:[
    {k:'date',label:'Date',type:'date',req:1,def:'today',half:1},
    {k:'time',label:'Time',type:'time',half:1},
    {k:'conductor',label:'Conducted by',req:1},
    {k:'topics',label:"Today's activities & topics briefed",type:'textarea',req:1},
    {k:'hazards',label:'Key hazards & precautions',type:'textarea'},
+   {k:'ptw',label:'Linked ePTW permit no(s).',half:1},
+   {k:'photos',label:'Work area photos',type:'photos'},
    {k:'attendees',label:'Attendance',type:'members'},
    {k:'others',label:'Other attendees (one per line)',type:'textarea',rows:2},
    {k:'remarks',label:'Remarks / feedback from workers',type:'textarea',rows:2}],
@@ -1877,6 +1905,449 @@ function renderSettings(){
   };
 }
 
+/* ============ SMART TOOLBOX (e-Toolbox) ============
+   Activity-driven briefings from a built-in SG-construction hazard library
+   + the project's own RA register; work-area photos; optional AI 60-second
+   brief with multilingual audio; quiz-verified QR attendance; daily hazard
+   spot feeding the actions loop; yesterday's lesson; near-miss carry-forward;
+   and a quality dashboard (attendance % / comprehension % / hazards). */
+const TBX_ACT={
+ 'Excavation & Trenching':{risks:[
+   {h:'Trench collapse — burial and crush death in seconds',c:'Shore/batter/bench >1.5m; no spoil or plant within 1m of edge; competent person inspects daily and after rain'},
+   {h:'Striking underground services — electrocution, gas explosion',c:'Cable detection + trial trench before digging; permit and service plans on hand; hand-dig within 500mm of services'},
+   {h:'Workers struck by excavator — crush injuries',c:'Exclusion zone around swing radius; banksman controls entry; eye contact with operator before approach'},
+   {h:'Flooding of excavation',c:'Pump on standby; evacuate immediately if water rises; check after heavy rain before re-entry'}],
+  quiz:[
+   {q:'The trench starts filling with water. What do you do FIRST?',o:['Keep working, water is shallow','Get everyone out immediately and tell the supervisor','Fetch a pump and keep working'],a:1},
+   {q:'How close may the excavator spoil heap sit to the trench edge?',o:['Right at the edge','At least 1 metre away','Half a metre away'],a:1}]},
+ 'Lifting Operations':{risks:[
+   {h:'Dropped load — fatal crush to anyone below',c:'NEVER stand or walk under a suspended load; exclusion zone barricaded; tag lines used'},
+   {h:'Crane overturning — overload or poor ground',c:'Lifting plan + load chart followed; outriggers fully out on mats; ground checked by LS'},
+   {h:'Failed slings / lifting gear',c:'Gear visually checked before every lift; colour-code current; SWL never exceeded'}],
+  quiz:[
+   {q:'Who is the lifting supervisor for today’s lifts?',o:['Whoever is free','The appointed LS named in the lifting plan','The crane operator'],a:1},
+   {q:'The load must pass over your work area. You should:',o:['Duck and carry on','Move out of the exclusion zone until the lift is over','Help guide it by hand'],a:1}]},
+ 'Scaffolding':{risks:[
+   {h:'Fall from incomplete scaffold — fatal',c:'Only access scaffolds with a current green tag; never remove guardrails or planks; harness on and hooked where required'},
+   {h:'Scaffold collapse',c:'Erected/altered only by approved scaffolders under supervision; ties and braces never removed; loading within design'},
+   {h:'Falling objects from platforms',c:'Toe boards and brick guards in place; no loose material near edges; tools lanyarded'}],
+  quiz:[
+   {q:'The scaffold tag is red/expired. You should:',o:['Use it carefully','Do not use it — report to supervisor','Use only the lower lifts'],a:1},
+   {q:'A guardrail is in your way. You may:',o:['Remove it and put it back later','Never remove it — ask the scaffold team','Step over the edge instead'],a:1}]},
+ 'Work at Height':{risks:[
+   {h:'Fall through open side / opening — fatal',c:'Guardrails or covers on every opening; covers secured and marked; harness 100% hooked where no edge protection'},
+   {h:'Falling tools and material striking workers below',c:'Barricade below WAH zone; tools tethered; nothing stored at edges'},
+   {h:'Fragile surface / ladder misuse',c:'PTW for WAH; ladders footed and tied, 3 points of contact; no work off top rungs'}],
+  quiz:[
+   {q:'Where is today’s exclusion zone below the WAH area?',o:['There isn’t one','As barricaded and shown at this briefing','Only under the crane'],a:1},
+   {q:'Your harness hook cannot reach an anchor. You should:',o:['Work unhooked for a short task','Stop and get a lifeline/anchor installed first','Hook onto the scaffold tube nearest you regardless'],a:1}]},
+ 'Hot Works':{risks:[
+   {h:'Fire / explosion from sparks near combustibles',c:'Hot work permit live; combustibles cleared or covered 10m; fire extinguisher + fire watcher at the point of work'},
+   {h:'Metal fume and arc eye',c:'Ventilation or extraction; welding shield and correct filter; screens protect others'},
+   {h:'Cylinder incidents',c:'Cylinders upright, secured, flashback arrestors fitted; hoses checked; valves closed after work'}],
+  quiz:[
+   {q:'When does the fire watcher stand down?',o:['When welding stops','At least 30 min after work ends, area checked','At lunch'],a:1},
+   {q:'Before cutting starts you must have:',o:['A ladder','A live hot-work permit and extinguisher at hand','A second cylinder'],a:1}]},
+ 'Concreting':{risks:[
+   {h:'Formwork collapse during pour — burial and crush',c:'Formwork inspected and approved by PE/supervisor before pour; pour rate and sequence followed; watch for movement'},
+   {h:'Concrete pump line whip / blockage burst',c:'Never bend over the discharge; clamps secured and checked; only trained pump operators clear blockages'},
+   {h:'Cement burns and eye injury',c:'Gloves, boots, eye protection; wash skin contact immediately; eyewash located before starting'}],
+  quiz:[
+   {q:'The formwork creaks and moves during the pour. You:',o:['Pour slower','Stop the pour and evacuate — report at once','Add more props yourself and continue'],a:1}]},
+ 'Confined Space':{risks:[
+   {h:'Toxic / oxygen-deficient atmosphere — silent, fast death',c:'CS permit + gas test before AND during entry; ventilation running; NEVER enter to rescue without SCBA — raise the alarm'},
+   {h:'Engulfment and entrapment',c:'Isolate all inflows (LOTO); attendant stationed at entry; retrieval line where practicable'}],
+  quiz:[
+   {q:'Your co-worker collapses inside the manhole. You:',o:['Climb in fast to pull him out','Raise the alarm and let the trained rescue team with sets go in','Lower a hose for air'],a:1},
+   {q:'Gas test passed this morning. Before re-entry after lunch you:',o:['Just go in, it passed','Re-test / check continuous monitoring first','Sniff the air at the opening'],a:1}]},
+ 'Electrical Works':{risks:[
+   {h:'Electrocution from live work / damaged cables',c:'LOTO before work; test before touch; only LEW-authorised work on live systems'},
+   {h:'Portable tools and temporary supply faults',c:'RCD/ELCB protection on all temporary supply; cables routed off ground and clear of water; damaged tools tagged out'}],
+  quiz:[
+   {q:'A cable’s insulation is nicked but it still works. You:',o:['Tape it and use it','Tag it out and report — do not use','Use it only for short jobs'],a:1}]},
+ 'Demolition / Hacking':{risks:[
+   {h:'Unplanned structural collapse',c:'Demolition sequence per PE method statement only; no removal of props/supports without instruction; exclusion zones enforced'},
+   {h:'Flying debris and dust',c:'Screens/netting up; goggles + N95/respirator; wet cutting where possible'},
+   {h:'Hitting live services',c:'Services isolated and verified dead before hacking; scan walls/slabs first'}],
+  quiz:[
+   {q:'You find a prop in the way of your hacking. You:',o:['Remove it, it’s just one','Stop — only the engineer can approve removal','Hack around it halfway'],a:1}]},
+ 'Piling':{risks:[
+   {h:'Rig overturning on soft ground',c:'Platform certified (working platform cert); rig mats used; edge distances kept'},
+   {h:'Workers caught by rotating auger / falling spoil',c:'Exclusion zone around rig; no one within slew radius; spoil cleared by machine, not hands'}],
+  quiz:[
+   {q:'The safe distance from a working piling rig is:',o:['1 m','Outside the barricaded exclusion zone','Behind the rig only'],a:1}]},
+ 'Vehicle & Plant Movement':{risks:[
+   {h:'Workers struck by reversing vehicles — a top killer on SG sites',c:'Banksman/traffic controller for every reversing move; reversing alarms + cameras working; hi-vis worn; never walk behind a reversing vehicle'},
+   {h:'Vehicle/pedestrian conflict at access routes',c:'Segregated walkways used — no shortcuts through haul routes; speed limits enforced; eye contact with operator before crossing'}],
+  quiz:[
+   {q:'A tipper starts reversing near you with no banksman. You:',o:['Wave it back yourself','Move clear and stop the move — report it','Walk quickly behind it'],a:1},
+   {q:'Where do you walk to the work area?',o:['Along the haul road, it’s faster','On the marked pedestrian walkway','Anywhere with hi-vis on'],a:1}]},
+ 'General Housekeeping':{risks:[
+   {h:'Slips, trips and falls — the most common injury',c:'Access routes clear; materials stacked stable; waste cleared daily; cables and hoses routed overhead or covered'},
+   {h:'Protruding nails / rebar impalement',c:'De-nail timber immediately; rebar caps on all exposed starter bars'}],
+  quiz:[
+   {q:'You spot a cluster of uncapped starter bars at chest height. You:',o:['Avoid them','Cap or report them before work continues nearby','Hang your bag on them'],a:1}]}
+};
+const TBX_LANGS=[['en','English','en-SG'],['bn','Bangla','bn-BD'],['ta','Tamil','ta-IN'],['zh','中文','zh-CN'],['my','မြန်မာ','my-MM'],['ms','Melayu','ms-MY']];
+
+let TBX=null; /* live draft */
+function tbxBlank(){
+  const t={id:uid(), date:today(), time:new Date().toTimeString().slice(0,5), conductor:'',
+    acts:[], ptw:'', photos:[], briefing:null, translations:null, quiz:[], qrToken:null, qrLive:false,
+    checkins:[], attendees:[], spot:{by:'',desc:'',action:'',photo:null}, weather:null};
+  /* a near miss reported recently auto-selects the related briefing topic */
+  const d7=new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+  const MAP=[[/revers|lorry|tipper|truck|vehicle|traffic/i,'Vehicle & Plant Movement'],[/crane|lift|sling|load/i,'Lifting Operations'],
+    [/scaffold/i,'Scaffolding'],[/trench|excavat|dig/i,'Excavation & Trenching'],[/fall|height|ladder|edge/i,'Work at Height'],
+    [/weld|hot work|cut|spark|fire/i,'Hot Works'],[/confined|manhole|tank/i,'Confined Space'],[/electr|cable|shock/i,'Electrical Works']];
+  db.incidents.filter(i=>i.type==='Near Miss'&&(i.date||'')>=d7).forEach(i=>{
+    MAP.forEach(([re,act])=>{ if(re.test(i.description||'')&&!t.acts.includes(act)) t.acts.push(act); });
+  });
+  return t;
+}
+function tbxRaMatches(acts){
+  const kw=acts.map(a=>a.toLowerCase().split(/[ &\/]+/)).flat().filter(w=>w.length>3);
+  return db.ra.filter(r=>{ const t=(r.activity||'').toLowerCase();
+    return acts.some(a=>t.includes(a.toLowerCase().slice(0,6))) || kw.some(w=>t.includes(w)); });
+}
+function tbxYesterday(){
+  const items=[];
+  const prev=[...db.tbm].sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+  if(prev && prev.spot && prev.spot.desc)
+    items.push({t:'Yesterday’s hazard spot', d:prev.spot.desc+(prev.spot.action?' → '+prev.spot.action:''), photo:prev.spot.photo||null});
+  const d7=new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+  db.incidents.filter(i=>i.type==='Near Miss'&&(i.date||'')>=d7).slice(-2).forEach(i=>
+    items.push({t:'Near miss — '+fmtD(i.date), d:(i.description||'').split('\n')[0], photo:null}));
+  const dy=new Date(Date.now()-3*864e5).toISOString().slice(0,10);
+  db.observations.filter(o=>o.kind!=='Positive observation'&&(o.date||'')>=dy).slice(-2).forEach(o=>
+    items.push({t:'Recent finding — '+esc(o.category||''), d:[o.subitem||o.desc,o.subcon].filter(Boolean).join(' · '),
+      photo:(o.beforePhotos||[])[0]||null}));
+  return items;
+}
+async function tbxWeather(){
+  try{
+    const r=await fetch('https://api.data.gov.sg/v1/environment/2-hour-weather-forecast');
+    const d=await r.json();
+    const fc=(d.items&&d.items[0]&&d.items[0].forecasts)||[];
+    const wet=fc.filter(f=>/rain|shower|thunder/i.test(f.forecast)).length;
+    if(!fc.length) return null;
+    if(wet===0) return {line:'NEA 2-hr nowcast: no rain expected island-wide.', wet:false};
+    return {line:'NEA 2-hr nowcast: rain/showers over '+wet+' of '+fc.length+' areas — lightning risk: STOP work at height, lifting and open-field work when CAT 1 sounds; watch slippery access.', wet:true};
+  }catch(e){ return null; }
+}
+function tbxComposeBrief(){
+  const s=db.settings;
+  const L=[];
+  L.push('TOOLBOX BRIEFING — '+fmtD(TBX.date)+(s.project?' — '+s.project:''));
+  L.push('Today’s work: '+TBX.acts.join(', ')+'.');
+  if(TBX.ptw) L.push('Permits (ePTW): '+TBX.ptw+' — NO PERMIT, NO WORK.');
+  if(TBX.weather) L.push(TBX.weather.line);
+  L.push('');
+  L.push('TOP RISKS TODAY — what can kill or injure you, and what must be in place:');
+  tbxTopRisks().forEach((r,i)=>{ L.push((i+1)+'. '+r.h); L.push('   → '+r.c); });
+  const ra=tbxRaMatches(TBX.acts);
+  if(ra.length) L.push('Refer to RA/SWP: '+ra.map(r=>r.activity+(r.ref?' ('+r.ref+')':'')).join('; ')+'.');
+  const yl=tbxYesterday();
+  if(yl.length){ L.push(''); L.push('YESTERDAY’S LESSON: '+yl[0].t+' — '+yl[0].d); }
+  L.push('');
+  L.push('Look at the photos of today’s work area: WHAT IS WRONG OR COULD GO WRONG HERE? Speak up now.');
+  return L.join('\n');
+}
+function tbxTopRisks(){
+  const out=[];
+  TBX.acts.forEach(a=>{ (TBX_ACT[a]?TBX_ACT[a].risks:[]).forEach(r=>out.push(r)); });
+  return out.slice(0,3+Math.max(0,TBX.acts.length-1));
+}
+function tbxQuizBank(){
+  const qs=[];
+  TBX.acts.forEach(a=>{ (TBX_ACT[a]?TBX_ACT[a].quiz:[]).forEach(q=>qs.push(q)); });
+  return qs;
+}
+function tbxSpeak(text, langCode){
+  try{
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang=langCode; u.rate=0.95;
+    const v=speechSynthesis.getVoices().find(v=>v.lang && v.lang.toLowerCase().startsWith(langCode.split('-')[0]));
+    if(v) u.voice=v;
+    speechSynthesis.speak(u);
+  }catch(e){ toast('Audio not available on this device', true); }
+}
+let qrLibP=null;
+function loadQrLib(){
+  if(window.QRCode) return Promise.resolve();
+  if(qrLibP) return qrLibP;
+  qrLibP=new Promise((res,rej)=>{ const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
+    s.onload=res; s.onerror=()=>{qrLibP=null;rej(new Error('QR library failed to load'))};
+    document.head.appendChild(s); });
+  return qrLibP;
+}
+async function tbxAiBrief(){
+  /* optional AI layer: refined 60-second brief + translations via edge fn */
+  if(!SB.client||!SB.profile) return null;
+  const cfg=sbCfg();
+  const {data:{session}}=await SB.client.auth.getSession();
+  if(!session) return null;
+  const body={activities:TBX.acts, ptw:TBX.ptw, weather:TBX.weather?TBX.weather.line:null,
+    risks:tbxTopRisks(), yesterday:tbxYesterday().map(y=>y.t+': '+y.d),
+    ra:tbxRaMatches(TBX.acts).map(r=>({activity:r.activity, hazards:(r.hazards||[]).slice(0,4).map(h=>h.desc+' | controls: '+h.controls)})),
+    photos:TBX.photos.slice(0,3)};
+  const r=await fetch(cfg.url+'/functions/v1/brief',{method:'POST',
+    headers:{'Authorization':'Bearer '+session.access_token,'apikey':cfg.anon,'Content-Type':'application/json'},
+    body:JSON.stringify(body)});
+  if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||('HTTP '+r.status));
+  return await r.json();  /* {brief_en, photo_hazards[], translations:{bn,ta,zh,my,ms}} */
+}
+function tbmDashboardHtml(items){
+  const d30=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+  const recent=items.filter(i=>(i.date||'')>=d30);
+  if(!recent.length) return '';
+  const roster=Math.max(1,db.members.length);
+  let att=0, quizN=0, quizOk=0, spots=0, closed=0, overdue=0;
+  recent.forEach(t=>{
+    const n=(t.attendees||[]).length+((t.checkins||[]).filter(c=>!c.memberId).length)+((t.others||'').split('\n').filter(x=>x.trim()).length);
+    att+=Math.min(1,n/roster);
+    (t.checkins||[]).forEach(c=>{ if(c.answer!==undefined&&c.answer!==null){ quizN++; if(c.correct) quizOk++; } });
+    if(t.spot&&t.spot.desc){ spots++;
+      const o=t.spot.obsId?db.observations.find(x=>x.id===t.spot.obsId):null;
+      if(o){ if(o.status==='Closed') closed++; else if(o.due&&daysTo(o.due)<0) overdue++; }
+    }
+  });
+  const pct=v=>Math.round(v*100)+'%';
+  const tile=(v,l,cls)=>'<div class="stile"><div class="v'+(cls?' '+cls:'')+'">'+v+'</div><div class="l">'+l+'</div></div>';
+  return '<div class="tiles" style="margin-top:2px">'+
+    tile(recent.length,'TBM held (30d)')+
+    tile(pct(att/recent.length),'Avg attendance')+
+    tile(quizN?pct(quizOk/quizN):'—','Comprehension','g')+
+    tile(spots,'Hazards raised')+
+    tile(closed,'Closed','g')+
+    tile(overdue,'Overdue',overdue?'b':'')+
+  '</div>';
+}
+
+function renderToolbox(){
+  if(!TBX) TBX=tbxBlank();
+  const t=TBX;
+  const yl=tbxYesterday();
+  const actChips=Object.keys(TBX_ACT).map(a=>'<button type="button" class="tbx-chip'+(t.acts.includes(a)?' on':'')+'" data-act="'+esc(a)+'">'+esc(a)+'</button>').join('');
+  const risks=t.acts.length?tbxTopRisks().map((r,i)=>'<div class="tbx-risk"><b>'+(i+1)+'. '+esc(r.h)+'</b><span>'+esc(r.c)+'</span></div>').join(''):'<div class="hint">Select today’s activities above — the briefing builds itself.</div>';
+  const quiz=tbxQuizBank();
+  const q=quiz.length?quiz[new Date(t.date+'T00:00').getDate()%quiz.length]:null;
+  const briefText=t.briefing||(t.acts.length?tbxComposeBrief():'');
+  app.innerHTML = header('Smart Toolbox', true)+
+   '<div class="card"><div class="tbx-step">1 · Today</div><div class="fgrid">'+
+     '<div class="fld half"><label>Date</label><input id="tbxDate" type="date" value="'+esc(t.date)+'"></div>'+
+     '<div class="fld half"><label>Time</label><input id="tbxTime" type="time" value="'+esc(t.time)+'"></div>'+
+     '<div class="fld half"><label>Conducted by *</label><input id="tbxCond" value="'+esc(t.conductor)+'" list="dl-tbxc"><datalist id="dl-tbxc">'+
+       db.members.map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist></div>'+
+     '<div class="fld half"><label>Linked ePTW permit no(s).</label><input id="tbxPtw" value="'+esc(t.ptw)+'" placeholder="e.g. PTW-0231, PTW-0232"></div>'+
+   '</div>'+(t.weather?'<p class="hint" style="margin-top:8px">'+esc(t.weather.line)+'</p>':'')+'</div>'+
+   (yl.length?'<div class="card"><div class="tbx-step">2 · Yesterday’s lesson — start with this</div>'+
+     yl.map(y=>'<div class="lrow" style="cursor:default">'+(y.photo?'<div class="thumb" style="width:56px;height:56px"><img src="'+y.photo+'"></div>':'')+
+       '<div class="lmain"><div class="lt" style="color:var(--ink)">'+esc(y.t)+'</div><div class="ls" style="white-space:normal">'+esc(y.d)+'</div></div></div>').join('')+'</div>':'')+
+   '<div class="card"><div class="tbx-step">3 · Today’s work — tap all that apply</div><div class="tbx-chips">'+actChips+'</div></div>'+
+   '<div class="card"><div class="tbx-step">4 · Work area photos — "What is wrong here?"</div>'+
+     '<p class="hint">Take 2–3 photos of the actual work area before the meeting. Workers discuss the real site, not stock pictures.</p>'+
+     '<div class="thumbs" id="tbxThumbs">'+t.photos.map(p=>'<div class="thumb"><img src="'+p+'"><button type="button" class="rmp" data-rmphoto>×</button></div>').join('')+'</div>'+
+     '<button type="button" class="minor" id="tbxAddPhoto">+ Add photo</button>'+
+     '<input type="file" accept="image/*" capture="environment" hidden id="tbxPhotoFile">'+
+   '</div>'+
+   '<div class="card"><div class="tbx-step">5 · 60-second briefing</div>'+
+     risks+
+     (t.acts.length?'<div class="tbx-langs" id="tbxLangs">'+TBX_LANGS.map((l,i)=>'<button type="button" class="tbx-lang'+(i===0?' on':'')+'" data-lang="'+l[0]+'" data-tts="'+l[2]+'">'+l[1]+'</button>').join('')+
+       '<button type="button" class="tbx-lang" id="tbxSpeak" title="Read aloud">🔊 Play</button></div>'+
+     '<div class="tbx-brief" id="tbxBrief">'+esc(briefText)+'</div>'+
+     '<div class="btnrow" style="margin-top:10px"><button type="button" class="btn ghost" id="tbxAi" style="flex:1">✨ AI: refine + translate (uses site photos)</button></div>'+
+     '<p class="hint" id="tbxAiHint">Without AI the built-in library briefing above is used. AI adds a tighter 60-second version, reads the photos for hazards, and translates for your workers.</p>':'')+
+   '</div>'+
+   (q?'<div class="card"><div class="tbx-step">6 · Check understanding — ask one worker</div>'+
+     '<div class="tbx-quiz"><b>'+esc(q.q)+'</b><br>'+q.o.map((o,i)=>String.fromCharCode(65+i)+') '+esc(o)).join(' &nbsp; ')+
+     '<br><span class="hint">Answer: '+String.fromCharCode(65+q.a)+'</span></div>'+
+     '<p class="hint">QR check-in below asks every worker a random question from today’s set — proving understanding, not just attendance.</p></div>':'')+
+   '<div class="card"><div class="tbx-step">7 · Attendance</div>'+
+     '<div class="btnrow" style="margin-top:2px"><button type="button" class="btn ghost" id="tbxQrBtn" style="flex:1">'+(t.qrLive?'QR check-in is LIVE':'Start QR check-in (workers scan at the meeting)')+'</button></div>'+
+     '<div id="tbxQrWrap" style="display:'+(t.qrLive?'block':'none')+';margin-top:12px"><div class="tbx-qr">'+
+       '<div class="qrbox" id="tbxQrBox"></div>'+
+       '<div><div class="tbx-count" id="tbxCount">'+t.checkins.length+'</div><div class="hint">checked in · <span id="tbxOk">'+t.checkins.filter(c=>c.correct).length+'</span> answered correctly</div>'+
+       '<button type="button" class="minor" id="tbxRefresh" style="width:auto;padding:6px 12px">Refresh</button></div>'+
+     '</div><p class="hint">Workers scan at the physical meeting spot, pick their name and answer one question. Needs signal; use the list below when offline.</p></div>'+
+     '<label style="margin-top:14px">Or tick attendance manually</label>'+
+     membersHtml({k:'tbxAtt',label:''}, t.attendees).replace('<label></label>','')+
+   '</div>'+
+   '<div class="card"><div class="tbx-step">8 · Point out a hazard — one worker, every day</div><div class="fgrid">'+
+     '<div class="fld half"><label>Spotted by</label><input id="tbxSpotBy" value="'+esc(t.spot.by)+'" list="dl-tbxc"></div>'+
+     '<div class="fld half"><label>Corrective action</label><input id="tbxSpotAct" value="'+esc(t.spot.action)+'"></div>'+
+     '<div class="fld"><label>Hazard found</label><textarea id="tbxSpotDesc" rows="2">'+esc(t.spot.desc)+'</textarea></div>'+
+   '</div>'+
+     '<div class="thumbs" id="tbxSpotThumb">'+(t.spot.photo?'<div class="thumb"><img src="'+t.spot.photo+'"><button type="button" class="rmp" data-rmspot>×</button></div>':'')+'</div>'+
+     '<button type="button" class="minor" id="tbxSpotPhotoBtn">+ Photo of the hazard</button>'+
+     '<input type="file" accept="image/*" capture="environment" hidden id="tbxSpotFile">'+
+     '<p class="hint">Saved as an open Observation so it gets tracked to closure — and it becomes tomorrow’s "yesterday’s lesson".</p>'+
+   '</div>'+
+   '<div class="btnrow"><button class="btn" id="tbxSave">Save toolbox meeting</button>'+
+   '<button class="btn ghost" onclick="if(confirm(\'Discard this toolbox meeting?\')){TBX=null;location.hash=\'#/tbm\';}">Discard</button></div>';
+
+  /* wire */
+  const upd=()=>{ t.date=document.getElementById('tbxDate').value; t.time=document.getElementById('tbxTime').value;
+    t.conductor=document.getElementById('tbxCond').value; t.ptw=document.getElementById('tbxPtw').value;
+    t.spot.by=document.getElementById('tbxSpotBy').value; t.spot.action=document.getElementById('tbxSpotAct').value;
+    t.spot.desc=document.getElementById('tbxSpotDesc').value;
+    const pg=app.querySelector('.pickgrid[data-f="tbxAtt"]');
+    if(pg) t.attendees=[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid); };
+  app.querySelectorAll('#tbxDate,#tbxTime,#tbxCond,#tbxPtw,#tbxSpotBy,#tbxSpotAct,#tbxSpotDesc').forEach(el=>el.addEventListener('change',upd));
+  app.addEventListener('change',e=>{ if(e.target.closest('.pickgrid[data-f="tbxAtt"]')) upd(); });
+  app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{ upd();
+    const a=b.dataset.act;
+    t.acts=t.acts.includes(a)?t.acts.filter(x=>x!==a):[...t.acts,a];
+    t.briefing=null; t.translations=null; renderToolbox(); });
+  if(!t.weather) tbxWeather().then(w=>{ if(w&&TBX===t){ t.weather=w; if(location.hash==='#/toolbox') renderToolbox(); } });
+  document.getElementById('tbxAddPhoto').onclick=()=>{ if(t.photos.length>=3){alert('Max 3 photos.');return;} document.getElementById('tbxPhotoFile').click(); };
+  document.getElementById('tbxPhotoFile').onchange=e=>{ const f=e.target.files[0]; e.target.value='';
+    if(f) compressImage(f,d=>{ upd(); t.photos.push(d); renderToolbox(); }); };
+  app.querySelectorAll('[data-rmphoto]').forEach((b,i)=>b.onclick=()=>{ upd(); t.photos.splice(i,1); renderToolbox(); });
+  document.getElementById('tbxSpotPhotoBtn').onclick=()=>document.getElementById('tbxSpotFile').click();
+  document.getElementById('tbxSpotFile').onchange=e=>{ const f=e.target.files[0]; e.target.value='';
+    if(f) compressImage(f,d=>{ upd(); t.spot.photo=d; renderToolbox(); }); };
+  const rmspot=app.querySelector('[data-rmspot]'); if(rmspot) rmspot.onclick=()=>{ upd(); t.spot.photo=null; renderToolbox(); };
+  /* language tabs + TTS */
+  let curLang='en', curTts='en-SG';
+  const briefFor=l=>l==='en'?(t.briefing||tbxComposeBrief()):((t.translations||{})[l]||'(No '+l+' translation yet — tap "AI: refine + translate".)');
+  app.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>{
+    app.querySelectorAll('[data-lang]').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    curLang=b.dataset.lang; curTts=b.dataset.tts;
+    document.getElementById('tbxBrief').textContent=briefFor(curLang);
+  });
+  const sp=document.getElementById('tbxSpeak'); if(sp) sp.onclick=()=>tbxSpeak(briefFor(curLang), curTts);
+  const aiBtn=document.getElementById('tbxAi');
+  if(aiBtn) aiBtn.onclick=async()=>{
+    upd(); aiBtn.disabled=true; aiBtn.textContent='✨ Generating…';
+    try{
+      const r=await tbxAiBrief();
+      if(!r) throw new Error('Sign in to cloud sync to use AI briefings.');
+      t.briefing=r.brief_en+(r.photo_hazards&&r.photo_hazards.length?'\n\nFROM TODAY’S PHOTOS:\n'+r.photo_hazards.map(h=>'• '+h).join('\n'):'');
+      t.translations=r.translations||{};
+      renderToolbox(); toast('AI briefing ready — tap a language, then 🔊 Play');
+    }catch(e){ alert('AI briefing unavailable: '+(e.message||e)); aiBtn.disabled=false; aiBtn.textContent='✨ AI: refine + translate (uses site photos)'; }
+  };
+  /* QR check-in */
+  document.getElementById('tbxQrBtn').onclick=async()=>{
+    upd();
+    if(!t.acts.length){ alert('Pick today’s activities first — the check-in question comes from them.'); return; }
+    if(!SB.client||!SB.profile){ alert('QR check-in needs cloud sync (sign in first). Use manual attendance instead.'); return; }
+    try{
+      if(!t.qrLive){
+        t.qrToken=uid()+uid();
+        t.quiz=tbxQuizBank();
+        tbxPersist(false);            /* draft record so workers’ phones can reach it */
+        await pushNow();
+        t.qrLive=true;
+      }
+      renderToolbox();
+      await loadQrLib();
+      const url=location.origin+location.pathname+'#/checkin/'+curProj().id+'/'+t.id+'/'+t.qrToken;
+      const box=document.getElementById('tbxQrBox'); box.innerHTML='';
+      new QRCode(box,{text:url,width:170,height:170});
+    }catch(e){ alert('Could not start QR check-in: '+(e.message||e)); }
+  };
+  if(t.qrLive){ loadQrLib().then(()=>{ const box=document.getElementById('tbxQrBox');
+    if(box&&!box.childElementCount){ const url=location.origin+location.pathname+'#/checkin/'+curProj().id+'/'+t.id+'/'+t.qrToken;
+      new QRCode(box,{text:url,width:170,height:170}); } }).catch(()=>{}); }
+  const rf=document.getElementById('tbxRefresh');
+  if(rf) rf.onclick=async()=>{ rf.textContent='Refreshing…';
+    try{ await pullNow(); const rec=db.tbm.find(x=>x.id===t.id);
+      if(rec){ t.checkins=rec.checkins||[]; document.getElementById('tbxCount').textContent=t.checkins.length;
+        document.getElementById('tbxOk').textContent=t.checkins.filter(c=>c.correct).length; } }
+    catch(e){} rf.textContent='Refresh'; };
+  document.getElementById('tbxSave').onclick=()=>{
+    upd();
+    if(!t.conductor.trim()){ alert('Enter who conducted the meeting.'); return; }
+    if(!t.acts.length){ alert('Select at least one activity.'); return; }
+    tbxPersist(true);
+    TBX=null;
+    location.hash='#/tbm';
+  };
+}
+function tbxPersist(final){
+  const t=TBX;
+  /* hazard spot -> tracked observation (once) */
+  if(final && t.spot.desc && !t.spot.obsId){
+    const obs={id:uid(), kind:'Safety non-compliance', date:t.date, time:t.time, initiator:t.spot.by||t.conductor,
+      category:'Housekeeping / General', desc:'TBM hazard spot: '+t.spot.desc+(t.spot.action?'\nAction: '+t.spot.action:''),
+      severity:'Minor', status:'Open', due:new Date(Date.now()+3*864e5).toISOString().slice(0,10),
+      beforePhotos:t.spot.photo?[t.spot.photo]:[], afterPhotos:[]};
+    db.observations.push(obs);
+    t.spot.obsId=obs.id;
+  }
+  const brief=t.briefing||tbxComposeBrief();
+  const risks=tbxTopRisks().map((r,i)=>(i+1)+'. '+r.h+' — '+r.c).join('\n');
+  const auto=[
+    'Attendance: '+(t.attendees.length+t.checkins.length)+' ('+t.checkins.length+' via QR check-in'+
+      (t.checkins.length?', '+t.checkins.filter(c=>c.correct).length+' answered the check question correctly':'')+')',
+    t.spot.desc?('Hazard spotted by '+(t.spot.by||'worker')+': '+t.spot.desc+(t.spot.action?' → '+t.spot.action:'')+' (tracked as observation)'):'',
+    t.weather?t.weather.line:''
+  ].filter(Boolean).join('\n');
+  const rec={id:t.id, date:t.date, time:t.time, conductor:t.conductor,
+    topics:brief, hazards:risks, ptw:t.ptw, photos:t.photos,
+    attendees:t.attendees, others:t.checkins.filter(c=>!c.memberId).map(c=>c.name).join('\n'),
+    remarks:auto,
+    activities:t.acts, briefing:t.briefing, translations:t.translations, quiz:t.quiz,
+    qrToken:t.qrToken, checkins:t.checkins, spot:t.spot, weather:t.weather?t.weather.line:null, draft:!final};
+  const i=db.tbm.findIndex(x=>x.id===t.id);
+  if(i>=0) db.tbm[i]=rec; else db.tbm.push(rec);
+  save();
+}
+/* public worker check-in page (opened from the QR code; no login) */
+async function renderCheckin(projId, tbmId, token){
+  GATED=false; document.body.classList.add('gated'); /* clean, chrome-less page */
+  app.innerHTML='<div class="login"><div class="lg-card" id="ciCard">'+
+    '<div class="lg-brand"><span class="bmark">S</span><div><div class="lg-t">TOOLBOX CHECK-IN</div><div class="lg-s">Loading…</div></div></div></div></div>';
+  const cfg=sbCfg();
+  const call=async body=>{
+    const r=await fetch(cfg.url+'/functions/v1/tbm-checkin',{method:'POST',
+      headers:{'apikey':cfg.anon,'Authorization':'Bearer '+cfg.anon,'Content-Type':'application/json'},
+      body:JSON.stringify(Object.assign({projectId:projId,tbmId,token},body))});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status));
+    return d;
+  };
+  const card=document.getElementById('ciCard');
+  let info;
+  try{ info=await call({action:'info'}); }
+  catch(e){ card.innerHTML='<div class="lg-t">Check-in unavailable</div><p class="hint">'+esc(e.message||e)+'</p>'; return; }
+  const q=info.question;
+  card.innerHTML='<div class="lg-brand"><span class="bmark">S</span><div><div class="lg-t">TOOLBOX CHECK-IN</div><div class="lg-s">'+esc(info.project||'')+' · '+esc(info.date||'')+'</div></div></div>'+
+    '<label style="margin-top:2px">Your name</label>'+
+    '<input id="ciName" list="ciNames" autocomplete="off" placeholder="Pick or type your name">'+
+    '<datalist id="ciNames">'+(info.members||[]).map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist>'+
+    '<label>Company</label><input id="ciCo" placeholder="Your company">'+
+    (q?'<div class="tbx-quiz" style="margin-top:14px"><b>'+esc(q.q)+'</b></div>'+
+      q.o.map((o,i)=>'<button type="button" class="btn ghost ciAns" data-i="'+i+'" style="display:block;width:100%;text-align:left;margin-top:6px">'+String.fromCharCode(65+i)+') '+esc(o)+'</button>').join(''):'')+
+    '<div class="lg-err" id="ciErr"></div>'+
+    '<div class="btnrow"><button class="btn" id="ciGo" style="flex:1"'+(q?' disabled':'')+'>Check in</button></div>';
+  let ans=null;
+  card.querySelectorAll('.ciAns').forEach(b=>b.onclick=()=>{
+    card.querySelectorAll('.ciAns').forEach(x=>{x.style.borderColor='';x.style.background='';});
+    b.style.borderColor='var(--acc)'; b.style.background='var(--acc-soft)';
+    ans=+b.dataset.i; document.getElementById('ciGo').disabled=false; });
+  document.getElementById('ciGo').onclick=async()=>{
+    const name=document.getElementById('ciName').value.trim();
+    if(!name){ const e=document.getElementById('ciErr'); e.textContent='Enter your name.'; e.style.display='block'; return; }
+    const btn=document.getElementById('ciGo'); btn.disabled=true; btn.textContent='Checking in…';
+    try{
+      const m=(info.members||[]).find(x=>x.name.toLowerCase()===name.toLowerCase());
+      const res=await call({action:'submit', name, memberId:m?m.id:null,
+        company:document.getElementById('ciCo').value.trim(), qIdx:q?info.qIdx:null, answer:ans});
+      card.innerHTML='<div class="lg-brand"><span class="bmark" style="background:'+(res.correct===false?'#e0a030':'#2fbf4f')+'">✓</span>'+
+        '<div><div class="lg-t">Checked in</div><div class="lg-s">'+esc(name)+'</div></div></div>'+
+        (res.correct===true?'<p style="font-weight:650;color:var(--good-ink)">Correct — stay safe today.</p>':'')+
+        (res.correct===false?'<p style="font-weight:650;color:var(--warn-ink)">Not quite — your supervisor will go through it with you. The right answer: '+esc(q.o[res.answerKey])+'</p>':'')+
+        '<p class="hint">You can close this page.</p>';
+    }catch(e){ const el=document.getElementById('ciErr'); el.textContent=e.message||'Failed'; el.style.display='block';
+      btn.disabled=false; btn.textContent='Check in'; }
+  };
+}
+
 /* ============ cloud sync (Supabase, offline-first) ============
    Local storage stays the source of truth on-device; changes diff-push to a
    `records` table (JSONB rows keyed org/project/store/id) and pull back
@@ -2262,7 +2733,7 @@ function unGate(){ GATED=false; document.body.classList.remove('gated'); }
 
 initShell();
 (async()=>{
-  const authLink=/^#access_token=|^#error/.test(location.hash);
+  const authLink=/^#access_token=|^#error/.test(location.hash) || /^#\/checkin\//.test(location.hash);
   const cfg=sbCfg();
   if(cfg && cfg.url && !authLink && !localStorage.getItem('kkl-local-ok')){
     renderLanding();
