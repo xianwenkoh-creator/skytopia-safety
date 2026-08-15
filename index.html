@@ -1142,6 +1142,9 @@ const MODULES={
     cols:[{k:'name',label:'Cert (e.g. CSOC, WAH)',w:'full'},{k:'no',label:'Cert no.'},{k:'expiry',label:'Expiry',type:'date'}]},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
   sort:(a,b)=>(a.name||'').localeCompare(b.name||''),
+  listHeader:items=>items.length?'<div style="margin:0 0 10px">'+
+    '<button class="btn ghost" onclick="exportSicCsv()">SIC register export</button>'+
+    '<span class="hint" style="margin-left:8px">'+items.filter(m=>!m.sicDate).length+' without an SIC date</span></div>':'',
   line1:i=>esc(i.name),
   line2:i=>esc([i.wid,i.company,i.trade].filter(Boolean).join(' · ')),
   meta:i=>{ const ds=[i.wpExpiry,...(i.certs||[]).map(c=>c.expiry)].filter(Boolean).map(daysTo).filter(d=>d!==null);
@@ -1711,6 +1714,20 @@ function exportModuleCsv(key){
   const lines=[heads.map(csvEsc).join(',')]
     .concat(items.map(i=>getters.map(g=>csvEsc(g(i))).join(',')));
   saveOrDownload(DIRMAP[key]||'Registers', mod.store+'-'+today()+'.csv', lines.join('\r\n'), 'text/csv;charset=utf-8');
+}
+/* SIC (safety induction) register: the fields induction registration and the
+   site induction record normally ask for, one row per worker. */
+function exportSicCsv(){
+  const items=[...db.members].sort((a,b)=>(a.company||'').localeCompare(b.company||'')||(a.name||'').localeCompare(b.name||''));
+  const heads=['S/N','Worker ID','Full name','NRIC / FIN (masked)','Company','Trade / designation','Phone',
+    'Work pass expiry','SIC date','SIC status','Competency certs (name / no. / expiry)','Remarks'];
+  const lines=[heads.map(csvEsc).join(',')].concat(items.map((m,i)=>[
+    i+1, m.wid||'', m.name||'', m.idno||'', m.company||'', m.trade||'', m.phone||'',
+    m.wpExpiry||'', m.sicDate||'', m.sicDate?'Completed':'PENDING',
+    (m.certs||[]).map(c=>[c.name,c.no,c.expiry].filter(Boolean).join(' / ')).join(' | '),
+    m.remarks||''
+  ].map(csvEsc).join(',')));
+  saveOrDownload('Registers','SIC-register-'+today()+'.csv',lines.join('\r\n'),'text/csv;charset=utf-8');
 }
 
 /* ============ statistics ============ */
@@ -3552,9 +3569,9 @@ async function renderCheckin(projId, tbmId, token){
     '<input id="ciWid" list="ciWids" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CEHYG01">'+
     '<datalist id="ciWids">'+mems.filter(m=>m.wid).map(m=>'<option value="'+esc(m.wid)+'">'+esc(m.name)+'</option>').join('')+'</datalist>'+
     '<div class="hint" id="ciWho" style="min-height:18px;margin:4px 0 2px"></div>'+
-    '<label>No worker ID? Enter your name</label>'+
-    '<input id="ciName" list="ciNames" autocomplete="off" placeholder="Pick or type your name">'+
-    '<datalist id="ciNames">'+mems.map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist>'+
+    '<label>Registered without an ID? Pick your name</label>'+
+    '<input id="ciName" list="ciNames" autocomplete="off" placeholder="Must match the worker register">'+
+    '<datalist id="ciNames">'+mems.filter(m=>!m.wid).map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist>'+
     '<label>Company</label><input id="ciCo" placeholder="Your company">'+
     (q?'<div class="tbx-quiz" style="margin-top:14px"><b>'+esc(q.q)+'</b></div>'+
       q.o.map((o,i)=>'<button type="button" class="btn ghost ciAns" data-i="'+i+'" style="display:block;width:100%;text-align:left;margin-top:6px">'+String.fromCharCode(65+i)+') '+esc(o)+'</button>').join(''):'')+
@@ -3576,12 +3593,14 @@ async function renderCheckin(projId, tbmId, token){
     ans=+b.dataset.i; document.getElementById('ciGo').disabled=false; });
   document.getElementById('ciGo').onclick=async()=>{
     const typed=document.getElementById('ciName').value.trim();
-    const name=widM?widM.name:typed;
-    if(!name){ const e=document.getElementById('ciErr'); e.textContent='Enter your worker ID or your name.'; e.style.display='block'; return; }
+    const m=widM||(typed?mems.find(x=>x.name.toLowerCase()===typed.toLowerCase()):null)||null;
+    if(!m){ const e=document.getElementById('ciErr');
+      e.textContent=widEl.value.trim()?'Worker ID not found in the register — check it, or see your supervisor.':'Enter your worker ID (or pick your registered name).';
+      e.style.display='block'; return; }
+    const name=m.name;
     const btn=document.getElementById('ciGo'); btn.disabled=true; btn.textContent='Checking in…';
     try{
-      const m=widM||mems.find(x=>x.name.toLowerCase()===name.toLowerCase());
-      const res=await call({action:'submit', name, memberId:m?m.id:null, wid:(m&&m.wid)||'',
+      const res=await call({action:'submit', name, memberId:m.id, wid:m.wid||'',
         company:document.getElementById('ciCo').value.trim(), qIdx:q?info.qIdx:null, answer:ans});
       card.innerHTML='<div class="lg-brand"><span class="bmark" style="background:'+(res.correct===false?'#e0a030':'#2fbf4f')+'">✓</span>'+
         '<div><div class="lg-t">Checked in</div><div class="lg-s">'+esc(name)+'</div></div></div>'+

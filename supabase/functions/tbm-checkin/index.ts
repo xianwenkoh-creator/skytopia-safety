@@ -56,19 +56,32 @@ Deno.serve(async (req) => {
     }
 
     if (b.action === "submit") {
-      const name = String(b.name || "").trim().slice(0, 80);
-      if (!name) return json({ error: "Name required" }, 400);
+      // Sign-in must resolve to a registered member: by worker ID first, else
+      // exact name match (for registered people without an ID). No free text.
+      const { data: mems } = await admin.from("records").select("id, data")
+        .eq("org_id", row.org_id).eq("project_id", "_company").eq("store", "members").eq("deleted", false)
+        .limit(2000);
+      const roster = (mems || []).map((m) => ({
+        id: m.id, name: String(m.data?.name || ""), wid: String(m.data?.wid || ""), company: String(m.data?.company || ""),
+      })).filter((m) => m.name);
       const wid = String(b.wid || "").trim().toUpperCase().slice(0, 20);
+      const typed = String(b.name || "").trim().slice(0, 80);
+      const mem = (wid ? roster.find((m) => m.wid.toUpperCase() === wid) : null) ||
+        (typed ? roster.find((m) => m.name.toLowerCase() === typed.toLowerCase()) : null) || null;
+      if (!mem) return json({ error: "Worker ID not found in the register. Ask your supervisor to add you, then scan again." }, 403);
+      const name = mem.name; // canonical, from the register
       const checkins = row.data.checkins || [];
       if (checkins.length >= 500) return json({ error: "Check-in list is full" }, 429);
-      if (checkins.some((c: { name: string; wid?: string }) =>
-        (wid && (c.wid || "").toUpperCase() === wid) || c.name.toLowerCase() === name.toLowerCase()))
+      if (checkins.some((c: { name: string; wid?: string; memberId?: string }) =>
+        c.memberId === mem.id ||
+        (mem.wid && (c.wid || "").toUpperCase() === mem.wid.toUpperCase()) ||
+        c.name.toLowerCase() === name.toLowerCase()))
         return json({ error: "You have already checked in.", already: true }, 409);
       const qIdx = typeof b.qIdx === "number" && quiz[b.qIdx] ? b.qIdx : null;
       const answer = typeof b.answer === "number" ? b.answer : null;
       const correct = qIdx !== null && answer !== null ? quiz[qIdx].a === answer : null;
       checkins.push({
-        name, wid, memberId: b.memberId || null, company: String(b.company || "").slice(0, 80),
+        name, wid: mem.wid, memberId: mem.id, company: String(b.company || mem.company || "").slice(0, 80),
         qIdx, answer, correct, at: new Date().toISOString(),
       });
       const data = { ...row.data, checkins };
