@@ -271,6 +271,19 @@
   .pm-item .tick{width:16px; flex:0 0 auto; color:var(--acc);}
   .pm-new{border-top:1px solid var(--line); margin-top:4px; color:var(--blue);}
 
+  /* sign-in landing */
+  body.gated .appbar, body.gated .sidenav, body.gated .scrim, body.gated .projmenu{display:none;}
+  body.gated .content{margin-left:0;}
+  body.gated .shell{padding-top:0;}
+  .login{min-height:92vh; display:flex; align-items:center; justify-content:center; padding:20px;}
+  .lg-card{background:var(--card); border:1px solid var(--line); border-radius:8px; padding:30px 28px; width:100%; max-width:390px;
+           box-shadow:0 10px 34px rgba(15,22,27,.10);}
+  .lg-brand{display:flex; gap:12px; align-items:center; margin-bottom:6px;}
+  .lg-brand .bmark{width:36px; height:36px; font-size:21px; border-radius:6px;}
+  .lg-t{font-weight:800; letter-spacing:.14em; font-size:16.5px;}
+  .lg-s{font-size:12.5px; color:var(--sub);}
+  .lg-err{color:var(--bad-ink); font-size:13px; font-weight:600; margin-top:10px; display:none;}
+
   /* sync status dot */
   .syncdot{position:absolute; bottom:5px; right:5px; width:9px; height:9px; border-radius:50%; border:1.5px solid var(--hdr); background:#7a8791;}
   .syncdot.ok{background:#2fbf4f;} .syncdot.err{background:#e04b4b;} .syncdot.off{background:#7a8791;}
@@ -850,6 +863,7 @@ function renderEdit(key, id){
 
 /* ============ router ============ */
 function route(){
+  if(typeof GATED!=='undefined' && GATED) return; /* sign-in landing owns the screen */
   const p=location.hash.replace(/^#\/?/,'').split('/').filter(Boolean);
   window.scrollTo(0,0);
   curEdit=null;
@@ -2201,15 +2215,63 @@ function sbBindSettings(){
   out.onclick=async()=>{
     if(!confirm('Sign out of cloud sync on this device? Local data stays.')) return;
     try{ await SB.client.auth.signOut(); }catch(e){}
-    SB.profile=null; clearInterval(SB.timer); SB.timer=null;
-    sbSetStatus('off','Signed out — local-only until you sign in again.');
-    renderSettings();
+    localStorage.removeItem('kkl-local-ok');
+    location.hash='#/'; location.reload();   /* back to the sign-in landing */
   };
 }
 
+/* ============ sign-in landing gate ============ */
+let GATED=false;
+function renderLanding(){
+  GATED=true; document.body.classList.add('gated');
+  app.innerHTML='<div class="login"><div class="lg-card">'+
+    '<div class="lg-brand"><span class="bmark">S</span><div><div class="lg-t">SKYTOPIA</div><div class="lg-s">Site Safety</div></div></div>'+
+    '<p class="hint" style="margin:6px 0 14px">Sign in to your team workspace.</p>'+
+    '<label style="margin-top:0">Email</label><input id="lgEmail" type="email" autocomplete="username" inputmode="email">'+
+    '<label>Password</label><input id="lgPass" type="password" autocomplete="current-password">'+
+    '<div class="lg-err" id="lgErr"></div>'+
+    '<div class="btnrow"><button class="btn" id="lgGo" style="flex:1">Sign in</button></div>'+
+    '<button class="minor" id="lgLocal" style="margin-top:14px">Work offline on this device only</button>'+
+    '<p class="hint" style="margin-top:12px">Invited by email? Open the link in that email first — it lets you set your password.</p>'+
+  '</div></div>';
+  const err=m=>{ const e=document.getElementById('lgErr'); e.textContent=m; e.style.display='block'; };
+  const go=async()=>{
+    const email=document.getElementById('lgEmail').value.trim(), pw=document.getElementById('lgPass').value;
+    if(!email||!pw){ err('Enter your email and password.'); return; }
+    const btn=document.getElementById('lgGo'); btn.disabled=true; btn.textContent='Signing in…';
+    try{
+      await sbLoadLib();
+      const cfg=sbCfg();
+      if(!SB.client) SB.client=window.supabase.createClient(cfg.url,cfg.anon);
+      const {error}=await SB.client.auth.signInWithPassword({email, password:pw});
+      if(error) throw error;
+      unGate(); route();
+      await sbAfterLogin();
+    }catch(e){
+      err((e.message||'Sign-in failed')+ (String(e.message||'').includes('Invalid')?' — check the email/password, or use your invite email link if you have not set a password yet.':''));
+      btn.disabled=false; btn.textContent='Sign in';
+    }
+  };
+  document.getElementById('lgGo').onclick=go;
+  document.getElementById('lgPass').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+  document.getElementById('lgLocal').onclick=()=>{
+    localStorage.setItem('kkl-local-ok','1'); unGate(); route(); syncInit();
+  };
+}
+function unGate(){ GATED=false; document.body.classList.remove('gated'); }
+
 initShell();
-route();
-syncInit();
+(async()=>{
+  const authLink=/^#access_token=|^#error/.test(location.hash);
+  const cfg=sbCfg();
+  if(cfg && cfg.url && !authLink && !localStorage.getItem('kkl-local-ok')){
+    renderLanding();
+    await syncInit();                       /* existing session on this device? */
+    if(SB.profile){ unGate(); route(); }    /* yes — straight into the app */
+  }else{
+    route(); syncInit();
+  }
+})();
 </script>
 </body>
 </html>
