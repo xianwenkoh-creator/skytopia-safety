@@ -1,0 +1,1709 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1e2933" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#10161b" media="(prefers-color-scheme: dark)">
+<title>SKYTOPIA Site Safety</title>
+<style>
+  /* SKYTOPIA Site Safety — Procore-inspired UI (CORE palette: orange-60 action, blue-65 links, gray h200) */
+  :root{
+    --bg:#f2f3f5; --card:#ffffff; --field:#ffffff;
+    --ink:#282828; --sub:#68757d; --line:#dfe3e6; --line2:#c3cbd0;
+    --acc:#f47e42; --acc-h:#e2662a; --acc-soft:#fdece1; --btn-ink:#ffffff; --badge:#d62c2f;
+    --blue:#006ddf; --blue-soft:#f0f6fe;
+    --good-ink:#177c1f; --good-bg:#eafaea;
+    --warn-ink:#8a5b00; --warn-bg:#fff7d9;
+    --bad-ink:#d62c2f;  --bad-bg:#fff0f0;
+    --hdr:#1e2933; --hdr-ink:#ffffff; --hdr-sub:#9fb0bc;
+    --s1:#2a78d6; --s2:#f47e42; --s3:#1baf7a;
+    --viz-grid:#e3e6e8; --viz-axis:#c6ccd0; --viz-muted:#8b969d;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15191d; --card:#1e242a; --field:#242b31;
+      --ink:#e8ebed; --sub:#98a5ad; --line:#2e363d; --line2:#48535b;
+      --acc:#f47e42; --acc-h:#ff8f55; --acc-soft:#37281d; --btn-ink:#ffffff; --badge:#e04b4b;
+      --blue:#5aa2f0; --blue-soft:#1c2836;
+      --good-ink:#4fce6a; --good-bg:rgba(30,160,60,.16);
+      --warn-ink:#f3b73f; --warn-bg:rgba(250,178,25,.14);
+      --bad-ink:#ef8080;  --bad-bg:rgba(230,103,103,.16);
+      --hdr:#10161b; --hdr-ink:#ffffff; --hdr-sub:#8b9aa5;
+      --s1:#3987e5; --s2:#f47e42; --s3:#1baf7a;
+      --viz-grid:#2b3238; --viz-axis:#3d464d; --viz-muted:#8b969d;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15191d; --card:#1e242a; --field:#242b31;
+    --ink:#e8ebed; --sub:#98a5ad; --line:#2e363d; --line2:#48535b;
+    --acc:#f47e42; --acc-h:#ff8f55; --acc-soft:#37281d; --btn-ink:#ffffff; --badge:#e04b4b;
+    --blue:#5aa2f0; --blue-soft:#1c2836;
+    --good-ink:#4fce6a; --good-bg:rgba(30,160,60,.16);
+    --warn-ink:#f3b73f; --warn-bg:rgba(250,178,25,.14);
+    --bad-ink:#ef8080;  --bad-bg:rgba(230,103,103,.16);
+    --hdr:#10161b; --hdr-ink:#ffffff; --hdr-sub:#8b9aa5;
+    --s1:#3987e5; --s2:#f47e42; --s3:#1baf7a;
+    --viz-grid:#2b3238; --viz-axis:#3d464d; --viz-muted:#8b969d;
+  }
+
+  *{box-sizing:border-box;}
+  html{background:var(--bg);}
+  body{margin:0; font-family:"Helvetica Neue",system-ui,-apple-system,"Segoe UI",Arial,sans-serif; font-size:15px; line-height:1.45; color:var(--ink); background:var(--bg);
+       padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);}
+
+  /* ===== app shell: dark top bar + tool sidebar (Procore-style) ===== */
+  .appbar{position:fixed; top:0; left:0; right:0; height:48px; z-index:40; background:var(--hdr); color:var(--hdr-ink);
+          display:flex; align-items:center; gap:2px; padding:0 10px 0 6px;}
+  .appbar .iconbtn{color:var(--hdr-ink); width:38px; height:38px; border-radius:4px;}
+  .appbar .iconbtn:hover{background:rgba(255,255,255,.1);}
+  .brand{display:flex; align-items:center; gap:8px; text-decoration:none; color:var(--hdr-ink); padding:4px 8px 4px 4px; border-radius:4px;}
+  .brand:hover{background:rgba(255,255,255,.08);}
+  .bmark{display:flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:4px;
+         background:var(--acc); color:#fff; font-size:14px; font-weight:800;}
+  .bword{font-size:14.5px; font-weight:750; letter-spacing:.14em;}
+  .bdiv{width:1px; height:22px; background:rgba(255,255,255,.25); margin:0 8px;}
+  .projsel{display:flex; align-items:center; gap:6px; max-width:44vw; background:none; border:none; color:var(--hdr-ink);
+           font:inherit; font-size:13.5px; font-weight:600; padding:6px 8px; border-radius:4px; cursor:pointer;}
+  .projsel:hover{background:rgba(255,255,255,.1);}
+  .projsel span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .projsel svg{width:14px; height:14px; flex:0 0 auto; color:var(--hdr-sub);}
+  .abadge{position:absolute; top:3px; right:3px; min-width:16px; height:16px; padding:0 4px; border-radius:8px;
+          background:var(--badge); color:#fff; font-size:10.5px; font-weight:700; line-height:16px;}
+
+  .shell{display:flex; padding-top:48px; min-height:100vh;}
+  .sidenav{position:fixed; top:48px; bottom:0; left:0; width:230px; z-index:30; overflow-y:auto; overscroll-behavior:contain;
+           background:var(--card); border-right:1px solid var(--line); padding:6px 0 30px;}
+  .sn-home{margin-top:6px;}
+  .sn-group{font-size:10.5px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--sub); padding:16px 16px 5px;}
+  .sn-item{display:flex; align-items:center; gap:10px; padding:7.5px 14px 7.5px 13px; border-left:3px solid transparent;
+           font-size:13.5px; font-weight:600; color:var(--ink); text-decoration:none;}
+  .sn-item svg{width:17px; height:17px; color:var(--sub); flex:0 0 auto;}
+  .sn-item:hover{background:var(--bg);}
+  .sn-item.on{border-left-color:var(--acc); background:var(--acc-soft);}
+  .sn-item.on svg{color:var(--acc);}
+  .sn-item .sbdg{margin-left:auto; min-width:20px; text-align:center; padding:0 6px; border-radius:9px;
+                 background:var(--badge); color:#fff; font-size:11px; font-weight:700; line-height:18px;}
+  .scrim{display:none; position:fixed; inset:48px 0 0 0; z-index:25; background:rgba(15,22,27,.45);}
+  .content{flex:1; margin-left:230px; min-width:0;}
+  .wrap{max-width:1060px; margin:0 auto; padding:0 22px 60px;}
+  .burger{display:none;}
+  @media (max-width:940px){
+    .sidenav{transform:translateX(-102%); transition:transform .18s ease; box-shadow:4px 0 18px rgba(0,0,0,.18);}
+    .sidenav.open{transform:none;}
+    .scrim.open{display:block;}
+    .content{margin-left:0;}
+    .burger{display:block;}
+    .bword{display:none;}
+    .wrap{padding:0 14px 60px;}
+  }
+
+  header.top{display:flex; align-items:center; gap:8px; padding:14px 0 12px; position:sticky; top:48px; background:var(--bg); z-index:5;
+             border-bottom:1px solid var(--line); margin-bottom:14px;}
+  header.top h1{font-size:20px; font-weight:650; margin:0; letter-spacing:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  header.top .spacer{flex:1;}
+  .iconbtn{background:none; border:none; color:var(--ink); width:38px; height:38px; padding:7px; cursor:pointer; border-radius:4px; flex:0 0 auto;}
+  .iconbtn:hover{background:var(--acc-soft);}
+  .iconbtn:active{background:var(--acc-soft);}
+  .iconbtn svg{width:100%; height:100%;}
+
+  .brandrule{display:none;}
+  h2.sect{display:flex; align-items:center; gap:10px; font-size:11px; font-weight:800; letter-spacing:.14em;
+          text-transform:uppercase; color:var(--sub); margin:22px 0 10px;}
+  h2.sect::after{content:''; flex:1; height:1px; background:var(--line);}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:10px;}
+  .tile{display:block; text-align:center; text-decoration:none; color:var(--ink); -webkit-tap-highlight-color:transparent;
+        background:var(--card); border:1px solid var(--line); border-radius:6px; padding:16px 8px 13px;}
+  .tile:hover{border-color:var(--line2); box-shadow:0 1px 4px rgba(20,33,43,.10);}
+  .tile .ic{position:relative; width:46px; height:46px; margin:0 auto 8px; border-radius:6px;
+            background:none; display:flex; align-items:center; justify-content:center;}
+  .tile .ic svg{width:30px; height:30px; color:var(--sub);}
+  .tile:hover .ic svg{color:var(--acc);}
+  .tile:active .ic{outline:none;}
+  .tile .tl{display:block; font-size:12.5px; font-weight:650; color:var(--ink);}
+  .tile .bdg{position:absolute; top:-4px; right:-6px; min-width:20px; padding:0 6px; border-radius:10px;
+             background:var(--badge); color:#fff; font-size:11.5px; font-weight:700; line-height:1.6;}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:6px; padding:16px; margin-bottom:12px;}
+  .foot{margin-top:26px; font-size:12px; color:var(--sub); text-align:center;}
+
+  /* list — Procore log-table look */
+  .searchwrap{margin-bottom:10px;}
+  .searchwrap input{width:100%; max-width:420px;}
+  .lrow{display:flex; align-items:center; gap:10px; background:var(--card); border:1px solid var(--line); border-radius:0;
+        border-left:none; border-right:none; padding:10px 13px; margin-bottom:-1px; cursor:pointer;}
+  .lrow:first-child{border-top-left-radius:6px; border-top-right-radius:6px; border-left:1px solid var(--line); border-right:1px solid var(--line);}
+  .lrow{border-left:1px solid var(--line); border-right:1px solid var(--line);}
+  .lrow:last-child{border-bottom-left-radius:6px; border-bottom-right-radius:6px; margin-bottom:8px;}
+  .lrow:hover{background:var(--blue-soft);}
+  .lrow:active{background:var(--blue-soft);}
+  .lmain{flex:1; min-width:0;}
+  .lt{font-size:14px; font-weight:650; color:var(--blue); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .ls{font-size:12.5px; color:var(--sub); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px;}
+  .lmeta{flex:0 0 auto; text-align:right; max-width:40%;}
+  .empty{text-align:center; color:var(--sub); font-size:14px; padding:34px 16px; line-height:1.6;
+         background:var(--card); border:1px dashed var(--line2); border-radius:6px;}
+  .empty .btn{margin-top:12px;}
+
+  .chip{display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:3px;
+        background:var(--blue-soft); color:var(--blue); white-space:nowrap; margin-left:3px;}
+  .chip.g{background:var(--good-bg); color:var(--good-ink);}
+  .chip.w{background:var(--warn-bg); color:var(--warn-ink);}
+  .chip.b{background:var(--bad-bg); color:var(--bad-ink);}
+  .chip.n{background:var(--bg); color:var(--sub); border:1px solid var(--line);}
+  a.chip.lnk{text-decoration:none;}
+
+  /* forms */
+  label{display:block; font-size:12.5px; font-weight:650; color:var(--sub); margin:12px 0 4px;}
+  input,select,textarea{width:100%; font:inherit; font-size:16px; color:var(--ink); background:var(--field);
+        border:1px solid var(--line2); border-radius:4px; padding:8px 10px; min-height:42px;}
+  textarea{min-height:0;}
+  input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--blue); outline-offset:1px;}
+  input.err,select.err,textarea.err{border-color:var(--bad-ink); outline:2px solid var(--bad-ink);}
+  .hint{font-size:12px; color:var(--sub); margin-top:4px;}
+  .fgrid{display:grid; grid-template-columns:1fr 1fr; gap:0 10px;}
+  .fgrid .fld{grid-column:1/-1; min-width:0;}
+  .fgrid .fld.half{grid-column:auto;}
+
+  .btn{display:inline-block; font:inherit; font-size:14px; font-weight:650; color:var(--btn-ink); background:var(--acc);
+       border:1px solid var(--acc); border-radius:4px; padding:10px 18px; cursor:pointer; min-height:42px;}
+  .btn:hover{background:var(--acc-h); border-color:var(--acc-h);}
+  .btn.ghost{background:var(--card); color:var(--ink); border:1px solid var(--line2);}
+  .btn.ghost:hover{background:var(--bg);}
+  .btn svg{width:19px; height:19px; vertical-align:-4px;}
+  .btn.danger{background:var(--card); color:var(--bad-ink); border:1px solid var(--bad-ink);}
+  .btn.danger:hover{background:var(--bad-bg);}
+  .btnrow{display:flex; gap:10px; margin-top:18px;}
+  .btnrow .btn:first-child{flex:1;}
+  .minor{background:none; border:1.5px dashed var(--line2); color:var(--blue); font-size:13.5px; font-weight:650;
+         border-radius:4px; padding:9px 12px; cursor:pointer; width:100%; margin-top:8px;}
+  .minor:hover{background:var(--blue-soft);}
+
+  /* repeating sub-rows */
+  .rowswrap{display:flex; flex-direction:column; gap:8px;}
+  .subrow{position:relative; border:1px solid var(--line); border-radius:4px; background:var(--bg); padding:10px 34px 10px 10px;}
+  .subrow .rm{position:absolute; top:6px; right:6px; width:26px; height:26px; border:none; background:none;
+              color:var(--bad-ink); font-size:17px; line-height:1; cursor:pointer; border-radius:4px; padding:0;}
+  .sub-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:7px;}
+  .cell{min-width:0;}
+  .cell.full{grid-column:1/-1;}
+  .cell .cl{display:block; font-size:10.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--sub); margin-bottom:2px;}
+  .cell input,.cell select{min-height:38px; padding:6px 8px; font-size:14px; background:var(--card);}
+  .cell textarea{padding:6px 8px; font-size:14px; background:var(--card);}
+
+  /* member picker */
+  .pickgrid{display:grid; grid-template-columns:repeat(2,1fr); gap:6px;}
+  @media(min-width:520px){.pickgrid{grid-template-columns:repeat(3,1fr);}}
+  @media(min-width:900px){.pickgrid{grid-template-columns:repeat(4,1fr);}}
+  .pick{display:flex; align-items:center; gap:7px; border:1px solid var(--line); border-radius:4px; background:var(--field);
+        padding:7px 9px; font-size:13.5px; font-weight:600; color:var(--sub); cursor:pointer; margin:0; user-select:none;}
+  .pick input{width:17px; height:17px; min-height:0; padding:0; margin:0; flex:0 0 auto; accent-color:var(--acc);}
+  .pick:has(input:checked){border-color:var(--acc); background:var(--acc-soft); color:var(--ink);}
+  .pick span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+
+  /* cert expiry */
+  .exphead{font-size:12.5px; font-weight:750; letter-spacing:.05em; text-transform:uppercase; margin:20px 0 8px;}
+  .exphead.b{color:var(--bad-ink);} .exphead.w{color:var(--warn-ink);} .exphead.g{color:var(--good-ink);} .exphead.n{color:var(--sub);}
+
+  /* statistics + home overview */
+  .tiles{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-bottom:12px;}
+  .stile{background:var(--card); border:1px solid var(--line); border-radius:6px; padding:12px 13px;}
+  .stile .v{font-size:23px; font-weight:700; line-height:1.2;}
+  .stile .l{font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--sub); margin-top:3px;}
+  a.stile{display:block; text-decoration:none; color:var(--ink);}
+  a.stile:hover{border-color:var(--line2); box-shadow:0 1px 4px rgba(20,33,43,.10);}
+  .stile .v.b{color:var(--bad-ink);} .stile .v.w{color:var(--warn-ink);} .stile .v.g{color:var(--good-ink);}
+  .charthead{font-size:14.5px; font-weight:700; margin:2px 0 4px;}
+  .legend{display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--sub); font-weight:600; margin:2px 0 6px;}
+  .legend i{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px;}
+  .chartwrap{overflow-x:auto;}
+  .chartwrap svg{display:block; width:100%; height:auto; min-width:480px;}
+  .bar{cursor:pointer;}
+  .bar:hover{opacity:.82;}
+  .tip{position:fixed; display:none; z-index:50; background:var(--ink); color:var(--bg); font-size:12.5px; font-weight:600;
+       padding:5px 9px; border-radius:4px; pointer-events:none; max-width:240px;}
+  .dtable{width:100%; border-collapse:collapse; font-size:12.5px; margin-top:6px;}
+  .dtable th,.dtable td{border-bottom:1px solid var(--line); padding:5px 6px; text-align:right; font-variant-numeric:tabular-nums;}
+  .dtable th:first-child,.dtable td:first-child{text-align:left;}
+  .dtable th{color:var(--sub); font-weight:700; font-size:11px; letter-spacing:.04em; text-transform:uppercase;}
+  details summary{cursor:pointer; font-size:13.5px; font-weight:650; color:var(--blue);}
+  .mhgrid{display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin-top:10px;}
+  @media(min-width:700px){.mhgrid{grid-template-columns:repeat(6,1fr);}}
+  .mh span{display:block; font-size:11px; font-weight:700; color:var(--sub); margin-bottom:2px;}
+  .mh input{min-height:38px; padding:6px 8px; font-size:14px;}
+
+  /* photos */
+  .thumbs{display:flex; gap:8px; flex-wrap:wrap;}
+  .thumb{position:relative; width:86px; height:86px; border:1px solid var(--line2); border-radius:4px; overflow:hidden; flex:0 0 auto;}
+  .thumb img{width:100%; height:100%; object-fit:cover; display:block;}
+  .thumb .rmp{position:absolute; top:3px; right:3px; width:22px; height:22px; border:none; border-radius:50%;
+              background:rgba(0,0,0,.55); color:#fff; font-size:13px; line-height:1; cursor:pointer; padding:0;}
+
+  /* ranked horizontal bars */
+  .hbar{margin:8px 0;}
+  .hbar .hlab{font-size:12.5px; color:var(--sub); font-weight:600; display:flex; justify-content:space-between; gap:10px;}
+  .hbar .hlab b{color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap;}
+  .hbar .htrack{background:var(--bg); border:1px solid var(--line); border-radius:3px; height:14px; margin-top:3px; overflow:hidden;}
+  .hbar .hfill{height:100%; background:var(--s2); border-radius:2px; min-width:2px;}
+
+  /* monthly report */
+  .repmeta{font-size:13px; color:var(--sub); line-height:1.7;}
+  .repmeta b{color:var(--ink);}
+
+  /* toast */
+  .toast{position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(80px); z-index:60; max-width:88vw;
+         background:var(--hdr); color:#fff; font-size:13.5px; font-weight:600; padding:11px 18px; border-radius:6px;
+         box-shadow:0 4px 18px rgba(0,0,0,.3); opacity:0; transition:all .22s ease; pointer-events:none;}
+  .toast.show{transform:translateX(-50%); opacity:1;}
+  .toast.bad{background:#8f1f1f;}
+
+  select{appearance:auto;}
+  @media (max-width:390px){ .grid{grid-template-columns:repeat(3,1fr); gap:8px 6px;} .tile .ic{width:40px;height:40px;} .tiles{grid-template-columns:repeat(2,1fr);} }
+  @media print{
+    body{background:#fff;}
+    .appbar,.sidenav,.scrim,.toast{display:none !important;}
+    .shell{padding-top:0;}
+    .content{margin-left:0;}
+    .wrap{max-width:none; padding:0;}
+    header.top{position:static; border-bottom:none;}
+    .iconbtn,.searchwrap,.btn,.minor,.noprint{display:none !important;}
+    .card,.stile{break-inside:avoid; border-color:#bbb;}
+  }
+</style>
+</head>
+<body>
+<div class="appbar">
+  <button class="iconbtn burger" id="navBtn" aria-label="Menu"></button>
+  <a class="brand" href="#/"><span class="bmark">S</span><span class="bword">SKYTOPIA</span></a>
+  <span class="bdiv"></span>
+  <button class="projsel" id="projSel" title="Project settings"><span id="projName">Site Safety</span></button>
+  <div class="spacer" style="flex:1"></div>
+  <button class="iconbtn" id="bellBtn" aria-label="Cert expiry alerts" style="position:relative"></button>
+  <button class="iconbtn" id="gearBtn" aria-label="Settings"></button>
+</div>
+<div class="shell">
+  <nav class="sidenav" id="sidenav" aria-label="Tools"></nav>
+  <div class="scrim" id="scrim"></div>
+  <div class="content"><div class="wrap" id="app"></div></div>
+</div>
+<div class="tip" id="tip"></div>
+<div class="toast" id="toast"></div>
+<script>
+'use strict';
+/* ============ helpers ============ */
+const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+function today(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function fmtD(iso){ if(!iso) return ''; const d=new Date(iso+'T00:00'); if(isNaN(d)) return esc(iso);
+  return d.toLocaleDateString('en-SG',{day:'2-digit',month:'short',year:'2-digit'}); }
+function daysTo(iso){ if(!iso) return null; const t=new Date(); t.setHours(0,0,0,0);
+  const d=new Date(iso+'T00:00'); if(isNaN(d)) return null; return Math.round((d-t)/864e5); }
+function expChip(iso, warn){ const d=daysTo(iso); if(d===null) return ''; warn=warn||30;
+  if(d<0) return '<span class="chip b">expired '+fmtD(iso)+'</span>';
+  if(d<=warn) return '<span class="chip w">'+d+'d left</span>';
+  return '<span class="chip g">'+fmtD(iso)+'</span>'; }
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function csvEsc(v){ v=String(v??''); return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+function downloadText(name, text, mime){
+  const blob=new Blob(['﻿'+text],{type:mime||'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+}
+function downloadRaw(name, text, mime){
+  const blob=new Blob([text],{type:mime||'text/plain'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+}
+
+/* ============ SKYTOPIA Safety folder (File System Access API) ============
+   Reports & exports save straight into the connected Safety folder
+   (OneDrive\Skytopia\Safety), each type into its own subfolder.        */
+const DIRMAP={contacts:'Registers',members:'Registers',equipment:'Registers',documents:'Registers',certexp:'Registers',
+  tbm:'TBM',inspections:'Inspections',observations:'Observations',checklists:'Checklists',ra:'RA-SWP',training:'Training',
+  meetings:'Meetings',incidents:'Incidents',defects:'Quality Defects',report:'Monthly Reports',backup:'Backups'};
+function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open('kkl-cms-fs',1);
+  r.onupgradeneeded=()=>r.result.createObjectStore('kv');
+  r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+async function idbGet(k){ const d=await idbOpen(); return new Promise((res,rej)=>{
+  const t=d.transaction('kv').objectStore('kv').get(k); t.onsuccess=()=>res(t.result); t.onerror=()=>rej(t.error); }); }
+async function idbSet(k,v){ const d=await idbOpen(); return new Promise((res,rej)=>{
+  const t=d.transaction('kv','readwrite').objectStore('kv').put(v,k); t.onsuccess=()=>res(); t.onerror=()=>rej(t.error); }); }
+async function idbDel(k){ const d=await idbOpen(); return new Promise((res,rej)=>{
+  const t=d.transaction('kv','readwrite').objectStore('kv').delete(k); t.onsuccess=()=>res(); t.onerror=()=>rej(t.error); }); }
+function fsSupported(){ return !!window.showDirectoryPicker; }
+async function getSafetyDir(ask){
+  let h=null; try{ h=await idbGet('safetyDir'); }catch(e){}
+  if(!h) return null;
+  try{
+    let q=await h.queryPermission({mode:'readwrite'});
+    if(q!=='granted' && ask) q=await h.requestPermission({mode:'readwrite'});
+    return q==='granted'?h:null;
+  }catch(e){ return null; }
+}
+let toastTimer=null;
+function toast(msg, bad){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.toggle('bad',!!bad); t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'), 4200);
+}
+async function saveToSafety(cat, name, text, mime){
+  if(!fsSupported()) return false;
+  let root;
+  try{ root=await getSafetyDir(true); }catch(e){ return false; }
+  if(!root) return false;
+  try{
+    const dir=await root.getDirectoryHandle(cat,{create:true});
+    const fh=await dir.getFileHandle(name,{create:true});
+    const w=await fh.createWritable();
+    const bom=(mime||'').includes('csv')?'﻿':'';
+    await w.write(new Blob([bom+text],{type:mime||'text/plain'}));
+    await w.close();
+    toast('Saved: '+root.name+' \\ '+cat+' \\ '+name);
+    return true;
+  }catch(e){ console.warn('folder save failed',e); toast('Folder save failed — downloading instead', true); return false; }
+}
+async function saveOrDownload(cat, name, text, mime){
+  if(await saveToSafety(cat,name,text,mime)) return;
+  if((mime||'').includes('csv')) downloadText(name,text,mime); else downloadRaw(name,text,mime);
+}
+/* self-contained HTML report file (printable) for the Safety folder */
+function reportDocHtml(title, bodyHtml){
+  const s=db.settings;
+  return '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>'+
+    'body{font-family:"Helvetica Neue",system-ui,Arial,sans-serif;font-size:14px;color:#282828;margin:28px auto;max-width:800px;padding:0 20px;line-height:1.5}'+
+    '.card{border:1px solid #dfe3e6;border-radius:6px;padding:18px;margin-bottom:14px}'+
+    '.charthead{font-size:16px;font-weight:700;margin:2px 0 6px}'+
+    '.repmeta{font-size:13px;color:#68757d;line-height:1.7}.repmeta b{color:#282828}'+
+    '.dtable{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}'+
+    '.dtable th,.dtable td{border-bottom:1px solid #dfe3e6;padding:5px 6px;text-align:right}'+
+    '.dtable th:first-child,.dtable td:first-child{text-align:left}.dtable th{color:#68757d;font-size:11px;text-transform:uppercase}'+
+    '.thumbs{display:flex;gap:8px;flex-wrap:wrap}.thumb{width:150px;height:150px;border:1px solid #c3cbd0;border-radius:4px;overflow:hidden}'+
+    '.thumb img{width:100%;height:100%;object-fit:cover}'+
+    '.hbar{margin:8px 0}.hlab{font-size:12.5px;color:#68757d;font-weight:600;display:flex;justify-content:space-between}.hlab b{color:#282828}'+
+    '.htrack{background:#f2f3f5;border:1px solid #dfe3e6;border-radius:3px;height:14px;margin-top:3px;overflow:hidden}'+
+    '.hfill{height:100%;background:#f47e42;min-width:2px}'+
+    '.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:3px;background:#f0f6fe;color:#006ddf;margin-left:3px}'+
+    '.hint{font-size:12px;color:#68757d}.noprint{display:none}label{display:none}input,select{display:none}'+
+    '.rephead{display:flex;align-items:center;gap:10px;border-bottom:3px solid #f47e42;padding-bottom:10px;margin-bottom:16px}'+
+    '.rmark{width:26px;height:26px;border-radius:4px;background:#f47e42;color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center}'+
+    '.rtitle{font-size:17px;font-weight:750;letter-spacing:.02em}.rsub{font-size:12px;color:#68757d;margin-left:auto;text-align:right}'+
+    '@media print{body{margin:0;max-width:none}}'+
+    '</style></head><body>'+
+    '<div class="rephead"><div class="rmark">S</div><div class="rtitle">SKYTOPIA Site Safety</div>'+
+    '<div class="rsub">'+esc([s.project,s.company].filter(Boolean).join(' — '))+'<br>Generated '+esc(today())+'</div></div>'+
+    bodyHtml+'</body></html>';
+}
+function fileStamp(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,' ').trim().slice(0,60); }
+function compressImage(file, cb){
+  const img=new Image();
+  img.onload=()=>{
+    const max=900, sc=Math.min(1, max/Math.max(img.width,img.height));
+    const c=document.createElement('canvas');
+    c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    URL.revokeObjectURL(img.src);
+    cb(c.toDataURL('image/jpeg',0.55));
+  };
+  img.onerror=()=>{ URL.revokeObjectURL(img.src); alert('Could not read that image.'); };
+  img.src=URL.createObjectURL(file);
+}
+
+/* ============ storage ============ */
+const KEY='kkl-cms-v1';
+const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
+function load(){ try{ const raw=localStorage.getItem(KEY);
+    if(raw){ const d=JSON.parse(raw); const out=structuredClone(BLANK);
+      for(const k in out){ if(d[k]!==undefined) out[k]=d[k]; } return out; }
+  }catch(e){ console.warn('load failed',e); }
+  return structuredClone(BLANK); }
+let db=load();
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(db)); }
+  catch(e){ alert('Browser storage is full — the last change could NOT be saved. Remove some photos or old records, or export a backup and clear data.'); }
+}
+
+/* ============ icons ============ */
+const ICONS={
+  back:'<path d="M15 5l-7 7 7 7"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  gear:'<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M2.8 12h2.4M18.8 12h2.4M4.9 19.1l1.7-1.7M17.4 6.6l1.7-1.7"/>',
+  contact:'<circle cx="9.5" cy="8" r="3.4"/><path d="M4 20c.6-3.6 2.8-5.5 5.5-5.5S14.4 16.4 15 20"/><path d="M17 7h4M17 10.5h4M17 14h2.5"/>',
+  members:'<circle cx="9" cy="9" r="3.2"/><path d="M3.5 20c.5-3.3 2.6-5 5.5-5s5 1.7 5.5 5"/><circle cx="16.8" cy="7.8" r="2.6"/><path d="M16.3 14.6c2.6.2 4 1.8 4.5 4.4"/>',
+  equip:'<rect x="3.5" y="14.5" width="11.5" height="5" rx="2.5"/><path d="M6.5 14.5V10h5.5v4.5"/><path d="M12 10.5l4-4.5 4.5 2"/><path d="M20.5 8v4.5"/>',
+  cert:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.8" r="2"/><path d="M5.5 16.2c.4-1.6 1.6-2.5 3-2.5s2.6.9 3 2.5M14.5 9.5H19M14.5 13H19"/>',
+  doc:'<path d="M12 3.5l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4M4 16.5l8 4 8-4"/>',
+  tbm:'<rect x="3.5" y="8" width="17" height="11.5" rx="2"/><path d="M9 8V6.5A1.5 1.5 0 0 1 10.5 5h3A1.5 1.5 0 0 1 15 6.5V8M3.5 12.5h17"/>',
+  insp:'<rect x="6" y="10.5" width="12" height="9" rx="1.8"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/><path d="M12 13.8v2.4"/>',
+  check:'<path d="M12 3.5l7 2.5v5.5c0 4.6-3 7.6-7 9-4-1.4-7-4.4-7-9V6z"/><path d="M8.8 12l2.2 2.2 4.2-4.4"/>',
+  ra:'<path d="M6.5 17v-4.3a5.5 5.5 0 0 1 11 0V17"/><path d="M4.5 19.5h15"/><path d="M12 4v2M5.6 6.6l1.4 1.4M18.4 6.6L17 8"/>',
+  train:'<path d="M12 6.5c-1.8-1.5-4.2-2-7-2v13c2.8 0 5.2.5 7 2 1.8-1.5 4.2-2 7-2v-13c-2.8 0-5.2.5-7 2z"/><path d="M12 6.5v13"/>',
+  meet:'<circle cx="8" cy="7.5" r="2.3"/><circle cx="16" cy="7.5" r="2.3"/><path d="M4 19.5v-.8c0-2.2 1.7-3.8 4-3.8s4 1.6 4 3.8v.8M12.3 15.6c.5-.4 1.6-.7 3.7-.7 2.3 0 4 1.6 4 3.8v.8"/>',
+  incid:'<path d="M7.5 16.5h-1a3.5 3.5 0 0 1-.4-7A5 5 0 0 1 16 8.3a4 4 0 0 1 1.6 7.6"/><path d="M12.7 11l-2.2 3.7h3l-2.2 3.8"/>',
+  stats:'<path d="M4.5 19.5h15"/><path d="M7 16.5V12M11 16.5v-7M15 16.5v-5M19 16.5V8"/><path d="M5.5 9L10 5l3.5 2.5L18 3.5"/><path d="M15.8 3.5H18V5.7"/>',
+  obs:'<path d="M2.5 12s3.5-6.2 9.5-6.2S21.5 12 21.5 12s-3.5 6.2-9.5 6.2S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+  dl:'<path d="M12 4v11M7.5 11l4.5 4.5L16.5 11"/><path d="M4.5 19.5h15"/>',
+  act:'<path d="M9.5 5.5H20M9.5 12H20M9.5 18.5H20"/><path d="M3.5 5l1.4 1.4L7.5 3.8M3.5 11.5l1.4 1.4 2.6-2.6M3.5 18l1.4 1.4 2.6-2.6"/>',
+  defect:'<rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3 12h18"/><path d="M9 5.5V12M15 5.5V12"/><path d="M6 12v6.5M12 12v6.5M18 12v6.5"/>',
+  print:'<path d="M7 8V3.5h10V8"/><rect x="4" y="8" width="16" height="8" rx="1.5"/><path d="M7 13h10v7H7z"/>',
+  menu:'<path d="M4 6.5h16M4 12h16M4 17.5h16"/>',
+  bell:'<path d="M12 4a5.5 5.5 0 0 0-5.5 5.5c0 4-1.5 5.5-2.5 6.5h16c-1-1-2.5-2.5-2.5-6.5A5.5 5.5 0 0 0 12 4z"/><path d="M10 19.5a2 2 0 0 0 4 0"/>',
+  chev:'<path d="M8 10l4 4 4-4"/>',
+  home:'<path d="M4 11.5L12 4.5l8 7"/><path d="M6 10v9.5h12V10"/><path d="M10 19.5v-5h4v5"/>',
+  folder:'<path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h4.5l2 2.5H19A1.5 1.5 0 0 1 20.5 9v9A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18z"/>'
+};
+const ic = n => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICONS[n]||'')+'</svg>';
+
+/* ============ generic form engine ============ */
+const app=document.getElementById('app');
+let curEdit=null;
+
+function fieldHtml(f, v){
+  let val = (v===undefined||v===null) ? '' : v;
+  if(val==='' && v===undefined && f.def!==undefined) val = (f.def==='today') ? today() : f.def;
+  let inner='';
+  const t=f.type||'text';
+  if(t==='textarea'){
+    inner='<textarea data-f="'+f.k+'" rows="'+(f.rows||3)+'" placeholder="'+esc(f.ph||'')+'">'+esc(val)+'</textarea>';
+  }else if(t==='select'){
+    inner='<select data-f="'+f.k+'"><option value=""></option>'+
+      f.opts.map(o=>'<option'+(String(o)===String(val)?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
+  }else{
+    const listArr = f.list ? (typeof f.list==='function'?f.list():f.list) : null;
+    inner='<input data-f="'+f.k+'" type="'+t+'" value="'+esc(val)+'" placeholder="'+esc(f.ph||'')+'"'+
+      (listArr?' list="dl-'+f.k+'"':'')+'>'+
+      (listArr?'<datalist id="dl-'+f.k+'">'+listArr.map(o=>'<option value="'+esc(o)+'">').join('')+'</datalist>':'');
+  }
+  return '<div class="fld'+(f.half?' half':'')+'"><label>'+esc(f.label)+(f.req?' *':'')+'</label>'+inner+
+    (f.hint?'<div class="hint">'+f.hint+'</div>':'')+'</div>';
+}
+
+function subRow(f, r){
+  r=r||{};
+  const cell=c=>{
+    const v=r[c.k]===undefined?'':r[c.k];
+    let inp;
+    if(c.type==='select'){
+      inp='<select data-c="'+c.k+'"><option value=""></option>'+
+        (c.opts||[]).map(o=>'<option'+(String(o)===String(v)?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
+    }else if(c.type==='textarea'){
+      inp='<textarea data-c="'+c.k+'" rows="2">'+esc(v)+'</textarea>';
+    }else{
+      inp='<input data-c="'+c.k+'" type="'+(c.type||'text')+'" value="'+esc(v)+'">';
+    }
+    return '<div class="cell'+(c.w==='full'?' full':'')+'"><span class="cl">'+esc(c.label)+'</span>'+inp+'</div>';
+  };
+  return '<div class="subrow"><button type="button" class="rm" title="Remove row" aria-label="Remove row">&times;</button><div class="sub-grid">'+f.cols.map(cell).join('')+'</div></div>';
+}
+
+function rowsHtml(f, arr){
+  return '<div class="fld"><label>'+esc(f.label)+'</label>'+
+    '<div class="rowswrap" data-rows="'+f.k+'">'+(arr||[]).map(r=>subRow(f,r)).join('')+'</div>'+
+    '<button type="button" class="minor" data-addrow="'+f.k+'">+ '+esc(f.add||'Add row')+'</button>'+
+    (f.hint?'<div class="hint">'+f.hint+'</div>':'')+'</div>';
+}
+
+function thumbHtml(dataUrl){
+  return '<div class="thumb"><img src="'+dataUrl+'" alt="photo"><button type="button" class="rmp" title="Remove photo" aria-label="Remove photo">&times;</button></div>';
+}
+function photosHtml(f, arr){
+  return '<div class="fld"><label>'+esc(f.label)+'</label>'+
+    '<div class="thumbs" data-photos="'+f.k+'">'+(arr||[]).map(thumbHtml).join('')+'</div>'+
+    '<button type="button" class="minor" data-addphoto="'+f.k+'">+ Add photo</button>'+
+    '<input type="file" accept="image/*" capture="environment" hidden data-photofile="'+f.k+'">'+
+    (f.hint?'<div class="hint">'+f.hint+'</div>':'')+'</div>';
+}
+
+function membersHtml(f, ids){
+  ids=ids||[];
+  const ms=[...db.members].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const grid = ms.length
+    ? '<div class="pickgrid" data-f="'+f.k+'" data-type="members">'+
+        ms.map(m=>'<label class="pick"><input type="checkbox" data-mid="'+m.id+'"'+(ids.includes(m.id)?' checked':'')+'><span>'+esc(m.name)+'</span></label>').join('')+'</div>'
+    : '<div class="hint">No members registered yet — add workers under Member(s) to tick attendance here.</div>';
+  return '<div class="fld"><label>'+esc(f.label)+'</label>'+grid+'</div>';
+}
+
+function collectRows(wrap){
+  if(!wrap) return [];
+  return [...wrap.querySelectorAll(':scope > .subrow')].map(sr=>{
+    const o={};
+    sr.querySelectorAll('[data-c]').forEach(el=>o[el.dataset.c]=el.value.trim());
+    return o;
+  }).filter(o=>Object.values(o).some(v=>v!==''));
+}
+
+function collectForm(mod){
+  const obj={}; let ok=true, first=null;
+  for(const f of mod.fields){
+    if(f.type==='rows'){ obj[f.k]=collectRows(app.querySelector('[data-rows="'+f.k+'"]')); continue; }
+    if(f.type==='photos'){
+      const pw=app.querySelector('[data-photos="'+f.k+'"]');
+      obj[f.k]=pw?[...pw.querySelectorAll('img')].map(im=>im.src):[];
+      continue;
+    }
+    if(f.type==='members'){
+      const pg=app.querySelector('.pickgrid[data-f="'+f.k+'"]');
+      obj[f.k]=pg?[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid):[];
+      continue;
+    }
+    const el=app.querySelector('[data-f="'+f.k+'"]');
+    const v=el?el.value.trim():'';
+    obj[f.k]=v;
+    if(el) el.classList.remove('err');
+    if(f.req && !v){ ok=false; if(el){el.classList.add('err'); first=first||el;} }
+  }
+  if(!ok){ if(first) first.scrollIntoView({behavior:'smooth',block:'center'}); return null; }
+  return obj;
+}
+
+/* delegated handlers for repeating rows */
+app.addEventListener('click', e=>{
+  const add=e.target.closest('[data-addrow]');
+  if(add && curEdit){
+    const f=MODULES[curEdit.key].fields.find(x=>x.k===add.dataset.addrow);
+    const wrap=app.querySelector('[data-rows="'+f.k+'"]');
+    if(f && wrap){ wrap.insertAdjacentHTML('beforeend', subRow(f)); }
+    return;
+  }
+  const rm=e.target.closest('.subrow .rm');
+  if(rm){ rm.closest('.subrow').remove(); return; }
+  const ap=e.target.closest('[data-addphoto]');
+  if(ap){
+    const wrap=app.querySelector('[data-photos="'+ap.dataset.addphoto+'"]');
+    if(wrap && wrap.children.length>=3){ alert('Maximum 3 photos per field — remove one first.'); return; }
+    const inp=app.querySelector('[data-photofile="'+ap.dataset.addphoto+'"]');
+    if(inp) inp.click();
+    return;
+  }
+  const rp=e.target.closest('.thumb .rmp');
+  if(rp){ rp.closest('.thumb').remove(); }
+});
+app.addEventListener('change', e=>{
+  const inp=e.target.closest('[data-photofile]');
+  if(!inp || !inp.files || !inp.files[0]) return;
+  const file=inp.files[0]; inp.value='';
+  const wrap=app.querySelector('[data-photos="'+inp.dataset.photofile+'"]');
+  if(!wrap) return;
+  compressImage(file, dataUrl=>wrap.insertAdjacentHTML('beforeend', thumbHtml(dataUrl)));
+});
+
+/* ============ shell views ============ */
+function header(title, back, right){
+  return '<header class="top">'+
+    (back?'<button class="iconbtn" aria-label="Back" onclick="goBack()">'+ic('back')+'</button>':'')+
+    '<h1>'+esc(title)+'</h1><div class="spacer"></div>'+(right||'')+'</header>';
+}
+function goBack(){ if(history.length>1) history.back(); else location.hash='#/'; }
+
+/* ============ app shell (Procore-style top bar + tool sidebar) ============ */
+const NAV=[
+ {group:'Site',    items:[['contacts','Contacts','contact'],['members','Member(s)','members'],['equipment','Equipment','equip'],
+                          ['certexp','Cert Expiry','cert'],['documents','Documents','doc'],['actions','Actions','act']]},
+ {group:'Safety',  items:[['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
+                          ['checklists','Checklists','check'],['ra','RA / SWP','ra'],['training','Training','train'],
+                          ['meetings','Meetings','meet'],['incidents','Incidents','incid']]},
+ {group:'Quality', items:[['defects','Defects','defect']]},
+ {group:'Reports', items:[['stats','Statistics','stats'],['report','Monthly Report','print']]}
+];
+function buildNav(){
+  const nav=document.getElementById('sidenav');
+  nav.innerHTML =
+    '<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'Project Home</a>'+
+    NAV.map(g=>'<div class="sn-group">'+g.group+'</div>'+
+      g.items.map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+
+        '<span class="sbdg" data-bdg="'+t[0]+'" style="display:none"></span></a>').join('')).join('')+
+    '<div class="sn-group">Admin</div>'+
+    '<a class="sn-item" href="#/settings" data-nav="settings">'+ic('gear')+'Settings</a>';
+}
+function syncShell(cur){
+  document.getElementById('projName').textContent = db.settings.project || 'Site Safety';
+  document.querySelectorAll('#sidenav .sn-item').forEach(a=>a.classList.toggle('on', a.dataset.nav===cur));
+  const nb=certBadgeCount(), ob=openActionCounts().overdue;
+  const bell=document.getElementById('bellBadge');
+  if(bell){ bell.style.display=nb?'':'none'; bell.textContent=nb; }
+  const set=(k,v)=>{ const el=document.querySelector('[data-bdg="'+k+'"]'); if(el){ el.style.display=v?'':'none'; el.textContent=v; } };
+  set('certexp',nb); set('actions',ob);
+  document.getElementById('sidenav').classList.remove('open');
+  document.getElementById('scrim').classList.remove('open');
+}
+function initShell(){
+  document.getElementById('navBtn').innerHTML=ic('menu');
+  document.getElementById('bellBtn').innerHTML=ic('bell')+'<span class="abadge" id="bellBadge" style="display:none"></span>';
+  document.getElementById('gearBtn').innerHTML=ic('gear');
+  document.getElementById('projSel').insertAdjacentHTML('beforeend', ic('chev'));
+  document.getElementById('projSel').onclick=()=>location.hash='#/settings';
+  document.getElementById('bellBtn').onclick=()=>location.hash='#/certexp';
+  document.getElementById('gearBtn').onclick=()=>location.hash='#/settings';
+  const nav=document.getElementById('sidenav'), scrim=document.getElementById('scrim');
+  document.getElementById('navBtn').onclick=()=>{ nav.classList.toggle('open'); scrim.classList.toggle('open', nav.classList.contains('open')); };
+  scrim.onclick=()=>{ nav.classList.remove('open'); scrim.classList.remove('open'); };
+  buildNav();
+}
+
+function renderHome(){
+  const s=db.settings;
+  const nb=certBadgeCount();
+  const tile=(href,label,icon,badge)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+
+    (badge?'<span class="bdg">'+badge+'</span>':'')+'</span><span class="tl">'+label+'</span></a>';
+  const ob=openActionCounts();
+  const yr=new Date().getFullYear();
+  const incYtd=db.incidents.filter(r=>r.date&&+r.date.slice(0,4)===yr).length;
+  const eqIn=db.equipment.filter(e=>!e.status||e.status==='In service').length;
+  const ov=(href,v,l,cls)=>'<a class="stile" href="#/'+href+'"><div class="v'+(cls&&v?' '+cls:'')+'">'+v+'</div><div class="l">'+l+'</div></a>';
+  app.innerHTML =
+    '<header class="top"><h1>'+esc(s.project||'Project Home')+'</h1><div class="spacer"></div>'+
+    '<button class="iconbtn" aria-label="Settings" onclick="location.hash=\'#/settings\'">'+ic('gear')+'</button></header>'+
+    '<h2 class="sect">Project overview</h2>'+
+    '<div class="tiles">'+
+      ov('actions',ob.total,'Open actions','w')+
+      ov('actions',ob.overdue,'Overdue actions','b')+
+      ov('certexp',nb,'Certs due &le;30d','b')+
+      ov('members',db.members.length,'Members')+
+      ov('equipment',eqIn,'Equipment in service')+
+      ov('incidents',incYtd,'Incidents '+yr)+
+    '</div>'+
+    '<h2 class="sect">Site</h2>'+
+    '<div class="grid">'+
+      tile('contacts','Contacts','contact')+
+      tile('members','Member(s)','members')+
+      tile('equipment','Equipment','equip')+
+      tile('certexp','Cert Expiry','cert',nb||'')+
+      tile('documents','Document','doc')+
+      tile('actions','Actions','act',ob.overdue||'')+
+    '</div>'+
+    '<h2 class="sect">Safety</h2>'+
+    '<div class="grid">'+
+      tile('tbm','TBM','tbm')+
+      tile('inspections','Inspection','insp')+
+      tile('observations','Observation','obs')+
+      tile('checklists','Checklist','check')+
+      tile('ra','RA/SWP','ra')+
+      tile('training','Training','train')+
+      tile('meetings','Meeting','meet')+
+      tile('incidents','Incident','incid')+
+      tile('stats','Statistics','stats')+
+    '</div>'+
+    '<h2 class="sect">Quality</h2>'+
+    '<div class="grid">'+
+      tile('defects','Defects','defect')+
+    '</div>'+
+    '<div class="foot">All data stays on this device (browser storage).<br>Back up regularly from Settings &rarr; Export.</div>';
+}
+
+function renderList(key){
+  const mod=MODULES[key];
+  let items=[...db[mod.store]];
+  items.sort(mod.sort || ((a,b)=>(b.date||'').localeCompare(a.date||'')));
+  app.innerHTML = header(mod.title, true,
+      (items.length?'<button class="iconbtn" aria-label="Export CSV" title="Export CSV (Excel)" onclick="exportModuleCsv(\''+key+'\')">'+ic('dl')+'</button>':'')+
+      '<button class="iconbtn" aria-label="Add" onclick="location.hash=\'#/'+key+'/new\'">'+ic('plus')+'</button>')+
+    '<div class="searchwrap"><input id="q" type="search" placeholder="Search '+mod.title.toLowerCase()+'&hellip;" autocomplete="off"></div>'+
+    '<div id="rows"></div>';
+  const rowsEl=document.getElementById('rows');
+  const draw=q=>{
+    q=(q||'').toLowerCase();
+    const f=q?items.filter(i=>JSON.stringify(i).toLowerCase().includes(q)):items;
+    rowsEl.innerHTML = f.length ? f.map(i=>
+      '<div class="lrow" onclick="location.hash=\'#/'+key+'/'+i.id+'\'">'+
+        '<div class="lmain"><div class="lt">'+(mod.line1(i)||'<span style="color:var(--sub)">(untitled)</span>')+'</div>'+
+        '<div class="ls">'+(mod.line2?mod.line2(i):'')+'</div></div>'+
+        '<div class="lmeta">'+(mod.meta?mod.meta(i):'')+'</div></div>').join('')
+     : '<div class="empty">'+(q?'No matches.':(mod.empty||'No records yet.'))+
+       (q?'':'<br><button class="btn" style="margin-top:12px" onclick="location.hash=\'#/'+key+'/new\'">+ Add first record</button>')+'</div>';
+  };
+  draw('');
+  document.getElementById('q').oninput=e=>draw(e.target.value);
+}
+
+function renderEdit(key, id){
+  const mod=MODULES[key];
+  const item=id?db[mod.store].find(x=>x.id===id):null;
+  if(id && !item){ location.hash='#/'+key; return; }
+  curEdit={key,id};
+  app.innerHTML = header((item?'Edit — ':'New — ')+mod.title, true)+
+    '<div class="card"><div class="fgrid">'+
+    mod.fields.map(f=>{
+      const v=item?item[f.k]:undefined;
+      if(f.type==='rows') return rowsHtml(f, v);
+      if(f.type==='members') return membersHtml(f, v);
+      if(f.type==='photos') return photosHtml(f, v);
+      return fieldHtml(f, v);
+    }).join('')+
+    '</div><div class="btnrow"><button class="btn" id="saveBtn">Save</button>'+
+    (item?'<button class="btn ghost" title="Print / PDF report" onclick="location.hash=\'#/'+key+'/'+id+'/print\'" style="padding:12px 14px">'+ic('print')+'</button>':'')+
+    (item?'<button class="btn danger" id="delBtn">Delete</button>':'')+'</div></div>';
+  document.getElementById('saveBtn').onclick=()=>{
+    const obj=collectForm(mod); if(!obj) return;
+    if(item){ Object.assign(item,obj); }
+    else{ obj.id=uid(); db[mod.store].push(obj); }
+    if(mod.beforeSave) mod.beforeSave(item||obj);
+    save(); location.hash='#/'+key;
+  };
+  const del=document.getElementById('delBtn');
+  if(del) del.onclick=()=>{
+    if(confirm('Delete this record? This cannot be undone.')){
+      db[mod.store]=db[mod.store].filter(x=>x.id!==id); save(); location.hash='#/'+key;
+    }
+  };
+  if(mod.afterRender) mod.afterRender(item);
+}
+
+/* ============ router ============ */
+function route(){
+  const p=location.hash.replace(/^#\/?/,'').split('/').filter(Boolean);
+  window.scrollTo(0,0);
+  curEdit=null;
+  syncShell(p[0]||'');
+  if(!p.length) return renderHome();
+  const key=p[0], sub=p[1];
+  if(key==='certexp')  return renderCertExp();
+  if(key==='stats')    return renderStats();
+  if(key==='report')   return renderReport();
+  if(key==='actions')  return renderActions();
+  if(key==='settings') return renderSettings();
+  if(MODULES[key]){
+    if(!sub) return renderList(key);
+    if(sub==='new') return renderEdit(key,null);
+    if(p[2]==='print') return renderRecordPrint(key,sub);
+    return renderEdit(key,sub);
+  }
+  renderHome();
+}
+window.addEventListener('hashchange', route);
+
+/* ============ reference data ============ */
+const TRADES=['General Worker','Excavator Operator','Crane Operator','Lifting Supervisor','Rigger / Signalman','Banksman','Scaffolder','Welder','Electrician','Driver','Supervisor / Foreman','Site Engineer','WSH Officer / Coordinator','Project Manager','Others'];
+const EQUIPTYPES=['Excavator','Mobile Crane','Crawler Crane','Lorry Crane','Lorry / Tipper','Dump Truck','Roller / Compactor','Piling Rig','Generator','Air Compressor','Welding Set','Power Tool','Lifting Gear','MEWP / Boom Lift','Forklift','Others'];
+const DOCCATS=['WSH Policy / Safety Plan','RA / SWP','Permit / Licence','Insurance','Method Statement','Emergency Response Plan','Drawing','Circular / Notice','MOM Correspondence','Inspection Report','Others'];
+const INCTYPES=['Near Miss','First Aid Case','Medical Treatment / MC','Lost Time Injury','Dangerous Occurrence','Property Damage','Fatality'];
+const COURSES=['Apply WSH in Construction Sites (CSOC)','Work at Height Course for Workers','Work at Height Course for Supervisors','Perform Work in Confined Space Operation','Lifting Supervisor Safety Course','Rigger & Signalman Course','Scaffold Erector Course','Supervise Safe Lifting Operations','Occupational First Aid Course (OFAC)','Building Construction Supervisors Safety Course (BCSS)','WSH Officer Course','Forklift Operator Course','MEWP Operator Course'];
+const SEV135=['1','2','3','4','5'];
+const OPENCLOSED=['Open','Closed'];
+const SEVHDB=['Minor','Major','Critical'];
+
+/* HDB Appendix VII — standard safety observation categories */
+const NEGCATS={
+ 'Work-At-Height':['No or improper mesh barricade','No proper anchorage points','No body harness put on by workers','Others'],
+ 'Hit-By-Falling Objects':['No coverings at services ducts','No coverings at lift shafts','No coverings at CRC','Others'],
+ 'Poor Housekeeping':['Construction level','Typical storey','Ground floor','Others'],
+ 'Provisions not in accordance to PE Design':['Mesh barricade','Catch platform','Washing bay','Construction access','Metal staircases','Peripheral overhead shelters','Designated access points shelter','Others'],
+ 'Struck by Moving Objects':['No guard provision','Others'],
+ 'Non-compliances relating to lifting operations and equipment':['No colour coding system','No overhaul certificate','No barricade provided at lifting area','Improper maintenance regime','Personnel do not meet specification requirement (experience)','Expired LM/LG certificates','Others'],
+ 'Non-compliances relating to electrical appliances':['Invalid or expired LEW certificate','Others'],
+ 'Poor traffic management':['No designated access for human and vehicle','Insufficient or no speed limit signage','No wheel chokes for stationary vehicles','No traffic controllers at site entrance and exit','Insufficient or no convex mirrors at turning corners','No height limit sirens at site entrance and exit','Others'],
+ 'Administrative lapses relating to RAs, SWPs or PTWs':['RA not signed by top management','No PTW for day and/or night works','Others'],
+ 'Inadequate PPEs':['No documentation on issuance of PPE','Improper PPE used for the works','Others'],
+ 'Collapse of temporary structures':['No PE design for temporary earth retaining structures','Others'],
+ 'Others':[]
+};
+const POSCATS=['Good Work-At-Height provision','Good provision for prevention of Hit-By-Falling Objects','Good Housekeeping','Provisions in accordance to PE design','Good provision for prevention of Struck by Moving Objects','Compliances relating to lifting operations and equipment','Compliances relating to electrical appliances','Good traffic management','Compliances relating to RAs, SWPs or PTWs','Good PPE provision','Good provision to prevent collapse of temporary structures','Others'];
+const OBS_NEG='Negative — safety non-compliance', OBS_POS='Positive — good practice';
+function companyList(){
+  return [...new Set([].concat(db.members.map(m=>m.company), db.equipment.map(e=>e.owner), db.contacts.map(c=>c.company)).filter(Boolean))];
+}
+
+const CHECKTPL={
+ 'Scaffold (weekly)':[
+  'Scaffold erected/modified by approved scaffold erector; supervisor appointed',
+  'Green tag / scaffold register current (inspected within last 7 days)',
+  'Base plates & sole boards on firm, level ground',
+  'Standards, ledgers, transoms complete and secured',
+  'Bracing and ties installed as per design',
+  'Platforms fully boarded, boards secured, no gaps > 25mm',
+  'Guardrails (top & mid) and toe boards installed',
+  'Safe access ladder secured and extending above platform',
+  'No overloading of platforms; materials stacked safely',
+  'Scaffold protected from vehicle impact'],
+ 'Lifting operation (daily)':[
+  'Permit-to-work / lifting permit valid where required',
+  'Lifting plan available and briefed to lifting team',
+  'Crane daily inspection done; LM/PE cert & load chart valid',
+  'Operator, rigger, signalman certified and appointed',
+  'Ground condition firm & level; outrigger pads used',
+  'Lifting gear (slings, shackles, hooks) inspected, SWL adequate & tagged',
+  'Load weight verified; within crane capacity at working radius',
+  'Tag lines used; barricade & signage around lifting zone',
+  'No personnel under suspended load; exclusion zone enforced',
+  'Communication method (radio/hand signals) established'],
+ 'Excavation (daily)':[
+  'Permit-to-work valid for excavation > 1.5m',
+  'Underground services scanned & marked before excavation',
+  'Shoring / sloping / benching per RA for depth > 1.5m',
+  'Safe access & egress (ladder within 8m travel)',
+  'Spoil, materials & plant kept min. 1m from edge',
+  'Barricades, warning signs & night lighting in place',
+  'Daily inspection by excavation supervisor done',
+  'No water accumulation; pump available if needed',
+  'Adjacent structures / slopes monitored for movement',
+  'Banksman deployed for machine operations near workers'],
+ 'Work at height (daily)':[
+  'Permit-to-work valid for WAH activities',
+  'Fall prevention plan / RA briefed to workers',
+  'Guardrails / barricades at open sides & floor openings',
+  'Floor openings covered, secured & marked',
+  'Anchorage points adequate; lifelines installed where required',
+  'Workers using full-body harness with double lanyard, 100% tie-off',
+  'Ladders inspected, secured, 1m above landing, 4:1 ratio',
+  'MEWP inspected; operator trained; harness worn in basket',
+  'Weather suitable (no lightning risk / strong wind)',
+  'Tools tethered / secured against falling objects; overhead protection below'],
+ 'Hot work (daily)':[
+  'Hot work permit valid & displayed',
+  'Combustibles removed or covered within 10m',
+  'Fire extinguisher at work location, inspected & accessible',
+  'Fire watcher appointed and present during & after work',
+  'Gas cylinders upright, secured, with flashback arrestors',
+  'Hoses, regulators & torch in good condition (no leaks)',
+  'Welding set earthed; cables insulated & routed safely',
+  'Screens / blankets to contain sparks; ventilation adequate',
+  'Work area wetted down / spark containment below elevated work',
+  'Area checked 30 min after completion of hot work'],
+ 'Confined space (entry)':[
+  'Confined space entry permit valid & displayed',
+  'Atmosphere tested by competent person (O2 19.5–23.5%, no toxic/flammable gas)',
+  'Continuous gas monitoring in place during occupancy',
+  'Ventilation (natural / forced) established',
+  'Attendant stationed at entry point at all times',
+  'Entry log maintained (who is inside)',
+  'Communication between entrants & attendant established',
+  'Rescue equipment (tripod, harness, SCBA) available at site',
+  'Entrants trained in confined space work; no unauthorized entry',
+  'Emergency response & rescue plan briefed'],
+ 'Housekeeping & PPE (daily)':[
+  'Access routes & walkways clear of obstruction',
+  'Materials stacked safely & stored in designated areas',
+  'Debris, timber with protruding nails removed / bent down',
+  'Waste segregated & bins not overflowing',
+  'All workers wearing safety helmet with chin strap',
+  'Safety footwear worn by all personnel',
+  'High-visibility vests worn near vehicular traffic',
+  'Task-specific PPE in use (goggles, gloves, ear plugs, respirator)',
+  'Adequate lighting in work & access areas',
+  'Drinking water point & rest area provided and clean'],
+ 'Electrical / power tools (monthly)':[
+  'Temporary electrical installation by licensed electrical worker',
+  'Distribution boards labelled, covered & locked',
+  'ELCB / RCCB (30mA) functional — test button checked',
+  'Cables routed off ground / protected from damage & water',
+  'Plugs, sockets & couplers industrial type, undamaged',
+  'Power tools inspected, quarterly color code current',
+  'Guards on grinders / saws in place; discs not expired',
+  'No unauthorized tapping or overloading of outlets',
+  'Portable generators earthed & sited on level ground',
+  'Faulty equipment tagged out & removed from service']
+};
+
+/* ============ module definitions ============ */
+const MODULES={
+
+ contacts:{ title:'Contacts', store:'contacts',
+  fields:[
+   {k:'name',label:'Name',req:1},
+   {k:'company',label:'Company',half:1},
+   {k:'role',label:'Designation',half:1},
+   {k:'phone',label:'Phone',type:'tel',half:1},
+   {k:'email',label:'Email',type:'email',half:1},
+   {k:'notes',label:'Notes',type:'textarea',rows:2}],
+  sort:(a,b)=>(a.name||'').localeCompare(b.name||''),
+  line1:i=>esc(i.name),
+  line2:i=>esc([i.company,i.role].filter(Boolean).join(' · ')),
+  meta:i=>i.phone?'<a class="chip lnk" href="tel:'+esc(i.phone)+'" onclick="event.stopPropagation()">'+esc(i.phone)+'</a>':'',
+  empty:'Key project contacts — emergency services, MOM, client, main-con, subcontractors, nearest clinic & hospital.'},
+
+ members:{ title:'Member(s)', store:'members',
+  fields:[
+   {k:'name',label:'Full name',req:1},
+   {k:'company',label:'Company',half:1},
+   {k:'trade',label:'Trade / role',type:'select',opts:TRADES,half:1},
+   {k:'idno',label:'NRIC / FIN (masked)',half:1,ph:'e.g. ****567A'},
+   {k:'phone',label:'Phone',type:'tel',half:1},
+   {k:'wpExpiry',label:'Work pass expiry',type:'date',half:1},
+   {k:'sicDate',label:'Safety induction (SIC) date',type:'date',half:1},
+   {k:'certs',label:'Competency certs',type:'rows',add:'Add cert',
+    cols:[{k:'name',label:'Cert (e.g. CSOC, WAH)',w:'full'},{k:'no',label:'Cert no.'},{k:'expiry',label:'Expiry',type:'date'}]},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  sort:(a,b)=>(a.name||'').localeCompare(b.name||''),
+  line1:i=>esc(i.name),
+  line2:i=>esc([i.company,i.trade].filter(Boolean).join(' · ')),
+  meta:i=>{ const ds=[i.wpExpiry,...(i.certs||[]).map(c=>c.expiry)].filter(Boolean).map(daysTo).filter(d=>d!==null);
+    if(!ds.length) return ''; const m=Math.min(...ds);
+    return m<0?'<span class="chip b">cert expired</span>':m<=30?'<span class="chip w">cert '+m+'d</span>':''; },
+  empty:'Register every worker on site — their certs feed the Cert Expiry dashboard and TBM/meeting attendance lists.'},
+
+ equipment:{ title:'Equipment', store:'equipment',
+  fields:[
+   {k:'type',label:'Type',type:'select',opts:EQUIPTYPES,req:1},
+   {k:'name',label:'Make / model / description'},
+   {k:'regNo',label:'Reg / plant no.',half:1},
+   {k:'serial',label:'Serial no.',half:1},
+   {k:'owner',label:'Owner / supplier',half:1},
+   {k:'swl',label:'SWL / capacity',half:1},
+   {k:'status',label:'Status',type:'select',opts:['In service','Under repair','Off-site'],def:'In service',half:1},
+   {k:'operator',label:'Assigned operator',half:1},
+   {k:'hdbML',label:'HDB Material List expiry',type:'date',half:1,hint:'For cranes registered under the HDB Material List.'},
+   {k:'aeDue',label:'Next AE inspection due',type:'date',half:1,hint:'Authorised Examiner test — 6-monthly or yearly. Reminder starts 1 month before.'},
+   {k:'serviceDue',label:'Next servicing due',type:'date',half:1,hint:'Crane service by mechanic — monthly or 3-monthly. Reminder starts 2 weeks before.'},
+   {k:'certs',label:'Certs & statutory tests (LM / LG)',type:'rows',add:'Add cert / test',
+    cols:[{k:'name',label:'Cert (e.g. LM cert, PE test, calibration)',w:'full'},{k:'no',label:'Cert no.'},{k:'expiry',label:'Expiry',type:'date'}]},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  sort:(a,b)=>(a.type||'').localeCompare(b.type||'')||(a.regNo||'').localeCompare(b.regNo||''),
+  line1:i=>esc([i.type,i.regNo].filter(Boolean).join(' — ')),
+  line2:i=>esc([i.name,i.owner].filter(Boolean).join(' · ')),
+  meta:i=>{ let out=i.status&&i.status!=='In service'?'<span class="chip n">'+esc(i.status)+'</span>':'';
+    const ds=[i.hdbML,i.aeDue,...(i.certs||[]).map(c=>c.expiry)].map(daysTo).filter(d=>d!==null);
+    const sd=daysTo(i.serviceDue);
+    if(sd!==null&&sd<=14) ds.push(sd);
+    if(ds.length){ const m=Math.min(...ds);
+      if(m<0) out+='<span class="chip b">overdue</span>'; else if(m<=30) out+='<span class="chip w">due '+m+'d</span>'; }
+    return out; },
+  empty:'Machine & plant register — LM certs, PE tests and inspections feed the Cert Expiry dashboard.'},
+
+ documents:{ title:'Document', store:'documents',
+  fields:[
+   {k:'title',label:'Title',req:1},
+   {k:'category',label:'Category',type:'select',opts:DOCCATS,half:1},
+   {k:'ref',label:'Reference no.',half:1},
+   {k:'rev',label:'Revision',half:1},
+   {k:'date',label:'Issue date',type:'date',half:1},
+   {k:'expiry',label:'Valid until (optional)',type:'date',half:1},
+   {k:'location',label:'Where it is kept',half:1,ph:'e.g. site office file 3 / shared drive'},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  line1:i=>esc(i.title),
+  line2:i=>esc([i.category,i.ref,i.rev?('Rev '+i.rev):''].filter(Boolean).join(' · ')),
+  meta:i=>i.expiry?expChip(i.expiry):(i.date?'<span class="chip n">'+fmtD(i.date)+'</span>':''),
+  empty:'Controlled document register — safety plan, permits, insurances, method statements, MOM correspondence.'},
+
+ tbm:{ title:'Toolbox Meeting', store:'tbm',
+  fields:[
+   {k:'date',label:'Date',type:'date',req:1,def:'today',half:1},
+   {k:'time',label:'Time',type:'time',half:1},
+   {k:'conductor',label:'Conducted by',req:1},
+   {k:'topics',label:"Today's activities & topics briefed",type:'textarea',req:1},
+   {k:'hazards',label:'Key hazards & precautions',type:'textarea'},
+   {k:'attendees',label:'Attendance',type:'members'},
+   {k:'others',label:'Other attendees (one per line)',type:'textarea',rows:2},
+   {k:'remarks',label:'Remarks / feedback from workers',type:'textarea',rows:2}],
+  line1:i=>esc((i.topics||'').split('\n')[0].slice(0,70)),
+  line2:i=>fmtD(i.date)+(i.time?' '+esc(i.time):'')+(i.conductor?' · '+esc(i.conductor):''),
+  meta:i=>{ const n=(i.attendees||[]).length+((i.others||'').split('\n').filter(x=>x.trim()).length);
+    return n?'<span class="chip">'+n+' pax</span>':''; },
+  empty:'Daily toolbox meeting records — what was briefed, by whom, and who attended.'},
+
+ inspections:{ title:'Inspection', store:'inspections',
+  fields:[
+   {k:'date',label:'Date',type:'date',req:1,def:'today',half:1},
+   {k:'type',label:'Type',type:'select',half:1,
+    opts:['Daily walkabout','Weekly site inspection','Joint inspection','Management inspection','MOM / authority visit','Client / consultant audit','Environmental (ECM)','Quality','Defects','In-process audit','Others']},
+   {k:'inspector',label:'Inspected by',req:1,half:1},
+   {k:'area',label:'Area / location',half:1},
+   {k:'findings',label:'Findings',type:'rows',add:'Add finding',
+    cols:[
+     {k:'desc',label:'Finding / observation',type:'textarea',w:'full'},
+     {k:'action',label:'Corrective action required',type:'textarea',w:'full'},
+     {k:'severity',label:'Severity',type:'select',opts:SEVHDB},
+     {k:'by',label:'Action by'},
+     {k:'due',label:'Due',type:'date'},
+     {k:'status',label:'Status',type:'select',opts:['Open','Rectified','Verified','Closed']}]},
+   {k:'remarks',label:'General remarks',type:'textarea',rows:2}],
+  line1:i=>fmtD(i.date)+' · '+esc(i.type||'Inspection'),
+  line2:i=>esc([i.area,i.inspector].filter(Boolean).join(' · ')),
+  meta:i=>{ const fs=i.findings||[]; if(!fs.length) return '<span class="chip g">no findings</span>';
+    const o=fs.filter(f=>f.status!=='Closed').length;
+    return o?'<span class="chip w">'+o+' open</span>':'<span class="chip g">all closed</span>'; },
+  empty:'Site safety inspections with findings tracking — open items roll up into Statistics.'},
+
+ observations:{ title:'Observation', store:'observations',
+  fields:[
+   {k:'kind',label:'Observation type',type:'select',opts:[OBS_NEG,OBS_POS],req:1,def:OBS_NEG},
+   {k:'date',label:'Date found',type:'date',req:1,def:'today',half:1},
+   {k:'time',label:'Time found',type:'time',half:1},
+   {k:'initiator',label:'Reported by (initiator)',req:1,half:1},
+   {k:'trade',label:'Trade',half:1,list:TRADES},
+   {k:'subcon',label:'Subcontractor / company',half:1,list:companyList},
+   {k:'block',label:'Block / zone',half:1},
+   {k:'storey',label:'Storey',half:1},
+   {k:'unit',label:'Unit',half:1},
+   {k:'location',label:'Exact location / area'},
+   {k:'category',label:'Category (HDB standard list)',type:'select',opts:Object.keys(NEGCATS),req:1},
+   {k:'subitem',label:'Standard item',type:'select',opts:[]},
+   {k:'desc',label:'Description / remarks',type:'textarea'},
+   {k:'severity',label:'Severity',type:'select',opts:SEVHDB,half:1,hint:'For non-compliances.'},
+   {k:'due',label:'Due date to close',type:'date',half:1},
+   {k:'status',label:'Status',type:'select',opts:['Open','Rectified','Verified','Closed'],def:'Open',half:1},
+   {k:'rectifiedBy',label:'Rectified by',half:1},
+   {k:'rectifiedDate',label:'Rectified date',type:'date',half:1},
+   {k:'verifiedBy',label:'Verified by',half:1},
+   {k:'verifiedDate',label:'Verified date',type:'date',half:1},
+   {k:'closedDate',label:'Closed date',type:'date',half:1},
+   {k:'beforePhotos',label:'Before photos',type:'photos',hint:'Mandatory for non-compliances (HDB requirement). Photos are compressed and stored on this device.'},
+   {k:'afterPhotos',label:'After photos (on rectification)',type:'photos'}],
+  afterRender:function(item){
+    const kindSel=app.querySelector('[data-f="kind"]');
+    const catSel=app.querySelector('[data-f="category"]');
+    const subSel=app.querySelector('[data-f="subitem"]');
+    let curCat=item?item.category:'', curSub=item?item.subitem:'';
+    const fill=(sel,opts,cur)=>{ sel.innerHTML='<option value=""></option>'+
+      opts.map(o=>'<option'+(o===cur?' selected':'')+'>'+esc(o)+'</option>').join(''); };
+    const syncSub=()=>{ const items=NEGCATS[catSel.value]||[];
+      fill(subSel, items, curSub);
+      subSel.closest('.fld').style.display=items.length?'':'none'; };
+    const syncCat=()=>{ const neg=kindSel.value!==OBS_POS;
+      fill(catSel, neg?Object.keys(NEGCATS):POSCATS, curCat); syncSub(); };
+    kindSel.addEventListener('change',()=>{ curCat=''; curSub=''; syncCat(); });
+    catSel.addEventListener('change',()=>{ curSub=''; syncSub(); });
+    syncCat();
+  },
+  beforeSave:function(obj){
+    if(obj.kind!==OBS_POS && obj.status==='Open' && !(obj.beforePhotos||[]).length)
+      setTimeout(()=>alert('Reminder: HDB requires before/after photos for every safety non-compliance — attach a photo when you can.'),50);
+  },
+  line1:i=>esc(i.category||'Observation'),
+  line2:i=>fmtD(i.date)+esc([i.subitem&&i.subitem!=='Others'?' · '+i.subitem:(i.desc?' · '+i.desc.split('\n')[0].slice(0,50):''), i.subcon?' · '+i.subcon:''].join('')),
+  meta:i=>{ let out='';
+    if(i.kind===OBS_POS){ out+='<span class="chip g">positive</span>'; }
+    else{
+      if(i.severity) out+='<span class="chip '+(i.severity==='Critical'?'b':i.severity==='Major'?'w':'n')+'">'+esc(i.severity)+'</span>';
+      const d=daysTo(i.due);
+      if(i.status!=='Closed'&&d!==null&&d<0) out+='<span class="chip b">overdue</span>';
+    }
+    out+='<span class="chip '+(i.status==='Closed'?'g':'w')+'">'+esc(i.status||'Open')+'</span>';
+    return out; },
+  empty:'Site observations per HDB Appendix VII — safety non-compliances (NCR/near-miss) and positive observations, with before/after photos and rectify → verify → close tracking.'},
+
+ checklists:{ title:'Checklist', store:'checklists',
+  fields:[
+   {k:'template',label:'Checklist type',type:'select',opts:Object.keys(CHECKTPL),req:1,
+    hint:'Picking a type loads its standard items below — edit, add or remove items as needed.'},
+   {k:'date',label:'Date',type:'date',req:1,def:'today',half:1},
+   {k:'inspector',label:'Checked by',req:1,half:1},
+   {k:'area',label:'Location / equipment checked'},
+   {k:'items',label:'Items',type:'rows',add:'Add item',
+    cols:[
+     {k:'text',label:'Item',type:'textarea',w:'full'},
+     {k:'result',label:'Result',type:'select',opts:['OK','NG','N/A']},
+     {k:'remarks',label:'Remarks'}]},
+   {k:'overall',label:'Overall result',type:'select',opts:['Satisfactory','Unsatisfactory — follow-up required']},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  afterRender:function(item){
+    const sel=app.querySelector('[data-f="template"]');
+    if(!sel) return;
+    sel.addEventListener('change',()=>{
+      const tpl=CHECKTPL[sel.value]; if(!tpl) return;
+      const wrap=app.querySelector('[data-rows="items"]');
+      if(wrap.children.length && !confirm('Replace current items with the "'+sel.value+'" standard items?')) return;
+      const f=MODULES.checklists.fields.find(x=>x.k==='items');
+      wrap.innerHTML=tpl.map(t=>subRow(f,{text:t})).join('');
+    });
+  },
+  line1:i=>esc(i.template||'Checklist'),
+  line2:i=>fmtD(i.date)+esc([i.area?' · '+i.area:'',i.inspector?' · '+i.inspector:''].join('')),
+  meta:i=>{ const ng=(i.items||[]).filter(x=>x.result==='NG').length;
+    return ng?'<span class="chip b">'+ng+' NG</span>':((i.items||[]).length?'<span class="chip g">OK</span>':''); },
+  empty:'Standard inspection checklists — scaffold, lifting, excavation, WAH, hot work, confined space, housekeeping, electrical.'},
+
+ ra:{ title:'RA / SWP', store:'ra',
+  fields:[
+   {k:'activity',label:'Work activity',req:1},
+   {k:'ref',label:'RA ref no.',half:1},
+   {k:'rev',label:'Revision',half:1},
+   {k:'swpRef',label:'SWP ref',half:1},
+   {k:'status',label:'Status',type:'select',opts:['Active','Under review','Expired'],def:'Active',half:1},
+   {k:'prepared',label:'Prepared by',half:1},
+   {k:'approved',label:'Approved by',half:1},
+   {k:'approvedDate',label:'Approval date',type:'date',half:1},
+   {k:'reviewDate',label:'Next review due',type:'date',half:1,
+    hint:'WSH (Risk Management) Regulations — review at least every 3 years, after an incident, or when work changes.'},
+   {k:'hazards',label:'Key hazards (residual risk)',type:'rows',add:'Add hazard',
+    cols:[
+     {k:'desc',label:'Hazard / possible injury',type:'textarea',w:'full'},
+     {k:'controls',label:'Existing controls',type:'textarea',w:'full'},
+     {k:'s',label:'Severity 1–5',type:'select',opts:SEV135},
+     {k:'l',label:'Likelihood 1–5',type:'select',opts:SEV135}]},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  sort:(a,b)=>(a.activity||'').localeCompare(b.activity||''),
+  line1:i=>esc(i.activity),
+  line2:i=>esc([i.ref,i.rev?('Rev '+i.rev):'',i.swpRef].filter(Boolean).join(' · ')),
+  meta:i=>{ let out='';
+    const rs=(i.hazards||[]).map(h=>(+h.s||0)*(+h.l||0)).filter(n=>n>0);
+    if(rs.length){ const m=Math.max(...rs);
+      const band=m>=15?['b','High']:m>=6?['w','Med']:['g','Low'];
+      out+='<span class="chip '+band[0]+'">'+band[1]+' '+m+'</span>'; }
+    if(i.status==='Expired') out+='<span class="chip b">expired</span>';
+    const d=daysTo(i.reviewDate);
+    if(d!==null&&d<=60) out+='<span class="chip '+(d<0?'b':'w')+'">review '+(d<0?'overdue':'in '+d+'d')+'</span>';
+    return out; },
+  empty:'Risk assessment & safe work procedure register — 5×5 matrix (S × L: ≤5 low, 6–12 medium, ≥15 high).'},
+
+ training:{ title:'Training', store:'training',
+  fields:[
+   {k:'name',label:'Worker name',req:1,list:()=>db.members.map(m=>m.name).filter(Boolean)},
+   {k:'course',label:'Course',req:1,list:COURSES},
+   {k:'provider',label:'Training provider',half:1},
+   {k:'certNo',label:'Cert no.',half:1},
+   {k:'date',label:'Completion date',type:'date',half:1},
+   {k:'expiry',label:'Expiry (if applicable)',type:'date',half:1},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  sort:(a,b)=>(b.date||'').localeCompare(a.date||''),
+  line1:i=>esc(i.course),
+  line2:i=>esc([i.name,i.provider].filter(Boolean).join(' · ')),
+  meta:i=>i.expiry?expChip(i.expiry):(i.date?'<span class="chip n">'+fmtD(i.date)+'</span>':''),
+  empty:'Training records per worker — expiring courses appear in the Cert Expiry dashboard.'},
+
+ meetings:{ title:'Meeting', store:'meetings',
+  fields:[
+   {k:'date',label:'Date',type:'date',req:1,def:'today',half:1},
+   {k:'type',label:'Type',type:'select',half:1,
+    opts:['WSH Committee','Site Coordination','Contractor Coordination','Management Review','Incident Review','Others']},
+   {k:'chairman',label:'Chaired by',half:1},
+   {k:'venue',label:'Venue',half:1},
+   {k:'attendees',label:'Attendance (registered members)',type:'members'},
+   {k:'others',label:'Other attendees (one per line)',type:'textarea',rows:2},
+   {k:'agenda',label:'Minutes & actions',type:'rows',add:'Add item',
+    cols:[
+     {k:'item',label:'Item discussed',type:'textarea',w:'full'},
+     {k:'action',label:'Action required',type:'textarea',w:'full'},
+     {k:'by',label:'Action by'},
+     {k:'due',label:'Due',type:'date'},
+     {k:'status',label:'Status',type:'select',opts:OPENCLOSED}]},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  line1:i=>esc(i.type||'Meeting')+' · '+fmtD(i.date),
+  line2:i=>esc([i.chairman,i.venue].filter(Boolean).join(' · ')),
+  meta:i=>{ const o=(i.agenda||[]).filter(a=>a.status!=='Closed'&&(a.item||a.action)).length;
+    return o?'<span class="chip w">'+o+' open</span>':((i.agenda||[]).length?'<span class="chip g">all closed</span>':''); },
+  empty:'Safety committee & coordination meeting minutes with action tracking.'},
+
+ incidents:{ title:'Incident', store:'incidents',
+  fields:[
+   {k:'date',label:'Date of incident',type:'date',req:1,half:1},
+   {k:'time',label:'Time',type:'time',half:1},
+   {k:'type',label:'Classification',type:'select',opts:INCTYPES,req:1},
+   {k:'location',label:'Location'},
+   {k:'description',label:'What happened',type:'textarea',req:1},
+   {k:'persons',label:'Person(s) involved',half:1},
+   {k:'injury',label:'Injury / damage details',half:1},
+   {k:'daysLost',label:'Man-days lost (MC days)',type:'number',half:1},
+   {k:'momReport',label:'MOM iReport',type:'select',half:1,
+    opts:['Not required','Required — pending','Submitted'],
+    hint:'Report to MOM: any workplace death, injury with >3 days MC or any hospitalisation, and dangerous occurrences.'},
+   {k:'status',label:'Status',type:'select',opts:['Open','Under investigation','Closed'],def:'Open',half:1},
+   {k:'rootCause',label:'Root cause / contributing factors',type:'textarea'},
+   {k:'actions',label:'Corrective & preventive actions',type:'rows',add:'Add action',
+    cols:[
+     {k:'desc',label:'Action',type:'textarea',w:'full'},
+     {k:'by',label:'Action by'},
+     {k:'due',label:'Due',type:'date'},
+     {k:'status',label:'Status',type:'select',opts:OPENCLOSED}]},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  line1:i=>esc(i.type||'Incident')+' · '+fmtD(i.date),
+  line2:i=>esc((i.description||'').split('\n')[0].slice(0,70)),
+  meta:i=>{ const sev={'Lost Time Injury':'b','Fatality':'b','Dangerous Occurrence':'b','Medical Treatment / MC':'w','First Aid Case':'w'};
+    let out='<span class="chip '+(sev[i.type]||'n')+'">'+esc((i.type||'').split(' ')[0])+'</span>';
+    if(i.status!=='Closed') out+='<span class="chip w">'+esc(i.status||'Open')+'</span>';
+    return out; },
+  empty:'Incident & near-miss register with investigation and CAPA tracking — feeds LTIFR in Statistics.'},
+
+ defects:{ title:'Defects', store:'defects',
+  fields:[
+   {k:'date',label:'Date reported',type:'date',req:1,def:'today',half:1},
+   {k:'reportedBy',label:'Reported by',req:1,half:1},
+   {k:'block',label:'Block / zone',half:1},
+   {k:'storey',label:'Storey',half:1},
+   {k:'unit',label:'Unit',half:1},
+   {k:'area',label:'Area',half:1,list:['Internal Unit','Common Area','Void Deck','Lift Lobby','Rooftop','External Works','Staircase','Carpark']},
+   {k:'location',label:'Exact location (e.g. kitchen, near unit door)'},
+   {k:'element',label:'Element',half:1,list:['Floor','Wall','Ceiling','Door','Window','Component','M&E Services','Roof','External Works','Others']},
+   {k:'grouping',label:'Grouping',half:1,list:['Finishing','Crack & Damage','Hollowness / Delamination','Jointing','Alignment & Evenness','Stains','Functionality','Roughness','Others']},
+   {k:'desc',label:'Defect description',type:'textarea',req:1},
+   {k:'severity',label:'Severity',type:'select',opts:SEVHDB,half:1},
+   {k:'trade',label:'Trade',half:1,list:['Tiling Works','RC Works','Painting','Plastering','Waterproofing','Carpentry','Aluminium / Glazing','M&E Works','Precast','Others']},
+   {k:'subcon',label:'Subcontractor',list:companyList},
+   {k:'due',label:'Due date to rectify',type:'date',half:1},
+   {k:'status',label:'Status',type:'select',opts:['Open','Rectified','Verified','Closed'],def:'Open',half:1},
+   {k:'rectifiedBy',label:'Rectified by',half:1},
+   {k:'rectifiedDate',label:'Rectified date',type:'date',half:1},
+   {k:'verifiedBy',label:'Verified by',half:1},
+   {k:'verifiedDate',label:'Verified date',type:'date',half:1},
+   {k:'closedDate',label:'Closed date',type:'date',half:1},
+   {k:'beforePhotos',label:'Before photos',type:'photos',hint:'Before and after photos are mandatory fields per HDB Appendix III.'},
+   {k:'afterPhotos',label:'After photos (on rectification)',type:'photos'}],
+  line1:i=>esc([i.element,i.grouping].filter(Boolean).join(' — ')||i.desc||'Defect'),
+  line2:i=>fmtD(i.date)+esc([i.block?' · Blk '+i.block:'',i.unit?' #'+i.unit:'',i.subcon?' · '+i.subcon:''].join('')),
+  meta:i=>{ let out='';
+    if(i.severity) out+='<span class="chip '+(i.severity==='Critical'?'b':i.severity==='Major'?'w':'n')+'">'+esc(i.severity)+'</span>';
+    const d=daysTo(i.due);
+    if(i.status!=='Closed'&&d!==null&&d<0) out+='<span class="chip b">overdue</span>';
+    out+='<span class="chip '+(i.status==='Closed'?'g':'w')+'">'+esc(i.status||'Open')+'</span>';
+    return out; },
+  empty:'Quality defect register per HDB Appendix IV — element, grouping, location, photos, and the rectify → verify → close workflow.'}
+};
+
+/* ============ open-actions hub ============ */
+function allOpenActions(){
+  const out=[];
+  const add=(due,label,detail,link,src)=>out.push({due:due||'', days:daysTo(due), label, detail, link, src});
+  db.observations.forEach(o=>{ if(o.kind!==OBS_POS && o.status!=='Closed')
+    add(o.due, o.category||'Observation', [o.subitem||o.desc, o.subcon].filter(Boolean).join(' · '), '#/observations/'+o.id, 'Observation'); });
+  db.defects.forEach(o=>{ if(o.status!=='Closed')
+    add(o.due, [o.element,o.grouping].filter(Boolean).join(' — ')||'Defect', [o.desc, o.subcon].filter(Boolean).join(' · '), '#/defects/'+o.id, 'Defect'); });
+  db.inspections.forEach(i=>(i.findings||[]).forEach(f=>{ if(f.status!=='Closed' && (f.desc||f.action))
+    add(f.due, f.desc||'Finding', [f.action, f.by].filter(Boolean).join(' · '), '#/inspections/'+i.id, 'Inspection'); }));
+  db.incidents.forEach(i=>(i.actions||[]).forEach(a=>{ if(a.status!=='Closed' && (a.desc||a.by))
+    add(a.due, a.desc||'Incident action', [a.by, fmtD(i.date)].filter(Boolean).join(' · '), '#/incidents/'+i.id, 'Incident'); }));
+  db.meetings.forEach(m=>(m.agenda||[]).forEach(a=>{ if(a.status!=='Closed' && (a.item||a.action))
+    add(a.due, a.action||a.item, [a.by, fmtD(m.date)].filter(Boolean).join(' · '), '#/meetings/'+m.id, 'Meeting'); }));
+  return out.sort((a,b)=>(a.days??9e9)-(b.days??9e9));
+}
+function openActionCounts(){
+  const acts=allOpenActions();
+  return { total:acts.length, overdue:acts.filter(a=>a.days!==null&&a.days<0).length };
+}
+function renderActions(){
+  const acts=allOpenActions();
+  const groups=[
+   {t:'Overdue', c:'b', f:a=>a.days!==null&&a.days<0},
+   {t:'Due within 7 days', c:'w', f:a=>a.days!==null&&a.days>=0&&a.days<=7},
+   {t:'Later / no due date', c:'n', f:a=>a.days===null||a.days>7}];
+  const row=a=>'<div class="lrow" onclick="location.hash=\''+a.link+'\'">'+
+    '<div class="lmain"><div class="lt">'+esc(a.label)+'</div>'+
+    '<div class="ls">'+esc(a.detail||'')+'</div></div>'+
+    '<div class="lmeta"><span class="chip">'+a.src+'</span>'+(a.due?'<br><span class="chip '+(a.days<0?'b':a.days<=7?'w':'n')+'">'+fmtD(a.due)+'</span>':'')+'</div></div>';
+  app.innerHTML = header('Open Actions', true)+
+    (acts.length
+      ? groups.map(g=>{ const gr=acts.filter(g.f); if(!gr.length) return '';
+          return '<div class="exphead '+g.c+'">'+g.t+' ('+gr.length+')</div>'+gr.map(row).join(''); }).join('')
+      : '<div class="empty">No open corrective actions.<br>Actions from observations, inspections, incidents, meetings and defects all roll up here.</div>');
+}
+
+/* ============ per-record report (print / PDF) ============ */
+function renderRecordPrint(key, id){
+  const mod=MODULES[key];
+  const item=db[mod.store].find(x=>x.id===id);
+  if(!item){ location.hash='#/'+key; return; }
+  const s=db.settings;
+  const val=f=>{
+    const v=item[f.k];
+    if(v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length)) return '';
+    if(f.type==='photos') return '<div class="thumbs">'+v.map(d=>'<div class="thumb"><img src="'+d+'"></div>').join('')+'</div>';
+    if(f.type==='members'){
+      const names=v.map(idm=>{const m=db.members.find(x=>x.id===idm); return m?esc(m.name):'';}).filter(Boolean);
+      return names.length? names.join(', ') : '';
+    }
+    if(f.type==='rows'){
+      return '<table class="dtable" style="margin:4px 0"><tr>'+f.cols.map(c=>'<th style="text-align:left">'+esc(c.label)+'</th>').join('')+'</tr>'+
+        v.map(r=>'<tr>'+f.cols.map(c=>'<td style="text-align:left">'+esc(r[c.k]||'')+'</td>').join('')+'</tr>').join('')+'</table>';
+    }
+    if(f.type==='textarea') return esc(v).replace(/\n/g,'<br>');
+    if(f.type==='date') return fmtD(v);
+    return esc(v);
+  };
+  const rows=mod.fields.map(f=>{ const v=val(f); if(!v) return '';
+    return '<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">'+esc(f.label)+'</div>'+
+      '<div style="font-size:14.5px">'+v+'</div></div>'; }).join('');
+  const proj=[['Project',s.project],['Contractor',s.company],['HDB contract no.',s.hdbContract],['Site ref',s.siteRef]]
+    .filter(x=>x[1]).map(x=>x[0]+': <b>'+esc(x[1])+'</b>').join(' &nbsp;·&nbsp; ');
+  app.innerHTML = header(mod.title+' Report', true)+
+    '<div class="card">'+
+      '<div class="charthead">'+esc(mod.title)+' Report</div>'+
+      (proj?'<div class="repmeta" style="margin-bottom:10px">'+proj+'</div>':'')+
+      '<div class="repmeta" style="margin-bottom:12px">Record ID: <b>'+esc(item.id)+'</b> &nbsp;·&nbsp; Generated: <b>'+fmtD(today())+'</b></div>'+
+      rows+
+      '<div style="display:flex;gap:24px;margin-top:26px">'+
+        '<div style="flex:1;border-top:1px solid var(--line2);padding-top:5px;font-size:12px;color:var(--sub)">Prepared by / date</div>'+
+        '<div style="flex:1;border-top:1px solid var(--line2);padding-top:5px;font-size:12px;color:var(--sub)">Verified by / date</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="btnrow noprint"><button class="btn" onclick="window.print()">Print / save as PDF</button>'+
+    '<button class="btn ghost" onclick="saveRecordHtml(\''+key+'\',\''+id+'\')">Save to Safety folder</button></div>';
+}
+function saveRecordHtml(key, id){
+  const mod=MODULES[key];
+  const item=db[mod.store].find(x=>x.id===id); if(!item) return;
+  const card=app.querySelector('.card'); if(!card) return;
+  const cl=card.cloneNode(true); cl.querySelectorAll('.noprint').forEach(e=>e.remove());
+  const name=mod.store+'-'+(item.date||today())+'-'+fileStamp(item.id)+'.html';
+  saveOrDownload(DIRMAP[key]||'Registers', name, reportDocHtml(mod.title+' Report', cl.outerHTML), 'text/html');
+}
+
+/* ============ cert expiry dashboard ============ */
+function certRows(){
+  const out=[];
+  const push=(cat,owner,name,expiry,link,warn)=>{ const d=daysTo(expiry);
+    if(d!==null) out.push({cat,owner,name,expiry,days:d,link,warn:warn||30}); };
+  db.members.forEach(m=>{
+    if(m.wpExpiry) push('Work pass', m.name, 'Work pass', m.wpExpiry, '#/members/'+m.id);
+    (m.certs||[]).forEach(c=>push('Member cert', m.name, c.name||'Cert', c.expiry, '#/members/'+m.id));
+  });
+  db.equipment.forEach(e=>{
+    const label=[e.type,e.regNo].filter(Boolean).join(' ');
+    (e.certs||[]).forEach(c=>push('Equipment', label, c.name||'LM/LG cert', c.expiry, '#/equipment/'+e.id));
+    if(e.hdbML) push('Equipment', label, 'HDB Material List', e.hdbML, '#/equipment/'+e.id);
+    if(e.aeDue) push('Equipment', label, 'AE inspection & test', e.aeDue, '#/equipment/'+e.id);
+    if(e.serviceDue) push('Equipment', label, 'Crane servicing', e.serviceDue, '#/equipment/'+e.id, 14);
+  });
+  db.training.forEach(t=>push('Training', t.name, t.course, t.expiry, '#/training/'+t.id));
+  db.documents.forEach(d=>push('Document', d.title, 'Validity', d.expiry, '#/documents/'+d.id));
+  return out.sort((a,b)=>a.days-b.days);
+}
+function certBadgeCount(){ return certRows().filter(r=>r.days<=r.warn).length; }
+
+function renderCertExp(){
+  const rows=certRows();
+  const groups=[
+   {t:'Expired', c:'b', f:r=>r.days<0},
+   {t:'Due within 30 days', c:'w', f:r=>r.days>=0&&r.days<=30},
+   {t:'Due within 90 days', c:'n', f:r=>r.days>30&&r.days<=90},
+   {t:'Valid (beyond 90 days)', c:'g', f:r=>r.days>90}];
+  const row=r=>'<div class="lrow" onclick="location.hash=\''+r.link+'\'">'+
+    '<div class="lmain"><div class="lt">'+esc(r.owner)+'</div>'+
+    '<div class="ls">'+esc(r.cat)+' · '+esc(r.name)+'</div></div>'+
+    '<div class="lmeta">'+expChip(r.expiry, r.warn)+'</div></div>';
+  app.innerHTML = header('Cert Expiry', true)+
+    (rows.length
+      ? groups.map(g=>{ const gr=rows.filter(g.f); if(!gr.length) return '';
+          return '<div class="exphead '+g.c+'">'+g.t+' ('+gr.length+')</div>'+gr.map(row).join(''); }).join('')
+      : '<div class="empty">Nothing to track yet.<br>Expiry dates you enter on Members, Equipment, Training and Documents all roll up here automatically.</div>');
+}
+
+/* ============ CSV export ============ */
+function exportModuleCsv(key){
+  const mod=MODULES[key];
+  const items=[...db[mod.store]].sort(mod.sort || ((a,b)=>(b.date||'').localeCompare(a.date||'')));
+  const heads=['ID'], getters=[i=>i.id];
+  mod.fields.forEach(f=>{
+    if(f.type==='photos'){ heads.push(f.label+' (count)'); getters.push(i=>(i[f.k]||[]).length); return; }
+    if(f.type==='rows'){ heads.push(f.label);
+      getters.push(i=>(i[f.k]||[]).map(r=>f.cols.map(c=>r[c.k]).filter(Boolean).join(' / ')).join(' | ')); return; }
+    if(f.type==='members'){ heads.push(f.label);
+      getters.push(i=>(i[f.k]||[]).map(id=>{const m=db.members.find(x=>x.id===id); return m?m.name:'';}).filter(Boolean).join('; ')); return; }
+    heads.push(f.label); getters.push(i=>i[f.k]??'');
+  });
+  const lines=[heads.map(csvEsc).join(',')]
+    .concat(items.map(i=>getters.map(g=>csvEsc(g(i))).join(',')));
+  saveOrDownload(DIRMAP[key]||'Registers', mod.store+'-'+today()+'.csv', lines.join('\r\n'), 'text/csv;charset=utf-8');
+}
+
+/* ============ statistics ============ */
+let statsYear=new Date().getFullYear();
+const ACC_TYPES=['First Aid Case','Medical Treatment / MC','Lost Time Injury','Fatality'];
+
+function inYear(r,yr){ return r.date && +r.date.slice(0,4)===yr; }
+function byMonth(arr,yr){ const m=Array(12).fill(0);
+  arr.forEach(r=>{ if(inYear(r,yr)){ const i=+r.date.slice(5,7)-1; if(i>=0&&i<12) m[i]++; } }); return m; }
+function niceStep(max){ const raw=max/4||1; const p=Math.pow(10,Math.floor(Math.log10(raw)));
+  for(const m of [1,2,5,10]){ if(raw<=m*p) return m*p; } return 10*p; }
+
+function barChartSVG(labels, series){
+  const W=720,H=230,padL=36,padR=8,padT=10,padB=24;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const max=Math.max(1,...series.flatMap(s=>s.values));
+  const step=Math.max(1,niceStep(max)), top=Math.ceil(max/step)*step;
+  let grid='';
+  for(let v=0; v<=top; v+=step){
+    const y=padT+plotH-(v/top)*plotH;
+    grid+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="'+(v===0?'var(--viz-axis)':'var(--viz-grid)')+'" stroke-width="1"/>'+
+      '<text x="'+(padL-6)+'" y="'+(y+3.5)+'" text-anchor="end" font-size="10" fill="var(--viz-muted)">'+v+'</text>';
+  }
+  const n=labels.length, gw=plotW/n, ns=series.length;
+  const bw=Math.min(20,(gw-8)/ns);
+  let bars='', xlab='';
+  labels.forEach((lb,i)=>{
+    xlab+='<text x="'+(padL+i*gw+gw/2)+'" y="'+(H-8)+'" text-anchor="middle" font-size="10" fill="var(--viz-muted)">'+lb+'</text>';
+    series.forEach((s,si)=>{
+      const v=s.values[i]; if(!v) return;
+      const h=(v/top)*plotH;
+      const x=padL+i*gw+(gw-ns*bw-(ns-1)*2)/2+si*(bw+2);
+      const y=padT+plotH-h;
+      bars+='<rect class="bar" x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+h.toFixed(1)+
+        '" rx="2" fill="'+s.color+'" data-tip="'+esc(lb+' — '+s.name+': '+v)+'"/>';
+    });
+  });
+  return '<div class="chartwrap"><svg viewBox="0 0 '+W+' '+H+'" role="img" font-family="system-ui,sans-serif">'+grid+bars+xlab+'</svg></div>';
+}
+
+function bindTips(){
+  const tip=document.getElementById('tip');
+  const move=e=>{ const x=e.touches?e.touches[0].clientX:e.clientX, y=e.touches?e.touches[0].clientY:e.clientY;
+    tip.style.left=Math.max(4,Math.min(x+12,innerWidth-tip.offsetWidth-8))+'px';
+    tip.style.top=Math.max(4,y-34)+'px'; };
+  app.querySelectorAll('.bar').forEach(b=>{
+    const show=e=>{ tip.textContent=b.dataset.tip; tip.style.display='block'; move(e); };
+    b.addEventListener('mouseenter',show);
+    b.addEventListener('mousemove',move);
+    b.addEventListener('mouseleave',()=>tip.style.display='none');
+    b.addEventListener('click',e=>{ show(e); setTimeout(()=>tip.style.display='none',1800); });
+  });
+}
+
+function dataTable(labels, series){
+  return '<details><summary>View data as table</summary><table class="dtable"><tr><th></th>'+
+    series.map(s=>'<th>'+esc(s.name)+'</th>').join('')+'</tr>'+
+    labels.map((lb,i)=>'<tr><td>'+lb+'</td>'+series.map(s=>'<td>'+s.values[i]+'</td>').join('')+'</tr>').join('')+
+    '</table></details>';
+}
+
+function renderStats(){
+  const yr=statsYear;
+  const years=new Set([new Date().getFullYear()]);
+  [].concat(db.incidents,db.tbm,db.inspections,db.checklists,db.meetings).forEach(r=>{ if(r.date&&/^\d{4}/.test(r.date)) years.add(+r.date.slice(0,4)); });
+  Object.keys(db.manhours).forEach(k=>{ if(/^\d{4}/.test(k)) years.add(+k.slice(0,4)); });
+  const yrOpts=[...years].sort((a,b)=>b-a).map(y=>'<option'+(y===yr?' selected':'')+'>'+y+'</option>').join('');
+
+  const mh=MONTHS.reduce((s,_,i)=>s+(+db.manhours[yr+'-'+String(i+1).padStart(2,'0')]||0),0);
+  const inc=db.incidents.filter(r=>inYear(r,yr));
+  const lti=inc.filter(r=>r.type==='Lost Time Injury'||r.type==='Fatality').length;
+  const acc=inc.filter(r=>ACC_TYPES.includes(r.type)).length;
+  const doN=inc.filter(r=>r.type==='Dangerous Occurrence').length;
+  const daysLost=inc.reduce((s,r)=>s+(+r.daysLost||0),0);
+  const ltifr=mh?(lti*1e6/mh):null;
+  const afr=mh?(acc*1e6/mh):null;
+  const openObs=db.observations.filter(o=>o.kind!==OBS_POS&&o.status!=='Closed').length;
+  const openF=openActionCounts().total;
+  const tbmN=db.tbm.filter(r=>inYear(r,yr)).length;
+
+  const tile=(v,l)=>'<div class="stile"><div class="v">'+v+'</div><div class="l">'+l+'</div></div>';
+  const actSeries=[
+    {name:'TBM',        color:'var(--s1)', values:byMonth(db.tbm,yr)},
+    {name:'Inspections',color:'var(--s2)', values:byMonth(db.inspections,yr)},
+    {name:'Checklists', color:'var(--s3)', values:byMonth(db.checklists,yr)}];
+  const incSeries=[{name:'Incidents',color:'var(--s1)',values:byMonth(db.incidents,yr)}];
+  const typeCounts=INCTYPES.map(t=>[t,inc.filter(r=>r.type===t).length]).filter(x=>x[1]>0);
+
+  const mhGrid=MONTHS.map((m,i)=>{ const k=yr+'-'+String(i+1).padStart(2,'0');
+    const v=db.manhours[k]; return '<label class="mh"><span>'+m+'</span><input type="number" min="0" inputmode="numeric" data-mh="'+k+'" value="'+(v??'')+'"></label>'; }).join('');
+
+  app.innerHTML = header('Statistics', true,
+      '<select id="yrSel" style="width:auto;min-height:38px;padding:6px 8px">'+yrOpts+'</select>')+
+    '<div class="tiles">'+
+      tile(mh?mh.toLocaleString():'—','Man-hours '+yr)+
+      tile(acc,'Accidents')+
+      tile(afr===null?'—':afr.toFixed(2),'AFR / mil hrs')+
+      tile(lti,'Lost-time inj.')+
+      tile(ltifr===null?'—':ltifr.toFixed(2),'LTIFR / mil hrs')+
+      tile(daysLost,'Man-days lost')+
+      tile(doN,'Dangerous occ.')+
+      tile(openF,'Open actions')+
+      tile(openObs,'Open observations')+
+    '</div>'+
+    '<a class="btn ghost noprint" style="display:block;text-align:center;text-decoration:none;margin-bottom:12px" href="#/report">Monthly safety data report (HDB format) &rarr;</a>'+
+    '<div class="card"><div class="charthead">Incidents by month — '+yr+'</div>'+
+      barChartSVG(MONTHS,incSeries)+dataTable(MONTHS,incSeries)+
+      (typeCounts.length?'<div style="margin-top:10px">'+typeCounts.map(x=>'<span class="chip n" style="margin:2px">'+esc(x[0])+': <b>'+x[1]+'</b></span>').join(' ')+'</div>':'')+
+    '</div>'+
+    '<div class="card"><div class="charthead">Safety activities by month — '+yr+'</div>'+
+      '<div class="legend">'+actSeries.map(s=>'<span><i style="background:'+s.color+'"></i>'+s.name+'</span>').join('')+'</div>'+
+      barChartSVG(MONTHS,actSeries)+dataTable(MONTHS,actSeries)+
+      '<div class="hint" style="margin-top:8px">'+tbmN+' TBM conducted in '+yr+'.</div>'+
+    '</div>'+
+    '<div class="card"><details'+(mh?'':' open')+'><summary>Monthly man-hours — needed for LTIFR</summary>'+
+      '<div class="mhgrid">'+mhGrid+'</div>'+
+      '<div class="hint" style="margin-top:8px">Total man-hours worked by all personnel each month. LTIFR = (LTI + fatalities) &times; 1,000,000 &divide; man-hours.</div>'+
+    '</details></div>';
+
+  document.getElementById('yrSel').onchange=e=>{ statsYear=+e.target.value; renderStats(); };
+  app.querySelectorAll('[data-mh]').forEach(inp=>inp.onchange=()=>{
+    const v=+inp.value;
+    if(v>0) db.manhours[inp.dataset.mh]=v; else delete db.manhours[inp.dataset.mh];
+    save(); renderStats();
+  });
+  bindTips();
+}
+
+/* ============ monthly safety data report (HDB Appendix VI) ============ */
+let repMonth=today().slice(0,7);
+
+function rankedBars(rows){
+  if(!rows.length) return '<div class="hint">No safety non-compliances recorded this month.</div>';
+  const max=Math.max(...rows.map(r=>r.v));
+  return rows.map(r=>'<div class="hbar"><div class="hlab"><span>'+esc(r.label)+'</span><b>'+r.txt+'</b></div>'+
+    '<div class="htrack"><div class="hfill" style="width:'+((r.v/max)*100).toFixed(1)+'%"></div></div></div>').join('');
+}
+
+function repData(mk){
+  const inMonth=r=>r.date&&r.date.slice(0,7)===mk;
+  const inc=db.incidents.filter(inMonth);
+  const negs=db.observations.filter(o=>o.kind!==OBS_POS&&inMonth(o));
+  const byKey=(arr,fn)=>{ const m={}; arr.forEach(r=>{ const k=(fn(r)||'').trim()||'(unspecified)'; m[k]=(m[k]||0)+1; });
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]); };
+  return {
+    acc: inc.filter(r=>ACC_TYPES.includes(r.type)).length,
+    doN: inc.filter(r=>r.type==='Dangerous Occurrence').length,
+    fatal: inc.filter(r=>r.type==='Fatality').length,
+    mh: +db.manhours[mk]||0,
+    md: +db.mandays[mk]||0,
+    negs, pos: db.observations.filter(o=>o.kind===OBS_POS&&inMonth(o)).length,
+    trades: byKey(negs,o=>o.trade),
+    subs: byKey(negs,o=>o.subcon)
+  };
+}
+
+function renderReport(){
+  const s=db.settings, mk=repMonth;
+  const months=new Set([today().slice(0,7)]);
+  [].concat(db.incidents,db.observations).forEach(r=>{ if(r.date&&/^\d{4}-\d{2}/.test(r.date)) months.add(r.date.slice(0,7)); });
+  Object.keys(db.manhours).forEach(k=>months.add(k)); Object.keys(db.mandays).forEach(k=>months.add(k));
+  const mOpts=[...months].sort().reverse().map(k=>'<option value="'+k+'"'+(k===mk?' selected':'')+'>'+
+    MONTHS[+k.slice(5,7)-1]+' '+k.slice(0,4)+'</option>').join('');
+  const d=repData(mk);
+  const afrM=d.mh?(d.acc*1e6/d.mh):null;
+  const tot=d.negs.length;
+  const proj=[['Project',s.project],['HDB building contract no.',s.hdbContract],['Site ref no.',s.siteRef],
+    ['Estate / Neighbourhood',[s.estate,s.neighbourhood].filter(Boolean).join(' / ')],['Precinct',s.precinct],['Contractor',s.company]]
+    .filter(x=>x[1]).map(x=>x[0]+': <b>'+esc(x[1])+'</b>').join('<br>');
+  app.innerHTML = header('Monthly Safety Report', true,
+      '<select id="repMonth" class="noprint" style="width:auto;min-height:38px;padding:6px 8px">'+mOpts+'</select>')+
+    '<div class="card"><div class="charthead">Monthly Safety Data Report — '+MONTHS[+mk.slice(5,7)-1]+' '+mk.slice(0,4)+'</div>'+
+      (proj?'<div class="repmeta" style="margin-bottom:8px">'+proj+'</div>':'')+
+      '<div class="repmeta">'+
+        'Total workplace accidents reported: <b>'+d.acc+'</b><br>'+
+        'Number of dangerous occurrences (DO): <b>'+d.doN+'</b> &nbsp;·&nbsp; Fatalities: <b>'+d.fatal+'</b><br>'+
+        'Man-hours worked: <b>'+(d.mh?d.mh.toLocaleString():'—')+'</b> &nbsp;·&nbsp; Accident frequency rate (AFR): <b>'+(afrM===null?'— enter man-hours in Statistics':afrM.toFixed(2)+' / mil man-hours')+'</b>'+
+      '</div>'+
+      '<label class="noprint">Total mandays worked this month</label>'+
+      '<input class="noprint" id="repMd" type="number" min="0" inputmode="numeric" value="'+(d.md||'')+'">'+
+      (d.md?'<div class="repmeta">Total mandays worked: <b>'+d.md.toLocaleString()+'</b></div>':'')+
+    '</div>'+
+    '<div class="card"><div class="charthead">(a) Permit-To-Work status</div>'+
+      '<div class="hint">PTW records are managed in the SKYTOPIA ePTW system — attach its monthly PTW status breakdown (Draft / Submitted / Acknowledged / Assessed / Approved / Rejected / Work Completed / Closed) alongside this report.</div>'+
+    '</div>'+
+    '<div class="card"><div class="charthead">(b) Safety non-compliances by trade (ranked, % of '+tot+')</div>'+
+      rankedBars(d.trades.map(t=>({label:t[0], v:t[1], txt:(tot?(t[1]/tot*100).toFixed(0):0)+'% ('+t[1]+')'})))+
+    '</div>'+
+    '<div class="card"><div class="charthead">(c) Safety non-compliances by subcontractor (ranked)</div>'+
+      rankedBars(d.subs.map(t=>({label:t[0], v:t[1], txt:String(t[1])})))+
+      (d.pos?'<div class="hint" style="margin-top:8px">'+d.pos+' positive observation(s) also recorded this month.</div>':'')+
+    '</div>'+
+    '<div class="btnrow noprint">'+
+      '<button class="btn" onclick="window.print()">Print / save as PDF</button>'+
+      '<button class="btn ghost" onclick="saveReportHtml()">Save to Safety folder</button>'+
+      '<button class="btn ghost" onclick="exportReportCsv()">Export CSV (Excel)</button>'+
+    '</div>'+
+    '<div class="hint noprint" style="margin-top:10px">Underlying observation data is tabulated in the CSV export, as required for HDB statistical analysis. Bulk SFTP data transfer to HDB (Appendix X) is a server-side process outside this app.</div>';
+  document.getElementById('repMonth').onchange=e=>{ repMonth=e.target.value; renderReport(); };
+  document.getElementById('repMd').onchange=e=>{
+    const v=+e.target.value;
+    if(v>0) db.mandays[mk]=v; else delete db.mandays[mk];
+    save(); renderReport();
+  };
+}
+
+function exportReportCsv(){
+  const mk=repMonth, d=repData(mk);
+  const L=[];
+  L.push(['Monthly Safety Data Report', MONTHS[+mk.slice(5,7)-1]+' '+mk.slice(0,4)]);
+  L.push(['Total workplace accidents reported', d.acc]);
+  L.push(['Total mandays worked', d.md||'']);
+  L.push(['Man-hours worked', d.mh||'']);
+  L.push(['Accident frequency rate (per mil man-hours)', d.mh?(d.acc*1e6/d.mh).toFixed(2):'']);
+  L.push(['Number of DO', d.doN]); L.push(['Fatality', d.fatal]); L.push([]);
+  L.push(['Breakdown by trade','Count','% of total']);
+  d.trades.forEach(t=>L.push([t[0], t[1], d.negs.length?(t[1]/d.negs.length*100).toFixed(1):'0']));
+  L.push([]);
+  L.push(['Breakdown by subcontractor','Count']);
+  d.subs.forEach(t=>L.push([t[0], t[1]])); L.push([]);
+  L.push(['S/N','Block','Storey','Unit','Location','Initiator','Subcontractor','Trade','Category','Standard item','Description','Severity','Date found','Time found','Status','Rectified date','Verified date','Closed date','Duration (days)']);
+  d.negs.forEach((o,i)=>{
+    const dur=(o.closedDate&&o.date)?Math.max(0,Math.round((new Date(o.closedDate)-new Date(o.date))/864e5)):'';
+    L.push([i+1,o.block,o.storey,o.unit,o.location,o.initiator,o.subcon,o.trade,o.category,o.subitem,o.desc,o.severity,o.date,o.time,o.status,o.rectifiedDate,o.verifiedDate,o.closedDate,dur]);
+  });
+  saveOrDownload('Monthly Reports', 'safety-report-'+mk+'.csv', L.map(r=>r.map(csvEsc).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
+}
+function saveReportHtml(){
+  const mk=repMonth;
+  const cards=[...app.querySelectorAll('.card')].map(c=>{
+    const cl=c.cloneNode(true); cl.querySelectorAll('.noprint,input,select,label').forEach(e=>e.remove()); return cl.outerHTML;
+  }).join('');
+  saveOrDownload('Monthly Reports', 'safety-report-'+mk+'.html',
+    reportDocHtml('Monthly Safety Report '+mk, cards), 'text/html');
+}
+
+/* ============ settings ============ */
+function renderSettings(){
+  const s=db.settings;
+  app.innerHTML = header('Settings', true)+
+    '<div class="card"><div class="fgrid">'+
+      '<div class="fld"><label>Project name</label><input id="setProject" value="'+esc(s.project||'')+'" placeholder="Shown on the home screen"></div>'+
+      '<div class="fld"><label>Company</label><input id="setCompany" value="'+esc(s.company||'')+'"></div>'+
+      '<div class="fld half"><label>HDB building contract no.</label><input id="setHdb" value="'+esc(s.hdbContract||'')+'" placeholder="e.g. D/357/18"></div>'+
+      '<div class="fld half"><label>HDB site ref no.</label><input id="setRef" value="'+esc(s.siteRef||'')+'"></div>'+
+      '<div class="fld half"><label>Estate</label><input id="setEstate" value="'+esc(s.estate||'')+'"></div>'+
+      '<div class="fld half"><label>Neighbourhood</label><input id="setNbh" value="'+esc(s.neighbourhood||'')+'"></div>'+
+      '<div class="fld"><label>Precinct</label><input id="setPrecinct" value="'+esc(s.precinct||'')+'"></div>'+
+    '</div><div class="hint">The HDB fields appear on the monthly safety data report header.</div>'+
+    '<div class="btnrow"><button class="btn" id="setSave">Save</button></div></div>'+
+    '<div class="card"><label style="margin-top:0">SKYTOPIA Safety folder</label>'+
+      '<p class="hint">Connect your <b>Skytopia \\ Safety</b> folder (OneDrive) so reports, CSV exports and backups save straight into it — each report type goes to its own subfolder (Inspections, Observations, Monthly Reports, &hellip;). Works in Chrome / Edge.</p>'+
+      '<p class="hint" id="fsStatus">Checking&hellip;</p>'+
+      '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="fsPick">Connect folder</button>'+
+      '<button class="btn danger" id="fsForget" style="display:none">Disconnect</button></div>'+
+    '</div>'+
+    '<div class="card"><label style="margin-top:0">Backup &amp; restore</label>'+
+      '<p class="hint">Data lives only in this browser. Export a backup file regularly and keep it somewhere safe; import it to restore or to move to another device.</p>'+
+      '<p class="hint">Storage used: ~'+Math.round(JSON.stringify(db).length/1024).toLocaleString()+' KB of a ~5,000 KB browser limit. Photos use the most space.</p>'+
+      '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="expBtn">Export backup</button>'+
+      '<button class="btn ghost" id="impBtn">Import</button></div>'+
+      '<input type="file" id="impFile" accept=".json,application/json" hidden>'+
+    '</div>'+
+    '<div class="card"><label style="margin-top:0">Danger zone</label>'+
+      '<div class="btnrow" style="margin-top:10px"><button class="btn danger" id="clrBtn" style="flex:1">Erase all data on this device</button></div>'+
+    '</div>';
+  document.getElementById('setSave').onclick=()=>{
+    s.project=document.getElementById('setProject').value.trim();
+    s.company=document.getElementById('setCompany').value.trim();
+    s.hdbContract=document.getElementById('setHdb').value.trim();
+    s.siteRef=document.getElementById('setRef').value.trim();
+    s.estate=document.getElementById('setEstate').value.trim();
+    s.neighbourhood=document.getElementById('setNbh').value.trim();
+    s.precinct=document.getElementById('setPrecinct').value.trim();
+    save(); location.hash='#/';
+  };
+  document.getElementById('expBtn').onclick=()=>{
+    saveOrDownload('Backups', 'cms-backup-'+today()+'.json', JSON.stringify(db,null,1), 'application/json');
+  };
+  const fsStatus=document.getElementById('fsStatus'), fsPick=document.getElementById('fsPick'), fsForget=document.getElementById('fsForget');
+  async function fsRefresh(){
+    if(!fsSupported()){ fsStatus.innerHTML='Not supported in this browser — files will download to your Downloads folder instead.'; fsPick.style.display='none'; return; }
+    let h=null; try{ h=await idbGet('safetyDir'); }catch(e){}
+    if(h){ fsStatus.innerHTML='Connected: <b>'+esc(h.name)+'</b> — reports save into its subfolders.'; fsPick.textContent='Change folder'; fsForget.style.display=''; }
+    else{ fsStatus.innerHTML='<b>Not connected</b> — reports currently download to your Downloads folder.'; fsPick.textContent='Connect folder'; fsForget.style.display='none'; }
+  }
+  fsPick.onclick=async()=>{
+    try{
+      const h=await window.showDirectoryPicker({mode:'readwrite'});
+      await idbSet('safetyDir', h);
+      toast('Safety folder connected: '+h.name);
+      fsRefresh();
+    }catch(e){ /* user cancelled */ }
+  };
+  fsForget.onclick=async()=>{ await idbDel('safetyDir').catch(()=>{}); fsRefresh(); };
+  fsRefresh();
+  const impFile=document.getElementById('impFile');
+  document.getElementById('impBtn').onclick=()=>impFile.click();
+  impFile.onchange=()=>{
+    const f=impFile.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      try{
+        const d=JSON.parse(rd.result);
+        if(!d||typeof d!=='object'||!Array.isArray(d.members||[])) throw new Error('bad file');
+        if(!confirm('Importing replaces ALL data currently on this device. Continue?')) return;
+        const out=structuredClone(BLANK);
+        for(const k in out){ if(d[k]!==undefined) out[k]=d[k]; }
+        db=out; save(); alert('Backup imported.'); location.hash='#/';
+      }catch(e){ alert('Could not read that file — is it a CMS backup (.json)?'); }
+    };
+    rd.readAsText(f);
+  };
+  document.getElementById('clrBtn').onclick=()=>{
+    if(confirm('Erase ALL records on this device?') && confirm('Really erase? Export a backup first if unsure.')){
+      db=structuredClone(BLANK); save(); location.hash='#/';
+    }
+  };
+}
+
+initShell();
+route();
+</script>
+</body>
+</html>
