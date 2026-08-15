@@ -42,12 +42,14 @@ Deno.serve(async (req) => {
         .eq("org_id", row.org_id).eq("id", projectId).eq("store", "_project").limit(1).single();
       const { data: mems } = await admin.from("records").select("id, data")
         .eq("org_id", row.org_id).eq("project_id", "_company").eq("store", "members").eq("deleted", false)
-        .limit(500);
+        .limit(2000);
       const qIdx = quiz.length ? Math.floor(Math.random() * quiz.length) : null;
       return json({
         project: proj?.data?.settings?.project || "",
         date: recDate,
-        members: (mems || []).map((m) => ({ id: m.id, name: m.data?.name || "" })).filter((m) => m.name),
+        members: (mems || [])
+          .map((m) => ({ id: m.id, name: m.data?.name || "", wid: m.data?.wid || "", company: m.data?.company || "" }))
+          .filter((m) => m.name),
         qIdx,
         question: qIdx === null ? null : { q: quiz[qIdx].q, o: quiz[qIdx].o }, // answer key stays server-side
       });
@@ -56,15 +58,17 @@ Deno.serve(async (req) => {
     if (b.action === "submit") {
       const name = String(b.name || "").trim().slice(0, 80);
       if (!name) return json({ error: "Name required" }, 400);
+      const wid = String(b.wid || "").trim().toUpperCase().slice(0, 20);
       const checkins = row.data.checkins || [];
-      if (checkins.length >= 300) return json({ error: "Check-in list is full" }, 429);
-      if (checkins.some((c: { name: string }) => c.name.toLowerCase() === name.toLowerCase()))
+      if (checkins.length >= 500) return json({ error: "Check-in list is full" }, 429);
+      if (checkins.some((c: { name: string; wid?: string }) =>
+        (wid && (c.wid || "").toUpperCase() === wid) || c.name.toLowerCase() === name.toLowerCase()))
         return json({ error: "You have already checked in.", already: true }, 409);
       const qIdx = typeof b.qIdx === "number" && quiz[b.qIdx] ? b.qIdx : null;
       const answer = typeof b.answer === "number" ? b.answer : null;
       const correct = qIdx !== null && answer !== null ? quiz[qIdx].a === answer : null;
       checkins.push({
-        name, memberId: b.memberId || null, company: String(b.company || "").slice(0, 80),
+        name, wid, memberId: b.memberId || null, company: String(b.company || "").slice(0, 80),
         qIdx, answer, correct, at: new Date().toISOString(),
       });
       const data = { ...row.data, checkins };

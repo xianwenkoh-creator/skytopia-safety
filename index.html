@@ -1131,6 +1131,7 @@ const MODULES={
  members:{ title:'Member(s)', store:'members',
   fields:[
    {k:'name',label:'Full name',req:1},
+   {k:'wid',label:'Worker ID no.',half:1,ph:'e.g. CEHYG01'},
    {k:'company',label:'Company',half:1},
    {k:'trade',label:'Trade / role',type:'select',opts:TRADES,half:1},
    {k:'idno',label:'NRIC / FIN (masked)',half:1,ph:'e.g. ****567A'},
@@ -1142,7 +1143,7 @@ const MODULES={
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
   sort:(a,b)=>(a.name||'').localeCompare(b.name||''),
   line1:i=>esc(i.name),
-  line2:i=>esc([i.company,i.trade].filter(Boolean).join(' · ')),
+  line2:i=>esc([i.wid,i.company,i.trade].filter(Boolean).join(' · ')),
   meta:i=>{ const ds=[i.wpExpiry,...(i.certs||[]).map(c=>c.expiry)].filter(Boolean).map(daysTo).filter(d=>d!==null);
     if(!ds.length) return ''; const m=Math.min(...ds);
     return m<0?'<span class="chip b">cert expired</span>':m<=30?'<span class="chip w">cert '+m+'d</span>':''; },
@@ -3545,27 +3546,42 @@ async function renderCheckin(projId, tbmId, token){
   try{ info=await call({action:'info'}); }
   catch(e){ card.innerHTML='<div class="lg-t">Check-in unavailable</div><p class="hint">'+esc(e.message||e)+'</p>'; return; }
   const q=info.question;
+  const mems=info.members||[];
   card.innerHTML='<div class="lg-brand"><span class="bmark">S</span><div><div class="lg-t">TOOLBOX CHECK-IN</div><div class="lg-s">'+esc(info.project||'')+' · '+esc(info.date||'')+'</div></div></div>'+
-    '<label style="margin-top:2px">Your name</label>'+
+    '<label style="margin-top:2px">Worker ID no.</label>'+
+    '<input id="ciWid" list="ciWids" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CEHYG01">'+
+    '<datalist id="ciWids">'+mems.filter(m=>m.wid).map(m=>'<option value="'+esc(m.wid)+'">'+esc(m.name)+'</option>').join('')+'</datalist>'+
+    '<div class="hint" id="ciWho" style="min-height:18px;margin:4px 0 2px"></div>'+
+    '<label>No worker ID? Enter your name</label>'+
     '<input id="ciName" list="ciNames" autocomplete="off" placeholder="Pick or type your name">'+
-    '<datalist id="ciNames">'+(info.members||[]).map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist>'+
+    '<datalist id="ciNames">'+mems.map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist>'+
     '<label>Company</label><input id="ciCo" placeholder="Your company">'+
     (q?'<div class="tbx-quiz" style="margin-top:14px"><b>'+esc(q.q)+'</b></div>'+
       q.o.map((o,i)=>'<button type="button" class="btn ghost ciAns" data-i="'+i+'" style="display:block;width:100%;text-align:left;margin-top:6px">'+String.fromCharCode(65+i)+') '+esc(o)+'</button>').join(''):'')+
     '<div class="lg-err" id="ciErr"></div>'+
     '<div class="btnrow"><button class="btn" id="ciGo" style="flex:1"'+(q?' disabled':'')+'>Check in</button></div>';
-  let ans=null;
+  let ans=null, widM=null;
+  const widEl=document.getElementById('ciWid'), whoEl=document.getElementById('ciWho');
+  widEl.oninput=()=>{
+    const v=widEl.value.trim().toUpperCase();
+    widM=v?(mems.find(m=>(m.wid||'').toUpperCase()===v)||null):null;
+    whoEl.textContent=widM?'✓ '+widM.name+(widM.company?' · '+widM.company:''):(v?'No match yet — finish typing your ID, or use your name below.':'');
+    whoEl.style.color=widM?'var(--good-ink)':'';
+    const co=document.getElementById('ciCo');
+    if(widM&&widM.company&&!co.value) co.value=widM.company;
+  };
   card.querySelectorAll('.ciAns').forEach(b=>b.onclick=()=>{
     card.querySelectorAll('.ciAns').forEach(x=>{x.style.borderColor='';x.style.background='';});
     b.style.borderColor='var(--acc)'; b.style.background='var(--acc-soft)';
     ans=+b.dataset.i; document.getElementById('ciGo').disabled=false; });
   document.getElementById('ciGo').onclick=async()=>{
-    const name=document.getElementById('ciName').value.trim();
-    if(!name){ const e=document.getElementById('ciErr'); e.textContent='Enter your name.'; e.style.display='block'; return; }
+    const typed=document.getElementById('ciName').value.trim();
+    const name=widM?widM.name:typed;
+    if(!name){ const e=document.getElementById('ciErr'); e.textContent='Enter your worker ID or your name.'; e.style.display='block'; return; }
     const btn=document.getElementById('ciGo'); btn.disabled=true; btn.textContent='Checking in…';
     try{
-      const m=(info.members||[]).find(x=>x.name.toLowerCase()===name.toLowerCase());
-      const res=await call({action:'submit', name, memberId:m?m.id:null,
+      const m=widM||mems.find(x=>x.name.toLowerCase()===name.toLowerCase());
+      const res=await call({action:'submit', name, memberId:m?m.id:null, wid:(m&&m.wid)||'',
         company:document.getElementById('ciCo').value.trim(), qIdx:q?info.qIdx:null, answer:ans});
       card.innerHTML='<div class="lg-brand"><span class="bmark" style="background:'+(res.correct===false?'#e0a030':'#2fbf4f')+'">✓</span>'+
         '<div><div class="lg-t">Checked in</div><div class="lg-s">'+esc(name)+'</div></div></div>'+
