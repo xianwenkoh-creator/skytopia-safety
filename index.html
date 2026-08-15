@@ -638,7 +638,7 @@ function membersHtml(f, ids){
   const ms=[...db.members].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   const grid = ms.length
     ? '<div class="pickgrid" data-f="'+f.k+'" data-type="members">'+
-        ms.map(m=>'<label class="pick"><input type="checkbox" data-mid="'+m.id+'"'+(ids.includes(m.id)?' checked':'')+'><span>'+esc(m.name)+'</span></label>').join('')+'</div>'
+        ms.map(m=>'<label class="pick"><input type="checkbox" data-mid="'+m.id+'"'+(ids.includes(m.id)?' checked':'')+'><span>'+esc(memberLabel(m))+'</span></label>').join('')+'</div>'
     : '<div class="hint">No members registered yet — add workers under Member(s) to tick attendance here.</div>';
   return '<div class="fld"><label>'+esc(f.label)+'</label>'+grid+'</div>';
 }
@@ -1596,7 +1596,7 @@ const MODULES={
    {k:'location',label:'Exact location / area'},
    {k:'ptw',label:'ePTW permit no(s). — fill in AFTER approval',half:1,hint:'Leave blank while Planned; apply in Sky ePTW, then paste the approved permit number here. Permit-class work (hot works, confined space, WAH, lifting, excavation) cannot go Active without it.'},
    {k:'crew',label:'Crew — assigned members & their roles',type:'rows',add:'Add member',cols:[
-     {k:'memberId',label:'Member',type:'select',opts:()=>db.members.map(m=>[m.id,m.name])},
+     {k:'memberId',label:'Member',type:'select',opts:()=>db.members.map(m=>[m.id,memberLabel(m)])},
      {k:'role',label:'Role in activity',type:'select',opts:['Worker','Supervisor / Foreman','Lifting Supervisor','Rigger / Signalman','Banksman','Operator','Scaffolder','Welder','Confined Space Attendant','Others']}]},
    {k:'plant',label:'Equipment — assigned plant & its role',type:'rows',add:'Add equipment',cols:[
      {k:'equipmentId',label:'Equipment',type:'select',opts:()=>db.equipment.map(e=>[e.id,[e.type,e.regNo].filter(Boolean).join(' ')||e.name||e.id])},
@@ -1717,7 +1717,7 @@ function renderRecordPrint(key, id){
     if(v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length)) return '';
     if(f.type==='photos') return '<div class="thumbs">'+v.map(d=>'<div class="thumb"><img src="'+d+'"></div>').join('')+'</div>';
     if(f.type==='members'){
-      const names=v.map(idm=>{const m=db.members.find(x=>x.id===idm); return m?esc(m.name):'';}).filter(Boolean);
+      const names=v.map(idm=>{const m=db.members.find(x=>x.id===idm); return m?esc(memberLabel(m)):'';}).filter(Boolean);
       return names.length? names.join(', ') : '';
     }
     if(f.type==='rows'){
@@ -1806,7 +1806,7 @@ function exportModuleCsv(key){
     if(f.type==='rows'){ heads.push(f.label);
       getters.push(i=>(i[f.k]||[]).map(r=>f.cols.map(c=>r[c.k]).filter(Boolean).join(' / ')).join(' | ')); return; }
     if(f.type==='members'){ heads.push(f.label);
-      getters.push(i=>(i[f.k]||[]).map(id=>{const m=db.members.find(x=>x.id===id); return m?m.name:'';}).filter(Boolean).join('; ')); return; }
+      getters.push(i=>(i[f.k]||[]).map(id=>{const m=db.members.find(x=>x.id===id); return m?memberLabel(m):'';}).filter(Boolean).join('; ')); return; }
     heads.push(f.label); getters.push(i=>i[f.k]??'');
   });
   const lines=[heads.map(csvEsc).join(',')]
@@ -2433,7 +2433,7 @@ function getWorkActivityContext(workActivityId){
     ptwRefs:(wa.ptw||'').split(/[,;\s]+/).filter(Boolean),
     crew:(wa.crew||[]).filter(c=>c.memberId).map(c=>{
       const m=db.members.find(x=>x.id===c.memberId)||{};
-      return {memberId:c.memberId,name:m.name||'(deleted)',company:m.company||'',roleInActivity:c.role||'',trade:m.trade||'',
+      return {memberId:c.memberId,name:m.name||'(deleted)',wid:m.wid||'',company:m.company||'',roleInActivity:c.role||'',trade:m.trade||'',
         eligibility:checkMemberEligibility(c.memberId,wa.id)};
     }),
     plant:(wa.plant||[]).filter(p=>p.equipmentId).map(p=>{
