@@ -373,7 +373,7 @@ function downloadRaw(name, text, mime){
    (OneDrive\Skytopia\Safety), each type into its own subfolder.        */
 const DIRMAP={contacts:'Registers',members:'Registers',equipment:'Registers',documents:'Registers',certexp:'Registers',
   tbm:'TBM',inspections:'Inspections',observations:'Observations',checklists:'Checklists',ra:'RA-SWP',training:'Training',
-  meetings:'Meetings',incidents:'Incidents',defects:'Quality Defects',report:'Monthly Reports',backup:'Backups'};
+  meetings:'Meetings',incidents:'Incidents',defects:'Quality Defects',report:'Monthly Reports',backup:'Backups',work:'Registers'};
 function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open('kkl-cms-fs',1);
   r.onupgradeneeded=()=>r.result.createObjectStore('kv');
   r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
@@ -465,7 +465,7 @@ function compressImage(file, cb){
 const KEY='kkl-cms-v1';    /* legacy flat schema — migrated, never deleted */
 const KEY2='kkl-cms-v2';
 const COMPANY_STORES=['members','equipment','training'];
-const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects'];
+const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities'];
 const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
 function blankProject(name){
   const p={id:uid(), settings:structuredClone(BLANK.settings), manhours:{}, mandays:{}};
@@ -557,6 +557,7 @@ const ICONS={
   menu:'<path d="M4 6.5h16M4 12h16M4 17.5h16"/>',
   bell:'<path d="M12 4a5.5 5.5 0 0 0-5.5 5.5c0 4-1.5 5.5-2.5 6.5h16c-1-1-2.5-2.5-2.5-6.5A5.5 5.5 0 0 0 12 4z"/><path d="M10 19.5a2 2 0 0 0 4 0"/>',
   chev:'<path d="M8 10l4 4 4-4"/>',
+  work:'<path d="M4.5 15.5a7.5 7.5 0 0 1 15 0"/><path d="M2.5 15.5h19v3h-19z"/><path d="M9.5 8.5V5.5h5v3"/>',
   home:'<path d="M4 11.5L12 4.5l8 7"/><path d="M6 10v9.5h12V10"/><path d="M10 19.5v-5h4v5"/>',
   folder:'<path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h4.5l2 2.5H19A1.5 1.5 0 0 1 20.5 9v9A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18z"/>'
 };
@@ -574,8 +575,10 @@ function fieldHtml(f, v){
   if(t==='textarea'){
     inner='<textarea data-f="'+f.k+'" rows="'+(f.rows||3)+'" placeholder="'+esc(f.ph||'')+'">'+esc(val)+'</textarea>';
   }else if(t==='select'){
+    const optArr=typeof f.opts==='function'?f.opts():f.opts; /* dynamic option lists + [value,label] pairs */
     inner='<select data-f="'+f.k+'"><option value=""></option>'+
-      f.opts.map(o=>'<option'+(String(o)===String(val)?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
+      optArr.map(o=>{ const v=Array.isArray(o)?o[0]:o, l=Array.isArray(o)?o[1]:o;
+        return '<option value="'+esc(v)+'"'+(String(v)===String(val)?' selected':'')+'>'+esc(l)+'</option>'; }).join('')+'</select>';
   }else{
     const listArr = f.list ? (typeof f.list==='function'?f.list():f.list) : null;
     inner='<input data-f="'+f.k+'" type="'+t+'" value="'+esc(val)+'" placeholder="'+esc(f.ph||'')+'"'+
@@ -592,8 +595,10 @@ function subRow(f, r){
     const v=r[c.k]===undefined?'':r[c.k];
     let inp;
     if(c.type==='select'){
+      const optArr=typeof c.opts==='function'?c.opts():(c.opts||[]);
       inp='<select data-c="'+c.k+'"><option value=""></option>'+
-        (c.opts||[]).map(o=>'<option'+(String(o)===String(v)?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
+        optArr.map(o=>{ const ov=Array.isArray(o)?o[0]:o, ol=Array.isArray(o)?o[1]:o;
+          return '<option value="'+esc(ov)+'"'+(String(ov)===String(v)?' selected':'')+'>'+esc(ol)+'</option>'; }).join('')+'</select>';
     }else if(c.type==='textarea'){
       inp='<textarea data-c="'+c.k+'" rows="2">'+esc(v)+'</textarea>';
     }else{
@@ -706,6 +711,7 @@ function goBack(){ if(history.length>1) history.back(); else location.hash='#/';
 
 /* ============ app shell (Procore-style top bar + tool sidebar) ============ */
 const NAV=[
+ {group:'Operations', items:[['work','Work Activities','work']]},
  {group:'Site',    items:[['contacts','Contacts','contact'],['members','Member(s)','members'],['equipment','Equipment','equip'],
                           ['certexp','Cert Expiry','cert'],['documents','Documents','doc'],['actions','Actions','act']]},
  {group:'Safety',  items:[['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
@@ -785,6 +791,10 @@ function renderHome(){
       ov('members',db.members.length,'Members')+
       ov('equipment',eqIn,'Equipment in service')+
       ov('incidents',incYtd,'Incidents '+yr)+
+    '</div>'+
+    '<h2 class="sect">Operations</h2>'+
+    '<div class="grid">'+
+      tile('work','Work Activities','work',db.workActivities.filter(w=>(w.readiness||{}).status==='BLOCKED'&&w.status!=='Completed').length||'')+
     '</div>'+
     '<h2 class="sect">Site</h2>'+
     '<div class="grid">'+
@@ -873,12 +883,16 @@ function renderEdit(key, id){
     if(item){ Object.assign(item,obj); }
     else{ obj.id=uid(); db[mod.store].push(obj); }
     if(mod.beforeSave) mod.beforeSave(item||obj);
-    save(); location.hash='#/'+key;
+    save();
+    EV.emit('record:changed',{store:mod.store, id:(item||obj).id});
+    location.hash='#/'+key;
   };
   const del=document.getElementById('delBtn');
   if(del) del.onclick=()=>{
     if(confirm('Delete this record? This cannot be undone.')){
-      db[mod.store]=db[mod.store].filter(x=>x.id!==id); save(); location.hash='#/'+key;
+      db[mod.store]=db[mod.store].filter(x=>x.id!==id); save();
+      EV.emit('record:deleted',{store:mod.store, id});
+      location.hash='#/'+key;
     }
   };
   if(mod.afterRender) mod.afterRender(item);
@@ -1134,6 +1148,7 @@ const MODULES={
    {k:'date',label:'Date',type:'date',req:1,def:'today',half:1},
    {k:'time',label:'Time',type:'time',half:1},
    {k:'conductor',label:'Conducted by',req:1},
+   {k:'waId',label:'Linked work activity',type:'select',opts:()=>db.workActivities.map(w=>[w.id,w.title]),half:1},
    {k:'topics',label:"Today's activities & topics briefed",type:'textarea',req:1},
    {k:'hazards',label:'Key hazards & precautions',type:'textarea'},
    {k:'ptw',label:'Linked ePTW permit no(s).',half:1},
@@ -1154,6 +1169,7 @@ const MODULES={
     opts:['Daily walkabout','Weekly site inspection','Joint inspection','Management inspection','MOM / authority visit','Client / consultant audit','Environmental (ECM)','Quality','Defects','In-process audit','Others']},
    {k:'inspector',label:'Inspected by',req:1,half:1},
    {k:'area',label:'Area / location',half:1},
+   {k:'waId',label:'Linked work activity',type:'select',opts:()=>db.workActivities.map(w=>[w.id,w.title]),half:1},
    {k:'findings',label:'Findings',type:'rows',add:'Add finding',
     cols:[
      {k:'desc',label:'Finding / observation',type:'textarea',w:'full'},
@@ -1182,6 +1198,7 @@ const MODULES={
    {k:'storey',label:'Storey',half:1},
    {k:'unit',label:'Unit',half:1},
    {k:'location',label:'Exact location / area'},
+   {k:'waId',label:'Linked work activity',type:'select',opts:()=>db.workActivities.map(w=>[w.id,w.title]),half:1},
    {k:'category',label:'Category (HDB standard list)',type:'select',opts:Object.keys(NEGCATS),req:1},
    {k:'subitem',label:'Standard item',type:'select',opts:[]},
    {k:'desc',label:'Description / remarks',type:'textarea'},
@@ -1336,6 +1353,7 @@ const MODULES={
    {k:'time',label:'Time',type:'time',half:1},
    {k:'type',label:'Classification',type:'select',opts:INCTYPES,req:1},
    {k:'location',label:'Location'},
+   {k:'waId',label:'Linked work activity',type:'select',opts:()=>db.workActivities.map(w=>[w.id,w.title]),half:1},
    {k:'description',label:'What happened',type:'textarea',req:1},
    {k:'persons',label:'Person(s) involved',half:1},
    {k:'injury',label:'Injury / damage details',half:1},
@@ -1352,6 +1370,10 @@ const MODULES={
      {k:'due',label:'Due',type:'date'},
      {k:'status',label:'Status',type:'select',opts:OPENCLOSED}]},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  beforeSave:function(obj){
+    /* immutable context snapshot — captured once at creation, never rebuilt */
+    if(!obj.contextSnapshot) obj.contextSnapshot=buildIncidentSnapshot(obj);
+  },
   line1:i=>esc(i.type||'Incident')+' · '+fmtD(i.date),
   line2:i=>esc((i.description||'').split('\n')[0].slice(0,70)),
   meta:i=>{ const sev={'Lost Time Injury':'b','Fatality':'b','Dangerous Occurrence':'b','Medical Treatment / MC':'w','First Aid Case':'w'};
@@ -1392,7 +1414,66 @@ const MODULES={
     if(i.status!=='Closed'&&d!==null&&d<0) out+='<span class="chip b">overdue</span>';
     out+='<span class="chip '+(i.status==='Closed'?'g':'w')+'">'+esc(i.status||'Open')+'</span>';
     return out; },
-  empty:'Quality defect register per HDB Appendix IV — element, grouping, location, photos, and the rectify → verify → close workflow.'}
+  empty:'Quality defect register per HDB Appendix IV — element, grouping, location, photos, and the rectify → verify → close workflow.'},
+
+ work:{ title:'Work Activities', store:'workActivities',
+  fields:[
+   {k:'title',label:'Activity title',req:1,ph:'e.g. Install precast beams — Blk 3 Level 5'},
+   {k:'type',label:'Activity type',type:'select',opts:()=>Object.keys(TBX_ACT).concat(['Others']),req:1,half:1},
+   {k:'status',label:'Status',type:'select',opts:['Planned','Active','Suspended','Completed'],def:'Planned',half:1},
+   {k:'startDate',label:'Start date',type:'date',half:1},
+   {k:'endDate',label:'End date',type:'date',half:1},
+   {k:'subcon',label:'Subcontractor / company',list:companyList},
+   {k:'block',label:'Block / zone',half:1},
+   {k:'storey',label:'Storey',half:1},
+   {k:'location',label:'Exact location / area'},
+   {k:'ptw',label:'ePTW permit no(s).',half:1,hint:'Required before hot works, confined space, WAH, lifting and excavation can go Active.'},
+   {k:'crew',label:'Crew — assigned members & their roles',type:'rows',add:'Add member',cols:[
+     {k:'memberId',label:'Member',type:'select',opts:()=>db.members.map(m=>[m.id,m.name])},
+     {k:'role',label:'Role in activity',type:'select',opts:['Worker','Supervisor / Foreman','Lifting Supervisor','Rigger / Signalman','Banksman','Operator','Scaffolder','Welder','Confined Space Attendant','Others']}]},
+   {k:'plant',label:'Equipment — assigned plant & its role',type:'rows',add:'Add equipment',cols:[
+     {k:'equipmentId',label:'Equipment',type:'select',opts:()=>db.equipment.map(e=>[e.id,[e.type,e.regNo].filter(Boolean).join(' ')||e.name||e.id])},
+     {k:'role',label:'Role / use'}]},
+   {k:'raRefs',label:'RA / SWP in force — the revision is pinned when you save',type:'rows',add:'Link RA / SWP',cols:[
+     {k:'raId',label:'RA / SWP',type:'select',opts:()=>db.ra.map(r=>[r.id,r.activity+(r.rev?' (Rev '+r.rev+')':'')])},
+     {k:'rev',label:'Pinned rev (auto)'}]},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  beforeSave:function(obj){
+    (obj.raRefs||[]).forEach(x=>{ if(x.raId&&!x.rev){ const r=db.ra.find(a=>a.id===x.raId); if(r) x.rev=r.rev||''; } });
+    recalcWA(obj);
+  },
+  afterRender:function(item){
+    if(!item) return;
+    const r=checkWorkActivityReadiness(item.id);
+    const chip=r.status==='READY'?'<span class="chip g">READY</span>':r.status==='BLOCKED'?'<span class="chip b">BLOCKED</span>':'<span class="chip w">READY — WITH WARNINGS</span>';
+    const ORDER={BLOCK:0,WARN:1,PASS:2};
+    const rows=[...r.results].sort((a,b)=>ORDER[a.status]-ORDER[b.status]).map(x=>{
+      const c=x.status==='BLOCK'?'b':x.status==='WARN'?'w':'g';
+      const link=x.sourceEntity==='member'?'#/members/'+x.sourceEntityId:
+                 x.sourceEntity==='equipment'?'#/equipment/'+x.sourceEntityId:
+                 x.sourceEntity==='ra'?'#/ra/'+x.sourceEntityId:
+                 x.sourceEntity==='observation'?'#/observations/'+x.sourceEntityId:
+                 x.sourceEntity==='incident'?'#/incidents/'+x.sourceEntityId:null;
+      return '<div class="lrow" '+(link?'onclick="location.hash=\''+link+'\'"':'style="cursor:default"')+'>'+
+        '<div class="lmain"><div class="lt" style="color:var(--ink);white-space:normal">'+esc(x.title)+' <span class="chip n">'+esc(x.ruleCode)+'</span></div>'+
+        '<div class="ls" style="white-space:normal">'+esc(x.reason)+'</div></div>'+
+        '<div class="lmeta"><span class="chip '+c+'">'+x.status+'</span></div></div>';
+    }).join('');
+    const card=document.createElement('div'); card.className='card';
+    card.innerHTML='<label style="margin-top:0">Work readiness '+chip+'</label>'+
+      '<p class="hint">Deterministic compliance gates — recomputed automatically when certs, plant, RAs, briefings, observations or incidents change. AI is never used for these.</p>'+rows;
+    const form=app.querySelector('.card');
+    form.parentNode.insertBefore(card, form);
+  },
+  sort:(a,b)=>(a.status==='Active'?0:1)-(b.status==='Active'?0:1)||(b.startDate||'').localeCompare(a.startDate||''),
+  line1:i=>esc(i.title),
+  line2:i=>esc([i.type,i.subcon,[i.block&&('Blk '+i.block),i.storey].filter(Boolean).join(' ')].filter(Boolean).join(' · ')),
+  meta:i=>{
+    let out='<span class="chip '+(i.status==='Active'?'g':'n')+'">'+esc(i.status||'Planned')+'</span>';
+    const rd=(i.readiness||{}).status;
+    if(rd) out+='<span class="chip '+(rd==='READY'?'g':rd==='BLOCKED'?'b':'w')+'">'+(rd==='READY_WITH_WARNINGS'?'WARNINGS':rd)+'</span>';
+    return out; },
+  empty:'The hub of the platform — one record per work activity, linking crew, plant, RA revisions, permits, briefings, inspections, observations and incidents, with deterministic go/no-go readiness.'}
 };
 
 /* ============ open-actions hub ============ */
@@ -1905,6 +1986,230 @@ function renderSettings(){
   };
 }
 
+/* ============ WORK ACTIVITY CORE: rules · events · context ============
+   Work Activity is the hub entity linking crew, plant, RA/SWP revisions,
+   PTWs, toolbox meetings, inspections, observations, actions and incidents.
+   Readiness is DETERMINISTIC — hard compliance gates never come from AI.  */
+function RR(ruleCode,status,title,reason,sourceEntity,sourceEntityId){
+  return {ruleCode,status,title,reason,sourceEntity,sourceEntityId};
+}
+/* activities that must not start without a permit */
+const PTW_REQUIRED=['Hot Works','Confined Space','Work at Height','Lifting Operations','Excavation & Trenching'];
+/* activity/role → competency keywords that must appear in a live cert/course */
+const REQ_CERT={
+  'Lifting Operations':{role:{'Lifting Supervisor':['lifting supervisor'],'Rigger / Signalman':['rigger','signalman']}},
+  'Work at Height':{all:['work at height','wah']},
+  'Confined Space':{all:['confined space']},
+  'Scaffolding':{role:{'Scaffolder':['scaffold']}}
+};
+function memberAllCerts(m){
+  return [...(m.certs||[])].concat(
+    db.training.filter(t=>(t.name||'').trim().toLowerCase()===(m.name||'').trim().toLowerCase())
+      .map(t=>({name:t.course||'',expiry:t.expiry||''})));
+}
+function certLive(c){ return !c.expiry || (daysTo(c.expiry)??0)>=0; }
+function hasLiveCert(m,kws){ return memberAllCerts(m).some(c=>certLive(c)&&kws.some(k=>(c.name||'').toLowerCase().includes(k))); }
+
+function checkMemberEligibility(memberId, workActivityId){
+  const out=[];
+  const m=db.members.find(x=>x.id===memberId);
+  if(!m) return [RR('MEM-404','BLOCK','Member not found','Assigned member no longer exists in the register.','member',memberId)];
+  const wa=workActivityId?db.workActivities.find(w=>w.id===workActivityId):null;
+  const wp=m.wpExpiry?daysTo(m.wpExpiry):null;
+  if(wp!==null&&wp<0) out.push(RR('MEM-WP-EXPIRED','BLOCK','Work pass expired',m.name+'’s work pass expired '+fmtD(m.wpExpiry)+'.','member',m.id));
+  else if(wp!==null&&wp<=30) out.push(RR('MEM-WP-30D','WARN','Work pass expiring',m.name+'’s work pass expires in '+wp+' day(s).','member',m.id));
+  if(!m.sicDate) out.push(RR('MEM-SIC-MISSING','WARN','No safety induction',m.name+' has no SIC date recorded.','member',m.id));
+  const certs=memberAllCerts(m);
+  certs.filter(c=>c.expiry&&(daysTo(c.expiry)??0)<0).forEach(c=>
+    out.push(RR('MEM-CERT-EXPIRED','WARN','Cert expired',m.name+': '+c.name+' expired '+fmtD(c.expiry)+'.','member',m.id)));
+  if(!hasLiveCert(m,['wsh in construction','csoc','safety orientation']))
+    out.push(RR('MEM-CSOC','WARN','CSOC not on record','No live CSOC / WSH-in-construction course recorded for '+m.name+'.','member',m.id));
+  if(wa){
+    const req=REQ_CERT[wa.type];
+    const crewRow=(wa.crew||[]).find(c=>c.memberId===memberId);
+    const role=crewRow?crewRow.role:'';
+    if(req){
+      if(req.all&&!hasLiveCert(m,req.all))
+        out.push(RR('MEM-COMP-REQ','BLOCK','Required competency missing',m.name+' has no live "'+req.all[0]+'" competency required for '+wa.type+'.','member',m.id));
+      if(req.role&&req.role[role]&&!hasLiveCert(m,req.role[role]))
+        out.push(RR('MEM-COMP-REQ','BLOCK','Required competency missing',m.name+' is assigned as '+role+' but has no live '+role+' competency.','member',m.id));
+    }
+  }
+  if(!out.length) out.push(RR('MEM-OK','PASS','Eligible',m.name+' is eligible.','member',m.id));
+  return out;
+}
+
+function checkEquipmentReadiness(equipmentId, workActivityId){
+  const out=[];
+  const e=db.equipment.find(x=>x.id===equipmentId);
+  if(!e) return [RR('EQP-404','BLOCK','Equipment not found','Assigned equipment no longer exists in the register.','equipment',equipmentId)];
+  const label=[e.type,e.regNo].filter(Boolean).join(' ');
+  const wa=workActivityId?db.workActivities.find(w=>w.id===workActivityId):null;
+  if(e.status==='Under repair') out.push(RR('EQP-REPAIR','BLOCK','Under repair',label+' is marked Under repair.','equipment',e.id));
+  if(e.status==='Off-site') out.push(RR('EQP-OFFSITE','WARN','Off-site',label+' is marked Off-site.','equipment',e.id));
+  (e.certs||[]).forEach(c=>{ const d=c.expiry?daysTo(c.expiry):null;
+    if(d!==null&&d<0) out.push(RR('EQP-CERT-EXPIRED','BLOCK','Statutory cert expired',label+': '+(c.name||'LM/LG cert')+' expired '+fmtD(c.expiry)+'.','equipment',e.id));
+    else if(d!==null&&d<=30) out.push(RR('EQP-CERT-30D','WARN','Statutory cert expiring',label+': '+(c.name||'cert')+' expires in '+d+' day(s).','equipment',e.id)); });
+  const ae=e.aeDue?daysTo(e.aeDue):null;
+  if(ae!==null&&ae<0) out.push(RR('EQP-AE-OVERDUE','BLOCK','AE inspection overdue',label+': Authorised Examiner test was due '+fmtD(e.aeDue)+'.','equipment',e.id));
+  else if(ae!==null&&ae<=30) out.push(RR('EQP-AE-30D','WARN','AE inspection due',label+': AE test due in '+ae+' day(s).','equipment',e.id));
+  const sv=e.serviceDue?daysTo(e.serviceDue):null;
+  if(sv!==null&&sv<0) out.push(RR('EQP-SERVICE-DUE','WARN','Servicing overdue',label+': servicing was due '+fmtD(e.serviceDue)+'.','equipment',e.id));
+  const ml=e.hdbML?daysTo(e.hdbML):null;
+  if(ml!==null&&ml<0) out.push(RR('EQP-HDBML','WARN','HDB Material List expired',label+': HDB ML listing expired '+fmtD(e.hdbML)+'.','equipment',e.id));
+  if(wa&&wa.status==='Active'&&e.regNo){
+    const pre=db.checklists.some(c=>c.date===today()&&((c.area||'')+' '+(c.template||'')).toLowerCase().includes(String(e.regNo).toLowerCase()));
+    if(!pre) out.push(RR('EQP-PRESTART','WARN','No pre-start check today','No checklist today references '+label+' while the activity is Active.','equipment',e.id));
+  }
+  if(!out.length) out.push(RR('EQP-OK','PASS','Ready',label+' is ready.','equipment',e.id));
+  return out;
+}
+
+function checkWorkActivityReadiness(workActivityId){
+  const wa=db.workActivities.find(w=>w.id===workActivityId);
+  if(!wa) return {status:'BLOCKED',results:[RR('WA-404','BLOCK','Not found','Work activity does not exist.','workActivity',workActivityId)]};
+  const res=[];
+  const active=wa.status==='Active';
+  /* crew */
+  const crew=(wa.crew||[]).filter(c=>c.memberId);
+  if(!crew.length) res.push(RR('WA-NO-CREW','WARN','No crew assigned','No members are assigned to this activity.','workActivity',wa.id));
+  const supRoles=['Supervisor / Foreman','Lifting Supervisor'];
+  if(crew.length&&!crew.some(c=>supRoles.includes(c.role)))
+    res.push(RR('WA-NO-SUP','WARN','No supervisor in crew','No crew member holds a supervisory role.','workActivity',wa.id));
+  if(wa.type==='Lifting Operations'&&!crew.some(c=>c.role==='Lifting Supervisor'))
+    res.push(RR('WA-NO-LS','BLOCK','No Lifting Supervisor','Lifting work requires an appointed Lifting Supervisor in the crew.','workActivity',wa.id));
+  crew.forEach(c=>checkMemberEligibility(c.memberId,wa.id).forEach(r=>{ if(r.status!=='PASS') res.push(r); }));
+  /* plant */
+  (wa.plant||[]).filter(p=>p.equipmentId).forEach(p=>
+    checkEquipmentReadiness(p.equipmentId,wa.id).forEach(r=>{ if(r.status!=='PASS') res.push(r); }));
+  /* RA / SWP */
+  const raRefs=(wa.raRefs||[]).filter(r=>r.raId);
+  if(!raRefs.length)
+    res.push(RR('WA-RA-NONE',PTW_REQUIRED.includes(wa.type)?'BLOCK':'WARN','No RA/SWP linked','No risk assessment is linked to this activity.','workActivity',wa.id));
+  raRefs.forEach(ref=>{
+    const ra=db.ra.find(r=>r.id===ref.raId);
+    if(!ra){ res.push(RR('WA-RA-GONE','WARN','Linked RA missing','A linked RA/SWP was deleted from the register.','ra',ref.raId)); return; }
+    if(ra.status==='Expired') res.push(RR('WA-RA-EXPIRED','BLOCK','RA expired',ra.activity+' is marked Expired.','ra',ra.id));
+    const rv=ra.reviewDate?daysTo(ra.reviewDate):null;
+    if(rv!==null&&rv<0) res.push(RR('WA-RA-REVIEW','WARN','RA review overdue',ra.activity+' review was due '+fmtD(ra.reviewDate)+'.','ra',ra.id));
+    if(ref.rev&&String(ra.rev||'')!==String(ref.rev))
+      res.push(RR('WA-RA-REV','WARN','RA revision changed','Activity pinned Rev '+ref.rev+' but '+ra.activity+' is now Rev '+(ra.rev||'?')+' — re-brief and re-link.','ra',ra.id));
+  });
+  /* PTW */
+  if(PTW_REQUIRED.includes(wa.type)&&!(wa.ptw||'').trim())
+    res.push(RR('WA-PTW-MISSING',active?'BLOCK':'WARN','No permit recorded',wa.type+' requires an ePTW permit. No permit number is recorded.','workActivity',wa.id));
+  /* toolbox today */
+  if(active&&!db.tbm.some(t=>t.waId===wa.id&&t.date===today()))
+    res.push(RR('WA-TBM-TODAY','WARN','No toolbox briefing today','Activity is Active but no toolbox meeting is linked for today.','workActivity',wa.id));
+  /* linked observations / incidents */
+  db.observations.filter(o=>o.waId===wa.id&&o.status!=='Closed').forEach(o=>{
+    if(o.severity==='Critical') res.push(RR('WA-OBS-CRITICAL','BLOCK','Open critical observation',(o.category||'Observation')+' is open: '+(o.desc||o.subitem||'').split('\n')[0].slice(0,80),'observation',o.id));
+    else if(o.severity==='Major') res.push(RR('WA-OBS-MAJOR','WARN','Open major observation',(o.category||'Observation')+' is open.','observation',o.id));
+    if(o.due&&(daysTo(o.due)??0)<0) res.push(RR('WA-OBS-OVERDUE','WARN','Observation overdue','Corrective action was due '+fmtD(o.due)+'.','observation',o.id));
+  });
+  db.incidents.filter(i=>i.waId===wa.id&&i.status!=='Closed').forEach(i=>
+    res.push(RR('WA-INC-OPEN','BLOCK','Open incident',(i.type||'Incident')+' on '+fmtD(i.date)+' is not closed.','incident',i.id)));
+  const status=res.some(r=>r.status==='BLOCK')?'BLOCKED':res.some(r=>r.status==='WARN')?'READY_WITH_WARNINGS':'READY';
+  if(!res.length) res.push(RR('WA-OK','PASS','Ready','All deterministic checks passed.','workActivity',wa.id));
+  return {status,results:res};
+}
+
+function recalcWA(wa){
+  const r=checkWorkActivityReadiness(wa.id);
+  wa.readiness={status:r.status, computedAt:new Date().toISOString(), results:r.results};
+  return wa.readiness;
+}
+
+/* one structured response with ALL linked context (for humans and future AI) */
+function getWorkActivityContext(workActivityId){
+  const wa=db.workActivities.find(w=>w.id===workActivityId);
+  if(!wa) return null;
+  const s=curProj().settings;
+  const acts=allOpenActions();
+  return {
+    activity:{id:wa.id,title:wa.title,type:wa.type,status:wa.status,startDate:wa.startDate,endDate:wa.endDate,remarks:wa.remarks||''},
+    project:{id:curProj().id,name:s.project,contractor:s.company,hdbContract:s.hdbContract},
+    location:{block:wa.block||'',storey:wa.storey||'',area:wa.location||''},
+    subcontractor:wa.subcon||'',
+    ptwRefs:(wa.ptw||'').split(/[,;\s]+/).filter(Boolean),
+    crew:(wa.crew||[]).filter(c=>c.memberId).map(c=>{
+      const m=db.members.find(x=>x.id===c.memberId)||{};
+      return {memberId:c.memberId,name:m.name||'(deleted)',company:m.company||'',roleInActivity:c.role||'',trade:m.trade||'',
+        eligibility:checkMemberEligibility(c.memberId,wa.id)};
+    }),
+    plant:(wa.plant||[]).filter(p=>p.equipmentId).map(p=>{
+      const e=db.equipment.find(x=>x.id===p.equipmentId)||{};
+      return {equipmentId:p.equipmentId,label:[e.type,e.regNo].filter(Boolean).join(' ')||'(deleted)',role:p.role||'',
+        readiness:checkEquipmentReadiness(p.equipmentId,wa.id)};
+    }),
+    raSwp:(wa.raRefs||[]).filter(r=>r.raId).map(ref=>{
+      const ra=db.ra.find(x=>x.id===ref.raId)||{};
+      return {raId:ref.raId,activity:ra.activity||'(deleted)',pinnedRev:ref.rev||'',currentRev:ra.rev||'',status:ra.status||'',reviewDate:ra.reviewDate||''};
+    }),
+    toolboxMeetings:db.tbm.filter(t=>t.waId===wa.id).map(t=>({id:t.id,date:t.date,conductor:t.conductor,
+      attendance:(t.attendees||[]).length+((t.checkins||[]).length),quizCorrect:(t.checkins||[]).filter(c=>c.correct).length})),
+    inspections:db.inspections.filter(i=>i.waId===wa.id).map(i=>({id:i.id,date:i.date,type:i.type,
+      openFindings:(i.findings||[]).filter(f=>f.status!=='Closed').length})),
+    observations:db.observations.filter(o=>o.waId===wa.id).map(o=>({id:o.id,date:o.date,category:o.category,
+      severity:o.severity||'',status:o.status,due:o.due||''})),
+    correctiveActions:acts.filter(a=>{
+      const id=(a.link||'').split('/').pop();
+      return db.observations.some(o=>o.id===id&&o.waId===wa.id)||db.inspections.some(i=>i.id===id&&i.waId===wa.id)||db.incidents.some(x=>x.id===id&&x.waId===wa.id);
+    }),
+    incidents:db.incidents.filter(i=>i.waId===wa.id).map(i=>({id:i.id,date:i.date,type:i.type,status:i.status,hasSnapshot:!!i.contextSnapshot})),
+    readiness:wa.readiness||recalcWA(wa)
+  };
+}
+
+/* immutable incident context snapshot — captured once at creation, never rebuilt */
+function buildIncidentSnapshot(incident){
+  const strip=o=>JSON.parse(JSON.stringify(o,(k,v)=>
+    (k==='beforePhotos'||k==='afterPhotos'||k==='photos'||k==='translations'||k==='eligibility'||k==='readinessDetail')?undefined:v));
+  const base={capturedAt:new Date().toISOString(), schema:1,
+    project:{id:curProj().id,name:curProj().settings.project||''},
+    siteState:{openActions:openActionCounts(), openObservations:db.observations.filter(o=>o.status!=='Closed').length,
+      activeActivities:db.workActivities.filter(w=>w.status==='Active').map(w=>({id:w.id,title:w.title,readiness:(w.readiness||{}).status}))}};
+  if(incident.waId){
+    const ctx=getWorkActivityContext(incident.waId);
+    if(ctx) base.workActivity=strip(ctx);
+  }
+  return base;
+}
+
+/* ---- event/service layer: source changes recalculate affected activities ---- */
+const EV={subs:{},
+  on(type,fn){ (this.subs[type]=this.subs[type]||[]).push(fn); },
+  emit(type,payload){ (this.subs[type]||[]).forEach(fn=>{ try{ fn(payload||{}); }catch(e){ console.warn('EV',type,e); } }); }};
+function affectedWAs(store,id){
+  const W=db.workActivities;
+  switch(store){
+    case 'members': return W.filter(w=>(w.crew||[]).some(c=>c.memberId===id));
+    case 'training': { const t=db.training.find(x=>x.id===id);
+      const m=t?db.members.find(x=>(x.name||'').trim().toLowerCase()===(t.name||'').trim().toLowerCase()):null;
+      return m?W.filter(w=>(w.crew||[]).some(c=>c.memberId===m.id)):[]; }
+    case 'equipment': return W.filter(w=>(w.plant||[]).some(p=>p.equipmentId===id));
+    case 'checklists': return W.filter(w=>w.status==='Active'&&(w.plant||[]).length);
+    case 'ra': return W.filter(w=>(w.raRefs||[]).some(r=>r.raId===id));
+    case 'tbm': case 'inspections': case 'observations': case 'incidents': {
+      const rec=(db[store]||[]).find(x=>x.id===id);
+      return rec&&rec.waId?W.filter(w=>w.id===rec.waId):[]; }
+    default: return [];
+  }
+}
+EV.on('record:changed',({store,id})=>{
+  if(store==='workActivities') return;               /* its own save already recalcs */
+  const was=affectedWAs(store,id);
+  if(was.length){ was.forEach(recalcWA); save(); }
+});
+EV.on('record:deleted',({store,id})=>{
+  const was=affectedWAs(store,id);
+  if(was.length){ was.forEach(recalcWA); save(); }
+});
+EV.on('sync:applied',()=>{                            /* teammate changed something */
+  const W=db.workActivities;
+  if(W.length){ W.forEach(recalcWA); localStorage.setItem(KEY2, JSON.stringify(root)); }
+});
+
 /* ============ SMART TOOLBOX (e-Toolbox) ============
    Activity-driven briefings from a built-in SG-construction hazard library
    + the project's own RA register; work-area photos; optional AI 60-second
@@ -2142,6 +2447,10 @@ function renderToolbox(){
      '<div class="fld half"><label>Conducted by *</label><input id="tbxCond" value="'+esc(t.conductor)+'" list="dl-tbxc"><datalist id="dl-tbxc">'+
        db.members.map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist></div>'+
      '<div class="fld half"><label>Linked ePTW permit no(s).</label><input id="tbxPtw" value="'+esc(t.ptw)+'" placeholder="e.g. PTW-0231, PTW-0232"></div>'+
+     (db.workActivities.length?'<div class="fld"><label>Work activity being briefed</label><select id="tbxWa"><option value=""></option>'+
+       db.workActivities.filter(w=>w.status!=='Completed').map(w=>'<option value="'+w.id+'"'+(t.waId===w.id?' selected':'')+'>'+esc(w.title)+
+         ((w.readiness||{}).status==='BLOCKED'?' — ⛔ BLOCKED':'')+'</option>').join('')+'</select>'+
+       '<div class="hint">Linking satisfies the activity’s “toolbox briefing today” readiness rule and pulls its type into the briefing.</div></div>':'')+
    '</div>'+(t.weather?'<p class="hint" style="margin-top:8px">'+esc(t.weather.line)+'</p>':'')+'</div>'+
    (yl.length?'<div class="card"><div class="tbx-step">2 · Yesterday’s lesson — start with this</div>'+
      yl.map(y=>'<div class="lrow" style="cursor:default">'+(y.photo?'<div class="thumb" style="width:56px;height:56px"><img src="'+y.photo+'"></div>':'')+
@@ -2196,6 +2505,12 @@ function renderToolbox(){
     const pg=app.querySelector('.pickgrid[data-f="tbxAtt"]');
     if(pg) t.attendees=[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid); };
   app.querySelectorAll('#tbxDate,#tbxTime,#tbxCond,#tbxPtw,#tbxSpotBy,#tbxSpotAct,#tbxSpotDesc').forEach(el=>el.addEventListener('change',upd));
+  const waSel=document.getElementById('tbxWa');
+  if(waSel) waSel.addEventListener('change',()=>{ t.waId=waSel.value||null;
+    const wa=db.workActivities.find(w=>w.id===t.waId);
+    if(wa){ if(wa.ptw&&!t.ptw){ t.ptw=wa.ptw; }
+      if(TBX_ACT[wa.type]&&!t.acts.includes(wa.type)) t.acts.push(wa.type);
+      t.briefing=null; t.translations=null; renderToolbox(); } });
   app.addEventListener('change',e=>{ if(e.target.closest('.pickgrid[data-f="tbxAtt"]')) upd(); });
   app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{ upd();
     const a=b.dataset.act;
@@ -2291,11 +2606,12 @@ function tbxPersist(final){
     topics:brief, hazards:risks, ptw:t.ptw, photos:t.photos,
     attendees:t.attendees, others:t.checkins.filter(c=>!c.memberId).map(c=>c.name).join('\n'),
     remarks:auto,
-    activities:t.acts, briefing:t.briefing, translations:t.translations, quiz:t.quiz,
+    activities:t.acts, briefing:t.briefing, translations:t.translations, quiz:t.quiz, waId:t.waId||null,
     qrToken:t.qrToken, checkins:t.checkins, spot:t.spot, weather:t.weather?t.weather.line:null, draft:!final};
   const i=db.tbm.findIndex(x=>x.id===t.id);
   if(i>=0) db.tbm[i]=rec; else db.tbm.push(rec);
   save();
+  if(final) EV.emit('record:changed',{store:'tbm', id:rec.id});
 }
 /* public worker check-in page (opened from the QR code; no login) */
 async function renderCheckin(projId, tbmId, token){
@@ -2619,6 +2935,7 @@ async function pullNow(){
   if(changed){
     if(!root.projects.some(p=>p.id===root.cur)) root.cur=root.projects[0].id;
     localStorage.setItem(KEY2, JSON.stringify(root));
+    EV.emit('sync:applied',{});
     if(!curEdit) route(); /* don't clobber a form mid-edit */
   }
 }
