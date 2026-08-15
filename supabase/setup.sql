@@ -180,3 +180,94 @@ create policy rec_subcon_update on public.records
 -- viewers get no insert/update/delete policies → read-only by default.
 -- No delete policies at all: the app never deletes rows, it tombstones
 -- (deleted=true) via update, so history survives.
+
+-- ============================================================
+-- TWO-LEVEL ACCESS (Company HQ vs Project) — supersedes the
+-- rec_read / rec_staff_* / rec_subcon_* policies defined above.
+-- HQ users: admins + hr always, others via profiles.hq.
+-- Non-HQ users are pinned to profiles.project_id (NULL = all,
+-- for backward compatibility until the admin assigns projects).
+-- ============================================================
+alter table public.profiles add column if not exists hq boolean not null default false;
+alter table public.profiles add column if not exists project_id text;
+
+create or replace function public.my_hq() returns boolean
+language sql stable security definer set search_path = public as
+$$ select coalesce(role in ('admin','hr') or hq, false) from public.profiles where id = auth.uid() $$;
+
+create or replace function public.my_project() returns text
+language sql stable security definer set search_path = public as
+$$ select project_id from public.profiles where id = auth.uid() $$;
+
+drop policy if exists rec_read on public.records;
+create policy rec_read on public.records
+  for select using (
+    org_id = public.my_org()
+    and (
+      /* HQ users keep the per-role visibility, across all projects */
+      ( public.my_hq() and (
+            public.my_role() in ('admin','wsho')
+            or (public.my_role() = 'hr' and store not in
+                ('ra','raLibrary','raMasters','raMasterVersions','legacyDocs','raAdoptions','raProjectVersions','reviewTriggers'))
+            or (public.my_role() = 'viewer' and store not in
+                ('ra','raLibrary','raMasters','raMasterVersions','legacyDocs','raAdoptions','raProjectVersions','reviewTriggers','auditEvents','memberPrivate')) ) )
+      /* project-level staff: own project rows + shared operational company registers */
+      or ( not public.my_hq() and public.my_role() in ('wsho','viewer')
+           and (public.my_project() is null or project_id = public.my_project() or project_id = '_company')
+           and ( project_id <> '_company'
+                 or store in ('members','equipment','training','competencyTypes','workerCompetencies','sicProfiles','_meta')
+                 or (public.my_role() = 'wsho' and store in ('raLibrary','raMasters','raMasterVersions')) )
+           and store not in ('auditEvents','organisations','clientTemplates','legacyDocs','memberPrivate')
+           and (public.my_role() <> 'viewer' or store not in
+                ('ra','raLibrary','raMasters','raMasterVersions','raAdoptions','raProjectVersions','reviewTriggers')) )
+      /* subcon: unchanged scope, plus the project pin when assigned */
+      or ( public.my_role() = 'subcon'
+           and (public.my_project() is null or project_id = public.my_project() or project_id = '_company')
+           and (store in ('_project','_meta','sicProfiles','competencyTypes','organisations')
+                or (store = 'workerProjectAccess'
+                    and lower(coalesce(data->>'company','')) = lower(coalesce(public.my_subcon(),'')))
+                or public.subcon_scope(store, data)) )
+    )
+  );
+
+drop policy if exists rec_staff_insert on public.records;
+create policy rec_staff_insert on public.records
+  for insert with check (
+    org_id = public.my_org()
+    and ( (public.my_role() in ('admin','wsho') and public.my_hq())
+          or (public.my_role() = 'wsho' and not public.my_hq()
+              and (public.my_project() is null or project_id = public.my_project() or project_id = '_company')
+              and (project_id <> '_company'
+                   or store in ('members','equipment','training','competencyTypes','workerCompetencies'))) )
+  );
+
+drop policy if exists rec_staff_update on public.records;
+create policy rec_staff_update on public.records
+  for update using (
+    org_id = public.my_org()
+    and ( (public.my_role() in ('admin','wsho') and public.my_hq())
+          or (public.my_role() = 'wsho' and not public.my_hq()
+              and (public.my_project() is null or project_id = public.my_project() or project_id = '_company')
+              and (project_id <> '_company'
+                   or store in ('members','equipment','training','competencyTypes','workerCompetencies'))) )
+  )
+  with check (org_id = public.my_org());
+
+drop policy if exists rec_subcon_insert on public.records;
+create policy rec_subcon_insert on public.records
+  for insert with check (
+    org_id = public.my_org() and public.my_role() = 'subcon'
+    and (public.my_project() is null or project_id = public.my_project() or project_id = '_company')
+    and public.subcon_scope(store, data)
+  );
+
+drop policy if exists rec_subcon_update on public.records;
+create policy rec_subcon_update on public.records
+  for update using (
+    org_id = public.my_org() and public.my_role() = 'subcon'
+    and (public.my_project() is null or project_id = public.my_project() or project_id = '_company')
+    and public.subcon_scope(store, data)
+  )
+  with check (
+    org_id = public.my_org() and public.subcon_scope(store, data)
+  );

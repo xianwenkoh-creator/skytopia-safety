@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-15-2330">
+<meta name="build" content="2026-08-16-0010">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -293,7 +293,7 @@
   .lg-s{font-size:12.5px; color:var(--sub);}
   .lg-err{color:var(--bad-ink); font-size:13px; font-weight:600; margin-top:10px; display:none;}
 
-  /* smart toolbox */
+  /* toolbox meeting wizard */
   .tbx-chips{display:flex; flex-wrap:wrap; gap:7px;}
   .tbx-chip{border:1px solid var(--line2); background:var(--card); color:var(--ink); border-radius:16px;
             font:inherit; font-size:13px; font-weight:600; padding:7px 14px; cursor:pointer;}
@@ -733,8 +733,12 @@ const NAV=[
                           ['checklists','Checklists','check'],['rasys','RA / SWP','ra'],
                           ['meetings','Meetings','meet'],['incidents','Incidents','incid']]},
  {group:'Quality', items:[['defects','Defects','defect']]},
- {group:'Reports', items:[['stats','Statistics','stats'],['report','Monthly Report','print']]}
+ {group:'Reports', items:[['stats','Statistics','stats'],['report','Monthly Report','print']]},
+ {group:'Company (HQ)', items:[['companyhome','Company Home','home'],['ramasters','Master RA Library','ra'],
+                          ['organisations','Organisations','contact'],['sicProfiles','SIC Profiles','sic'],
+                          ['audit','Audit Log','doc']]}
 ];
+const HQ_NAV=['companyhome','ramasters','organisations','sicProfiles','audit'];
 function buildNav(){
   const nav=document.getElementById('sidenav');
   if(SB.profile&&SB.profile.role==='subcon'){
@@ -752,6 +756,12 @@ function buildNav(){
     '<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'Project Home</a>'+
     NAV.map(g=>{
       const items=g.items.filter(t=>{
+        if(HQ_NAV.includes(t[0])){
+          if(!isHQ()) return false;
+          if(t[0]==='ramasters') return canRA();
+          if(t[0]==='audit'||t[0]==='organisations') return !SB.profile||['admin','wsho','hr'].includes(SB.profile.role);
+          return true;
+        }
         if(t[0]==='rasys') return !SB.profile||SB.profile.role!=='viewer';
         if(t[0]==='ra'||t[0]==='ralib') return canRA();
         return true; });
@@ -765,12 +775,16 @@ function buildNav(){
 }
 function renderProjMenu(){
   const m=document.getElementById('projmenu');
+  const locked=!isHQ()&&SB.profile&&SB.profile.project_id;
+  const ps=locked?root.projects.filter(p=>p.id===SB.profile.project_id):root.projects;
   m.innerHTML='<div class="pm-head">'+esc(root.company.name||'Projects')+'</div>'+
-    root.projects.map(p=>'<button class="pm-item'+(p.id===root.cur?' on':'')+'" data-proj="'+p.id+'">'+
+    ps.map(p=>'<button class="pm-item'+(p.id===root.cur?' on':'')+'" data-proj="'+p.id+'">'+
       '<span class="tick">'+(p.id===root.cur?'&#10003;':'')+'</span>'+esc(p.settings.project||'(unnamed project)')+'</button>').join('')+
-    '<button class="pm-item pm-new" data-newproj="1"><span class="tick">+</span>New project</button>';
+    (isHQ()?'<button class="pm-item pm-new" data-newproj="1"><span class="tick">+</span>New project</button>':'')+
+    (locked?'<div class="pm-head" style="font-weight:400">You are assigned to this project.</div>':'');
   m.querySelectorAll('[data-proj]').forEach(b=>b.onclick=()=>{ m.classList.remove('open'); switchProject(b.dataset.proj); });
-  m.querySelector('[data-newproj]').onclick=()=>{ m.classList.remove('open');
+  const np=m.querySelector('[data-newproj]');
+  if(np) np.onclick=()=>{ m.classList.remove('open');
     const name=prompt('New project name:'); if(!name) return;
     addProject(name.trim()); location.hash='#/settings'; route(); };
 }
@@ -851,7 +865,7 @@ function renderHome(){
     '<h2 class="sect">Operations</h2>'+
     '<div class="grid">'+
       tile('work','Work Activities','work',waBlocked||'')+
-      tile('toolbox','Smart Toolbox','tbm')+
+      tile('toolbox','Toolbox Meeting','tbm')+
     '</div>'+
     '<h2 class="sect">Workforce</h2>'+
     '<div class="grid">'+
@@ -1006,6 +1020,12 @@ function route(){
   syncShell(p[0]||'');
   if(!p.length) return renderHome();
   const key=p[0], sub=p[1];
+  if(key==='companyhome'||key==='audit'||key==='organisations'){
+    if(!isHQ()){ app.innerHTML=header('Company (HQ)', true)+'<div class="empty">Company-level data is restricted to HQ users.</div>'; return; }
+    if(key==='companyhome') return renderCompanyHome();
+    if(key==='audit') return renderAudit();
+    /* organisations falls through to the generic module below */
+  }
   if(key==='matrix')   return renderMatrix();
   if(key==='passport'&&sub) return renderPassport(sub);
   if(key==='sic')      return sub?renderSicSession(sub):renderSic();
@@ -1499,6 +1519,20 @@ const MODULES={
   line1:i=>esc(i.name),
   line2:i=>esc([i.client,(i.requirements||[]).map(r=>r.req).filter(Boolean).join(', ')].filter(Boolean).join(' · ')),
   empty:'Configurable SIC requirement sets per client / main contractor. Use competency type codes (CSOC, WAH, CS, RIG, SIG, LS, EXC, CRA…) plus PHOTO and WORKPASS.'},
+
+ organisations:{ title:'Organisation', store:'organisations',
+  fields:[
+   {k:'name',label:'Company name (exactly as used on records)',req:1},
+   {k:'type',label:'Type',type:'select',opts:['own','subcon','supplier','other'],half:1},
+   {k:'uen',label:'UEN / reg no.',half:1},
+   {k:'contact',label:'Contact person',half:1},
+   {k:'phone',label:'Phone',type:'tel',half:1},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  sort:(a,b)=>(a.type||'').localeCompare(b.type||'')||(a.name||'').localeCompare(b.name||''),
+  line1:i=>esc(i.name),
+  line2:i=>esc([i.type,i.uen].filter(Boolean).join(' · ')),
+  meta:i=>'<span class="chip '+(i.type==='own'?'g':'n')+'">'+esc(i.type||'')+'</span>',
+  empty:'Company / organisation register — own entities, subcontractors and suppliers. Keep names exactly as used on worker and observation records (access scoping matches on the name).'},
 
  memberPrivate:{ title:'Private (HR)', store:'memberPrivate',
   fields:[
@@ -2531,6 +2565,7 @@ EV.on('record:deleted',({store,id})=>{
   if(was.length){ was.forEach(recalcWA); save(); }
 });
 EV.on('sync:applied',()=>{                            /* teammate changed something */
+  enforceProjectLock();
   if(SB.profile && !['admin','wsho'].includes(SB.profile.role)) return; /* partial-data roles must not recompute gates */
   wfMigrate();                                        /* one-time wrap runs after first full pull */
   const W=db.workActivities;
@@ -2633,6 +2668,19 @@ async function exportAllWorkerDocs(){
 /* RA/SWP register is restricted to the company's own safety personnel.
    Unsigned local-only devices see only their own local data, so they pass. */
 function canRA(){ return !SB.profile || ['admin','wsho'].includes(SB.profile.role); }
+/* Company (HQ) level: admins and HR always; others via the per-user HQ toggle.
+   Local/unsigned devices see only their own local data, so they count as HQ. */
+function isHQ(){ return !SB.profile || SB.profile.hq===true || ['admin','hr'].includes(SB.profile.role); }
+/* Non-HQ users are pinned to their assigned project — the server enforces the
+   data side; this keeps the UI pointed at the right project. */
+function enforceProjectLock(){
+  if(isHQ()||!SB.profile||!SB.profile.project_id) return;
+  const pid=SB.profile.project_id;
+  if(root.cur!==pid && root.projects.some(p=>p.id===pid)){
+    root.cur=pid; localStorage.setItem(KEY2, JSON.stringify(root));
+    syncShell(); buildNav();
+  }
+}
 
 /* ---- company RA library: import RAs from another project as fresh drafts ---- */
 function renderRaImport(){
@@ -3377,7 +3425,7 @@ EV.on('record:changed',({store,id})=>{
   save();
 });
 
-/* ============ SMART TOOLBOX (e-Toolbox) ============
+/* ============ TOOLBOX MEETING wizard ============
    Activity-driven briefings from a built-in SG-construction hazard library
    + the project's own RA register; work-area photos; optional AI 60-second
    brief with multilingual audio; quiz-verified QR attendance; daily hazard
@@ -3620,7 +3668,7 @@ function renderToolbox(){
   const quiz=tbxQuizBank();
   const q=quiz.length?quiz[new Date(t.date+'T00:00').getDate()%quiz.length]:null;
   const briefText=t.briefing||(t.acts.length?tbxComposeBrief():'');
-  app.innerHTML = header('Smart Toolbox', true)+
+  app.innerHTML = header('Toolbox Meeting', true)+
    '<div class="card"><div class="tbx-step">1 · Today</div><div class="fgrid">'+
      '<div class="fld half"><label>Date</label><input id="tbxDate" type="date" value="'+esc(t.date)+'"></div>'+
      '<div class="fld half"><label>Time</label><input id="tbxTime" type="time" value="'+esc(t.time)+'"></div>'+
@@ -4277,6 +4325,69 @@ function renderPassport(mid){
   };
 }
 
+/* ---- Company (HQ) level pages ---- */
+function renderCompanyHome(){
+  const projStats=root.projects.map(p=>{
+    const obsOpen=(p.observations||[]).filter(o=>o.status!=='Closed').length;
+    const yr=new Date().getFullYear();
+    const inc=(p.incidents||[]).filter(r=>r.date&&+r.date.slice(0,4)===yr).length;
+    const defOpen=(p.defects||[]).filter(d=>d.status!=='Closed').length;
+    const waBlk=(p.workActivities||[]).filter(w=>(w.readiness||{}).status==='BLOCKED'&&w.status!=='Completed').length;
+    const sicOk=(p.workerProjectAccess||[]).filter(a=>a.sicStatus==='COMPLETE').length;
+    return {p,obsOpen,inc,defOpen,waBlk,sicOk};
+  });
+  const active=db.members.filter(m=>m.status!=='INACTIVE').length;
+  const orgs=db.organisations.length;
+  const fleet=db.equipment.length;
+  const masters=db.raMasters.length;
+  const e30=db.members.filter(m=>memberAllCerts(m).concat(m.wpExpiry?[{expiry:m.wpExpiry}]:[]).some(c=>{const d=c.expiry?daysTo(c.expiry):null; return d!==null&&d>=0&&d<=30;})).length;
+  app.innerHTML=header('Company Home')+
+    '<div class="card" style="display:flex;align-items:center;gap:14px">'+
+      '<img src="'+KKL_LOGO+'" alt="" style="height:40px">'+
+      '<div><b>'+esc(root.company.name||'Company')+'</b><div class="hint">'+root.projects.length+' project(s) · company-level view (HQ)</div></div></div>'+
+    '<h2 class="sect">Company overview</h2>'+
+    '<div class="tiles">'+
+      '<a class="stile" href="#/members"><div class="v">'+active+'</div><div class="l">Active workers</div></a>'+
+      '<a class="stile" href="#/matrix"><div class="v'+(e30?' w':'')+'">'+e30+'</div><div class="l">Certs expiring &le;30d</div></a>'+
+      '<a class="stile" href="#/equipment"><div class="v">'+fleet+'</div><div class="l">Equipment</div></a>'+
+      '<a class="stile" href="#/ramasters"><div class="v">'+masters+'</div><div class="l">Master RAs</div></a>'+
+      '<a class="stile" href="#/organisations"><div class="v">'+orgs+'</div><div class="l">Organisations</div></a>'+
+    '</div>'+
+    '<h2 class="sect">Projects</h2>'+
+    projStats.map(s=>'<div class="card" style="margin-bottom:10px;cursor:pointer" data-proj="'+s.p.id+'">'+
+      '<b>'+esc(s.p.settings.project||'(unnamed project)')+'</b>'+(s.p.id===root.cur?' <span class="chip g">current</span>':'')+
+      '<div class="hint" style="margin-top:6px">'+
+        s.obsOpen+' open observation(s) · '+s.defOpen+' open defect(s) · '+s.inc+' incident(s) this year · '+
+        s.waBlk+' blocked activit'+(s.waBlk===1?'y':'ies')+' · '+s.sicOk+' worker(s) SIC-complete</div></div>').join('')+
+    '<h2 class="sect">Company administration</h2>'+
+    '<div class="grid">'+
+      '<a class="tile" href="#/ramasters"><span class="ic">'+ic('ra')+'</span><span class="tl">Master RA Library</span></a>'+
+      '<a class="tile" href="#/organisations"><span class="ic">'+ic('contact')+'</span><span class="tl">Organisations</span></a>'+
+      '<a class="tile" href="#/sicProfiles"><span class="ic">'+ic('sic')+'</span><span class="tl">SIC Profiles</span></a>'+
+      '<a class="tile" href="#/audit"><span class="ic">'+ic('doc')+'</span><span class="tl">Audit Log</span></a>'+
+      '<a class="tile" href="#/team"><span class="ic">'+ic('members')+'</span><span class="tl">Team</span></a>'+
+    '</div>';
+  app.querySelectorAll('[data-proj]').forEach(c=>c.onclick=()=>{ switchProject(c.dataset.proj); location.hash='#/'; });
+}
+let AUD={q:'',n:200};
+function renderAudit(){
+  const q=AUD.q.toLowerCase();
+  const rows=[...db.auditEvents].reverse()
+    .filter(a=>!q||JSON.stringify(a).toLowerCase().includes(q));
+  app.innerHTML=header('Audit Log', true)+
+    '<div class="card"><input id="audQ" placeholder="Filter by action / entity / person" value="'+esc(AUD.q)+'">'+
+    '<p class="hint" style="margin:8px 0 0">Append-only record of compliance-relevant changes: RA approvals, competency verification, SIC completion, worker/pass updates, HR record access. '+db.auditEvents.length+' event(s).</p></div>'+
+    (rows.length?rows.slice(0,AUD.n).map(a=>'<div class="lrow" style="cursor:default"><div>'+
+      '<div class="l1">'+esc(a.action||'')+' — '+esc(a.entity||'')+'</div>'+
+      '<div class="l2">'+esc([a.who,(a.at||'').replace('T',' ').slice(0,16)].filter(Boolean).join(' · '))+
+        (a.reason?' · '+esc(a.reason):'')+'</div></div>'+
+      '<div class="lmeta"><span class="chip n">'+esc(String(a.entityId||'').slice(0,10))+'</span></div></div>').join('')
+     :'<div class="empty">No audit events match.</div>')+
+    (rows.length>AUD.n?'<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="audMore" style="flex:1">Show more</button></div>':'');
+  document.getElementById('audQ').oninput=e=>{ AUD.q=e.target.value; renderAudit(); };
+  const am=document.getElementById('audMore'); if(am) am.onclick=()=>{ AUD.n+=200; renderAudit(); };
+}
+
 /* ============ cloud sync (Supabase, offline-first) ============
    Local storage stays the source of truth on-device; changes diff-push to a
    `records` table (JSONB rows keyed org/project/store/id) and pull back
@@ -4353,8 +4464,8 @@ async function sbTeamCall(body){
   if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status));
   return d;
 }
-const ROLES=['admin','wsho','subcon','viewer'];
-const ROLEHELP={admin:'everything + manage team', wsho:'read/write all projects', subcon:'only their company’s items', viewer:'read-only'};
+const ROLES=['admin','wsho','hr','subcon','viewer'];
+const ROLEHELP={admin:'everything + manage team', wsho:'safety ops (project or HQ)', hr:'workforce & HR records (HQ)', subcon:'only their company’s items', viewer:'read-only'};
 async function renderTeam(){
   if(!SB.profile){
     app.innerHTML=header('Team', true)+'<div class="empty">Sign in first (Settings &rarr; Cloud sync) to manage the team.</div>';
@@ -4372,28 +4483,48 @@ async function renderTeam(){
   }catch(e){
     app.innerHTML=header('Team', true)+'<div class="empty">Could not load team: '+esc(e.message||e)+'</div>'; return;
   }
-  const roleSel=(cur,id)=>'<select data-role="'+id+'" style="min-height:34px;padding:4px 6px;width:auto">'+
+  const selSt='min-height:34px;padding:4px 6px;width:auto';
+  const projName=id=>{ const p=root.projects.find(x=>x.id===id); return p?(p.settings.project||'(unnamed)'):id; };
+  const roleSel=(cur,id)=>'<select data-role="'+id+'" style="'+selSt+'">'+
     ROLES.map(r=>'<option'+(r===cur?' selected':'')+'>'+r+'</option>').join('')+'</select>';
+  const hqSel=r=>['admin','hr'].includes(r.role)?'<span class="chip g">HQ</span>':
+    (r.role==='subcon'?'':'<select data-hq="'+r.id+'" style="'+selSt+'">'+
+      '<option value=""'+(r.hq?'':' selected')+'>Project</option><option value="1"'+(r.hq?' selected':'')+'>HQ</option></select>');
+  const pjSel=r=>(['admin','hr'].includes(r.role)||r.hq)?'':
+    '<select data-proj4="'+r.id+'" style="'+selSt+';max-width:130px">'+
+    '<option value="">All projects</option>'+root.projects.map(p=>'<option value="'+p.id+'"'+(r.project_id===p.id?' selected':'')+'>'+esc(p.settings.project||'(unnamed)')+'</option>').join('')+'</select>';
   app.innerHTML = header('Team', true)+
     '<div class="card"><label style="margin-top:0">Invite a team member</label>'+
     '<p class="hint">They get an email; the link signs them in and asks them to set a password. Roles: '+
-      ROLES.map(r=>'<b>'+r+'</b> = '+ROLEHELP[r]).join(' &nbsp;·&nbsp; ')+'.</p>'+
+      ROLES.map(r=>'<b>'+r+'</b> = '+ROLEHELP[r]).join(' &nbsp;·&nbsp; ')+
+      '.<br><b>HQ</b> users see company-level data and all projects; <b>project-level</b> users see only their assigned project (enforced by the server).</p>'+
     '<div class="fgrid">'+
       '<div class="fld half"><label>Email</label><input id="invEmail" type="email" placeholder="name@company.com.sg"></div>'+
       '<div class="fld half"><label>Role</label><select id="invRole">'+ROLES.map(r=>'<option'+(r==='wsho'?' selected':'')+'>'+r+'</option>').join('')+'</select></div>'+
+      '<div class="fld half" id="invHqWrap"><label>Access level</label><select id="invHq">'+
+        '<option value="">Project level</option><option value="1">HQ (company level)</option></select></div>'+
+      '<div class="fld half" id="invProjWrap"><label>Assigned project</label><select id="invProj">'+
+        '<option value="">All (not assigned yet)</option>'+root.projects.map(p=>'<option value="'+p.id+'">'+esc(p.settings.project||'(unnamed)')+'</option>').join('')+'</select></div>'+
       '<div class="fld" id="invSubWrap" style="display:none"><label>Subcontractor company (exactly as typed on records)</label><input id="invSub" list="dl-invsub"><datalist id="dl-invsub">'+
         [...new Set([].concat(...root.projects.map(p=>p.observations.concat(p.defects))).map(o=>(o.subcon||'').trim()).filter(Boolean))].map(s=>'<option value="'+esc(s)+'">').join('')+'</datalist></div>'+
     '</div><div class="btnrow"><button class="btn" id="invGo">Send invite</button></div></div>'+
     '<div class="card"><label style="margin-top:0">Members ('+rows.length+')</label>'+
-    rows.map(r=>'<div class="lrow" style="cursor:default"><div class="lmain">'+
+    rows.map(r=>'<div class="lrow" style="cursor:default;flex-wrap:wrap"><div class="lmain">'+
       '<div class="lt" style="color:var(--ink)">'+esc(r.email||r.id)+(r.id===SB.profile.id?' <span class="chip">you</span>':'')+'</div>'+
-      '<div class="ls">'+(r.subcon?esc(r.subcon)+' · ':'')+'joined '+fmtD((r.created_at||'').slice(0,10))+'</div></div>'+
-      '<div class="lmeta">'+(r.id===SB.profile.id?'<span class="chip">'+esc(r.role)+'</span>':
-        roleSel(r.role,r.id)+' <button class="btn danger" style="min-height:34px;padding:5px 10px" data-rm="'+r.id+'" data-em="'+esc(r.email||'')+'">Remove</button>')+
+      '<div class="ls">'+(r.subcon?esc(r.subcon)+' · ':'')+
+        ((r.hq||['admin','hr'].includes(r.role))?'HQ · ':(r.project_id?esc(projName(r.project_id))+' · ':'all projects · '))+
+        'joined '+fmtD((r.created_at||'').slice(0,10))+'</div></div>'+
+      '<div class="lmeta" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+(r.id===SB.profile.id?'<span class="chip">'+esc(r.role)+'</span>':
+        roleSel(r.role,r.id)+hqSel(r)+pjSel(r)+' <button class="btn danger" style="min-height:34px;padding:5px 10px" data-rm="'+r.id+'" data-em="'+esc(r.email||'')+'">Remove</button>')+
       '</div></div>').join('')+
     '</div>';
   const invRole=document.getElementById('invRole'), invSubWrap=document.getElementById('invSubWrap');
-  invRole.onchange=()=>{ invSubWrap.style.display=invRole.value==='subcon'?'':'none'; };
+  const invHqWrap=document.getElementById('invHqWrap');
+  const invSync=()=>{
+    invSubWrap.style.display=invRole.value==='subcon'?'':'none';
+    invHqWrap.style.display=['admin','hr','subcon'].includes(invRole.value)?'none':'';
+  };
+  invRole.onchange=invSync; invSync();
   document.getElementById('invGo').onclick=async()=>{
     const email=document.getElementById('invEmail').value.trim();
     const role=invRole.value, subcon=document.getElementById('invSub').value.trim();
@@ -4402,19 +4533,36 @@ async function renderTeam(){
     const btn=document.getElementById('invGo'); btn.disabled=true; btn.textContent='Sending…';
     try{
       await sbTeamCall({action:'invite', email, role, subcon:role==='subcon'?subcon:null,
+        hq:document.getElementById('invHq').value==='1',
+        projectId:document.getElementById('invProj').value||null,
         redirectTo:location.origin+location.pathname});
       toast('Invite sent to '+email);
       renderTeam();
     }catch(e){ alert('Invite failed: '+(e.message||e)); btn.disabled=false; btn.textContent='Send invite'; }
   };
-  app.querySelectorAll('[data-role]').forEach(sel=>sel.onchange=async()=>{
-    const role=sel.value, id=sel.dataset.role;
-    let subcon=null;
-    if(role==='subcon'){ subcon=prompt('Subcontractor company name (exactly as typed on records):'); if(!subcon){ renderTeam(); return; } }
-    try{ await sbTeamCall({action:'setRole', userId:id, role, subcon}); toast('Role updated'); }
-    catch(e){ alert('Could not update role: '+(e.message||e)); }
+  const rowById=id=>rows.find(x=>x.id===id)||{};
+  const updateUser=async(id, patch)=>{
+    const r=rowById(id);
+    const roleEl=app.querySelector('[data-role="'+id+'"]');
+    const hqEl=app.querySelector('[data-hq="'+id+'"]');
+    const pjEl=app.querySelector('[data-proj4="'+id+'"]');
+    const payload={action:'setRole', userId:id,
+      role:roleEl?roleEl.value:r.role,
+      subcon:r.subcon||null,
+      hq:hqEl?hqEl.value==='1':!!r.hq,
+      projectId:pjEl?(pjEl.value||null):(r.project_id||null)};
+    Object.assign(payload, patch||{});
+    if(payload.role==='subcon'&&!payload.subcon){
+      payload.subcon=prompt('Subcontractor company name (exactly as typed on records):');
+      if(!payload.subcon){ renderTeam(); return; }
+    }
+    try{ await sbTeamCall(payload); toast('Updated'); }
+    catch(e){ alert('Could not update: '+(e.message||e)); }
     renderTeam();
-  });
+  };
+  app.querySelectorAll('[data-role]').forEach(sel=>sel.onchange=()=>updateUser(sel.dataset.role,{role:sel.value}));
+  app.querySelectorAll('[data-hq]').forEach(sel=>sel.onchange=()=>updateUser(sel.dataset.hq,{hq:sel.value==='1'}));
+  app.querySelectorAll('[data-proj4]').forEach(sel=>sel.onchange=()=>updateUser(sel.dataset.proj4,{projectId:sel.value||null}));
   app.querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{
     if(!confirm('Remove '+(b.dataset.em||'this user')+'? They lose access immediately; records they created stay.')) return;
     try{ await sbTeamCall({action:'remove', userId:b.dataset.rm}); toast('Removed'); }
@@ -4429,8 +4577,10 @@ async function sbAfterLogin(){
   SB.profile=prof;
   buildNav(); /* role may hide restricted modules (RA/SWP) */
   sbSetStatus('ok','Signed in as <b>'+esc(prof.email||user.email||'')+'</b> — role: <b>'+esc(prof.role)+'</b>'+
+    ((prof.hq||['admin','hr'].includes(prof.role))?' · <b>HQ</b>':' · project level')+
     (prof.subcon?' ('+esc(prof.subcon)+')':'')+'. Sync is on.');
   try{ await pullNow(); }catch(e){ console.warn('initial pull',e); }
+  enforceProjectLock();
   schedulePush();
   if(!SB.timer){
     SB.timer=setInterval(()=>{ pullNow().catch(()=>{}); }, 60000);

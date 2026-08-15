@@ -37,6 +37,8 @@ Deno.serve(async (req) => {
       // the on_auth_user_created trigger has made a viewer profile; set the real role
       await admin.from("profiles").update({
         role, subcon: role === "subcon" ? (b.subcon || null) : null,
+        hq: ["admin", "hr"].includes(role) ? false : !!b.hq, // admin/hr are HQ by role
+        project_id: b.projectId ? String(b.projectId) : null,
       }).eq("id", data.user.id);
       return json({ ok: true, userId: data.user.id });
     }
@@ -49,6 +51,8 @@ Deno.serve(async (req) => {
       if (!target || target.org_id !== me.org_id) return json({ error: "Not in your org" }, 404);
       await admin.from("profiles").update({
         role, subcon: role === "subcon" ? (b.subcon || null) : null,
+        hq: ["admin", "hr"].includes(role) ? false : !!b.hq,
+        project_id: b.projectId ? String(b.projectId) : null,
       }).eq("id", b.userId);
       return json({ ok: true });
     }
