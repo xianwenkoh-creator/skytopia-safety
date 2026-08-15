@@ -64,6 +64,7 @@
   .bmark{display:flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:4px;
          background:var(--acc); color:#fff; font-size:14px; font-weight:800;}
   .bword{font-size:14.5px; font-weight:750; letter-spacing:.14em;}
+  .blogo{height:26px; background:#fff; border-radius:4px; padding:2px 6px; display:block;}
   .bdiv{width:1px; height:22px; background:rgba(255,255,255,.25); margin:0 8px;}
   .projsel{display:flex; align-items:center; gap:6px; max-width:44vw; background:none; border:none; color:var(--hdr-ink);
            font:inherit; font-size:13.5px; font-weight:600; padding:6px 8px; border-radius:4px; cursor:pointer;}
@@ -330,7 +331,7 @@
 <body>
 <div class="appbar">
   <button class="iconbtn burger" id="navBtn" aria-label="Menu"></button>
-  <a class="brand" href="#/"><span class="bmark">S</span><span class="bword">SKYTOPIA</span></a>
+  <a class="brand" href="#/"><img class="blogo" id="brandLogo" alt="KKL"><span class="bword">SKYTOPIA</span></a>
   <span class="bdiv"></span>
   <button class="projsel" id="projSel" title="Project settings"><span id="projName">Site Safety</span></button>
   <div class="spacer" style="flex:1"></div>
@@ -347,6 +348,7 @@
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
+const KKL_LOGO='data:image/png;base64,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'; /* company mark, cropped from KKL letterhead */
 /* ============ helpers ============ */
 const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -447,7 +449,7 @@ function reportDocHtml(title, bodyHtml){
     '.rtitle{font-size:17px;font-weight:750;letter-spacing:.02em}.rsub{font-size:12px;color:#68757d;margin-left:auto;text-align:right}'+
     '@media print{body{margin:0;max-width:none}}'+
     '</style></head><body>'+
-    '<div class="rephead"><div class="rmark">S</div><div class="rtitle">SKYTOPIA Site Safety</div>'+
+    '<div class="rephead"><img src="'+KKL_LOGO+'" alt="KKL" style="height:32px"><div class="rtitle">'+esc(root.company.name||s.company||'SKYTOPIA Site Safety')+'</div>'+
     '<div class="rsub">'+esc([s.project,s.company].filter(Boolean).join(' — '))+'<br>Generated '+esc(today())+'</div></div>'+
     bodyHtml+'</body></html>';
 }
@@ -545,29 +547,30 @@ const ICONS={
   contact:'<circle cx="9.5" cy="8" r="3.4"/><path d="M4 20c.6-3.6 2.8-5.5 5.5-5.5S14.4 16.4 15 20"/><path d="M17 7h4M17 10.5h4M17 14h2.5"/>',
   members:'<circle cx="9" cy="9" r="3.2"/><path d="M3.5 20c.5-3.3 2.6-5 5.5-5s5 1.7 5.5 5"/><circle cx="16.8" cy="7.8" r="2.6"/><path d="M16.3 14.6c2.6.2 4 1.8 4.5 4.4"/>',
   equip:'<rect x="3.5" y="14.5" width="11.5" height="5" rx="2.5"/><path d="M6.5 14.5V10h5.5v4.5"/><path d="M12 10.5l4-4.5 4.5 2"/><path d="M20.5 8v4.5"/>',
-  cert:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.8" r="2"/><path d="M5.5 16.2c.4-1.6 1.6-2.5 3-2.5s2.6.9 3 2.5M14.5 9.5H19M14.5 13H19"/>',
-  doc:'<path d="M12 3.5l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4M4 16.5l8 4 8-4"/>',
+  cert:'<circle cx="12" cy="9.5" r="5.2"/><path d="M9.7 14.3L8 21l4-2.2 4 2.2-1.7-6.7"/><path d="M10 9.5l1.5 1.5 2.7-2.8"/>',
+  doc:'<path d="M6 3.5h8l4 4v13H6z"/><path d="M13.5 3.5v4.5H18"/><path d="M9 12.5h6M9 16h6"/>',
   tbm:'<rect x="3.5" y="8" width="17" height="11.5" rx="2"/><path d="M9 8V6.5A1.5 1.5 0 0 1 10.5 5h3A1.5 1.5 0 0 1 15 6.5V8M3.5 12.5h17"/>',
-  insp:'<rect x="6" y="10.5" width="12" height="9" rx="1.8"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/><path d="M12 13.8v2.4"/>',
+  insp:'<rect x="5" y="4.5" width="14" height="16" rx="1.5"/><path d="M9.5 4.5V3h5v1.5"/><path d="M8.5 13l2.4 2.4 4.6-4.8"/>',
   check:'<path d="M12 3.5l7 2.5v5.5c0 4.6-3 7.6-7 9-4-1.4-7-4.4-7-9V6z"/><path d="M8.8 12l2.2 2.2 4.2-4.4"/>',
   ra:'<path d="M6.5 17v-4.3a5.5 5.5 0 0 1 11 0V17"/><path d="M4.5 19.5h15"/><path d="M12 4v2M5.6 6.6l1.4 1.4M18.4 6.6L17 8"/>',
-  train:'<path d="M12 6.5c-1.8-1.5-4.2-2-7-2v13c2.8 0 5.2.5 7 2 1.8-1.5 4.2-2 7-2v-13c-2.8 0-5.2.5-7 2z"/><path d="M12 6.5v13"/>',
+  train:'<path d="M12 4.5L2.5 9l9.5 4.5L21.5 9z"/><path d="M6.5 11.3v4.4c0 1.6 2.4 2.9 5.5 2.9s5.5-1.3 5.5-2.9v-4.4"/><path d="M21.5 9v4.5"/>',
   meet:'<circle cx="8" cy="7.5" r="2.3"/><circle cx="16" cy="7.5" r="2.3"/><path d="M4 19.5v-.8c0-2.2 1.7-3.8 4-3.8s4 1.6 4 3.8v.8M12.3 15.6c.5-.4 1.6-.7 3.7-.7 2.3 0 4 1.6 4 3.8v.8"/>',
-  incid:'<path d="M7.5 16.5h-1a3.5 3.5 0 0 1-.4-7A5 5 0 0 1 16 8.3a4 4 0 0 1 1.6 7.6"/><path d="M12.7 11l-2.2 3.7h3l-2.2 3.8"/>',
-  stats:'<path d="M4.5 19.5h15"/><path d="M7 16.5V12M11 16.5v-7M15 16.5v-5M19 16.5V8"/><path d="M5.5 9L10 5l3.5 2.5L18 3.5"/><path d="M15.8 3.5H18V5.7"/>',
+  incid:'<path d="M12 4.2L2.8 19.5h18.4z"/><path d="M12 10v4.4M12 16.9v.4"/>',
+  stats:'<path d="M4 4v16h16"/><path d="M8.5 16.5v-5M12.5 16.5v-9M16.5 16.5v-6.5M20 16.5V6"/>',
   obs:'<path d="M2.5 12s3.5-6.2 9.5-6.2S21.5 12 21.5 12s-3.5 6.2-9.5 6.2S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
   dl:'<path d="M12 4v11M7.5 11l4.5 4.5L16.5 11"/><path d="M4.5 19.5h15"/>',
   act:'<path d="M9.5 5.5H20M9.5 12H20M9.5 18.5H20"/><path d="M3.5 5l1.4 1.4L7.5 3.8M3.5 11.5l1.4 1.4 2.6-2.6M3.5 18l1.4 1.4 2.6-2.6"/>',
-  defect:'<rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3 12h18"/><path d="M9 5.5V12M15 5.5V12"/><path d="M6 12v6.5M12 12v6.5M18 12v6.5"/>',
+  defect:'<rect x="5" y="4.5" width="14" height="16" rx="1.5"/><path d="M9.5 4.5V3h5v1.5"/><path d="M9.5 11.5l5 5M14.5 11.5l-5 5"/>',
   print:'<path d="M7 8V3.5h10V8"/><rect x="4" y="8" width="16" height="8" rx="1.5"/><path d="M7 13h10v7H7z"/>',
   menu:'<path d="M4 6.5h16M4 12h16M4 17.5h16"/>',
   bell:'<path d="M12 4a5.5 5.5 0 0 0-5.5 5.5c0 4-1.5 5.5-2.5 6.5h16c-1-1-2.5-2.5-2.5-6.5A5.5 5.5 0 0 0 12 4z"/><path d="M10 19.5a2 2 0 0 0 4 0"/>',
   chev:'<path d="M8 10l4 4 4-4"/>',
   work:'<path d="M4.5 15.5a7.5 7.5 0 0 1 15 0"/><path d="M2.5 15.5h19v3h-19z"/><path d="M9.5 8.5V5.5h5v3"/>',
   home:'<path d="M4 11.5L12 4.5l8 7"/><path d="M6 10v9.5h12V10"/><path d="M10 19.5v-5h4v5"/>',
-  folder:'<path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h4.5l2 2.5H19A1.5 1.5 0 0 1 20.5 9v9A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18z"/>'
+  folder:'<path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h4.5l2 2.5H19A1.5 1.5 0 0 1 20.5 9v9A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18z"/>',
+  sic:'<circle cx="9.5" cy="8.5" r="3.2"/><path d="M4 20c.5-3.3 2.6-5 5.5-5 1.2 0 2.2.3 3 .8"/><path d="M14 17.5l2.2 2.2 4.3-4.5"/>'
 };
-const ic = n => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICONS[n]||'')+'</svg>';
+const ic = n => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICONS[n]||'')+'</svg>';
 
 /* ============ generic form engine ============ */
 const app=document.getElementById('app');
@@ -718,7 +721,7 @@ function goBack(){ if(history.length>1) history.back(); else location.hash='#/';
 /* ============ app shell (Procore-style top bar + tool sidebar) ============ */
 const NAV=[
  {group:'Operations', items:[['work','Work Activities','work']]},
- {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','members'],
+ {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic'],
                           ['workerCompetencies','Competencies','cert'],['training','Training','train'],['certexp','Cert Expiry','cert']]},
  {group:'Site',    items:[['contacts','Contacts','contact'],['equipment','Equipment','equip'],
                           ['documents','Documents','doc'],['actions','Actions','act']]},
@@ -734,7 +737,7 @@ function buildNav(){
     nav.innerHTML='<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'My Work</a>'+
       '<div class="sn-group">My Site</div>'+
       [['rasys','My RA / SWP','ra'],['observations','My Observations','obs'],['defects','My Defects','defect'],
-       ['members','My Workers','members'],['sicready','SIC Readiness','members'],['workerCompetencies','My Competencies','cert'],
+       ['members','My Workers','members'],['sicready','SIC Readiness','sic'],['workerCompetencies','My Competencies','cert'],
        ['equipment','My Equipment','equip'],['training','My Training','train']]
         .map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+'</a>').join('')+
       '<div class="sn-group">Admin</div>'+
@@ -779,6 +782,7 @@ function syncShell(cur){
   document.getElementById('scrim').classList.remove('open');
 }
 function initShell(){
+  document.getElementById('brandLogo').src=KKL_LOGO;
   document.getElementById('navBtn').innerHTML=ic('menu');
   document.getElementById('bellBtn').innerHTML=ic('bell')+'<span class="abadge" id="bellBadge" style="display:none"></span>';
   document.getElementById('gearBtn').innerHTML=ic('gear')+'<span class="syncdot off" id="syncDot"></span>';
@@ -808,7 +812,7 @@ function renderHome(){
       '<h2 class="sect">My site</h2>'+
       '<div class="grid">'+tile('rasys','My RA/SWP','ra')+tile('observations','Observations','obs')+
         tile('defects','Defects','defect')+tile('members','My Workers','members')+
-        tile('sicready','SIC Readiness','members')+tile('workerCompetencies','Competencies','cert')+
+        tile('sicready','SIC Readiness','sic')+tile('workerCompetencies','Competencies','cert')+
         tile('equipment','My Equipment','equip')+tile('training','Training','train')+'</div>'+
       '<div class="foot">Simplified subcontractor view — you see your own company\u2019s items only.</div>';
     return;
@@ -821,6 +825,10 @@ function renderHome(){
   const yr=new Date().getFullYear();
   const incYtd=db.incidents.filter(r=>r.date&&+r.date.slice(0,4)===yr).length;
   const eqIn=db.equipment.filter(e=>!e.status||e.status==='In service').length;
+  const activeN=db.members.filter(m=>m.status!=='INACTIVE').length;
+  const sicMiss=db.members.filter(m=>{ if(m.status==='INACTIVE') return false;
+    const a=memberAccess(m.id); return !(a&&a.sicStatus==='COMPLETE'); }).length;
+  const waBlocked=db.workActivities.filter(w=>(w.readiness||{}).status==='BLOCKED'&&w.status!=='Completed').length;
   const ov=(href,v,l,cls)=>'<a class="stile" href="#/'+href+'"><div class="v'+(cls&&v?' '+cls:'')+'">'+v+'</div><div class="l">'+l+'</div></a>';
   app.innerHTML =
     '<header class="top"><h1>'+esc(s.project||'Project Home')+'</h1><div class="spacer"></div>'+
@@ -830,40 +838,50 @@ function renderHome(){
       ov('actions',ob.total,'Open actions','w')+
       ov('actions',ob.overdue,'Overdue actions','b')+
       ov('certexp',nb,'Certs due &le;30d','b')+
-      ov('members',db.members.length,'Members')+
+      ov('matrix',sicMiss,'SIC incomplete','w')+
+      ov('members',activeN,'Active workers')+
       ov('equipment',eqIn,'Equipment in service')+
       ov('incidents',incYtd,'Incidents '+yr)+
+      ov('work',waBlocked,'Blocked activities','b')+
     '</div>'+
     '<h2 class="sect">Operations</h2>'+
     '<div class="grid">'+
-      tile('work','Work Activities','work',db.workActivities.filter(w=>(w.readiness||{}).status==='BLOCKED'&&w.status!=='Completed').length||'')+
+      tile('work','Work Activities','work',waBlocked||'')+
+      tile('toolbox','Smart Toolbox','tbm')+
+    '</div>'+
+    '<h2 class="sect">Workforce</h2>'+
+    '<div class="grid">'+
+      tile('members','Workers','members')+
+      tile('matrix','Competency Matrix','cert',sicMiss||'')+
+      tile('sic','SIC / Induction','sic')+
+      tile('workerCompetencies','Competencies','cert')+
+      tile('training','Training','train')+
+      tile('certexp','Cert Expiry','cert',nb||'')+
     '</div>'+
     '<h2 class="sect">Site</h2>'+
     '<div class="grid">'+
       tile('contacts','Contacts','contact')+
-      tile('members','Member(s)','members')+
       tile('equipment','Equipment','equip')+
-      tile('certexp','Cert Expiry','cert',nb||'')+
-      tile('documents','Document','doc')+
+      tile('documents','Documents','doc')+
       tile('actions','Actions','act',ob.overdue||'')+
     '</div>'+
     '<h2 class="sect">Safety</h2>'+
     '<div class="grid">'+
-      tile('tbm','TBM','tbm')+
-      tile('inspections','Inspection','insp')+
-      tile('observations','Observation','obs')+
-      tile('checklists','Checklist','check')+
-      ((SB.profile&&SB.profile.role==='viewer')?'':tile('rasys','RA/SWP','ra'))+
-      tile('training','Training','train')+
-      tile('meetings','Meeting','meet')+
-      tile('incidents','Incident','incid')+
-      tile('stats','Statistics','stats')+
+      tile('tbm','Toolbox Meetings','tbm')+
+      tile('inspections','Inspections','insp')+
+      tile('observations','Observations','obs')+
+      tile('checklists','Checklists','check')+
+      ((SB.profile&&SB.profile.role==='viewer')?'':tile('rasys','RA / SWP','ra'))+
+      tile('meetings','Meetings','meet')+
+      tile('incidents','Incidents','incid')+
     '</div>'+
-    '<h2 class="sect">Quality</h2>'+
+    '<h2 class="sect">Quality &amp; reports</h2>'+
     '<div class="grid">'+
       tile('defects','Defects','defect')+
+      tile('stats','Statistics','stats')+
+      tile('report','Monthly Report','print')+
     '</div>'+
-    '<div class="foot">All data stays on this device (browser storage).<br>Back up regularly from Settings &rarr; Export.</div>';
+    '<div class="foot">Synced to your team workspace — daily backups file to OneDrive when the Safety folder is connected (Settings).</div>';
 }
 
 function renderList(key){
@@ -4580,7 +4598,8 @@ let GATED=false;
 function renderLanding(){
   GATED=true; document.body.classList.add('gated');
   app.innerHTML='<div class="login"><div class="lg-card">'+
-    '<div class="lg-brand"><span class="bmark">S</span><div><div class="lg-t">SKYTOPIA</div><div class="lg-s">Site Safety</div></div></div>'+
+    '<div class="lg-brand"><img src="'+KKL_LOGO+'" alt="KKL" style="height:42px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px 8px">'+
+    '<div><div class="lg-t">SKYTOPIA</div><div class="lg-s">Site Safety</div></div></div>'+
     '<p class="hint" style="margin:6px 0 14px">Sign in to your team workspace.</p>'+
     '<label style="margin-top:0">Email</label><input id="lgEmail" type="email" autocomplete="username" inputmode="email">'+
     '<label>Password</label><input id="lgPass" type="password" autocomplete="current-password">'+
