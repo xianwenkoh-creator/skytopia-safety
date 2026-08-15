@@ -1829,12 +1829,35 @@ function renderReport(){
   const d=repData(mk);
   const afrM=d.mh?(d.acc*1e6/d.mh):null;
   const tot=d.negs.length;
-  const proj=[['Project',s.project],['Main contract no.',s.hdbContract],['Site ref no.',s.siteRef],
-    ['Estate / Neighbourhood',[s.estate,s.neighbourhood].filter(Boolean).join(' / ')],['Precinct',s.precinct],['Contractor',s.company]]
-    .filter(x=>x[1]).map(x=>x[0]+': <b>'+esc(x[1])+'</b>').join('<br>');
-  app.innerHTML = header('Monthly Safety Report', true,
-      '<select id="repMonth" class="noprint" style="width:auto;min-height:38px;padding:6px 8px">'+mOpts+'</select>')+
-    '<div class="card"><div class="charthead">Monthly Safety Data Report — '+MONTHS[+mk.slice(5,7)-1]+' '+mk.slice(0,4)+'</div>'+
+  const client=s.client||'Generic';
+  /* year-to-date figures for LTA/JTC-style cumulative reporting */
+  const yr=mk.slice(0,4);
+  const ytd={mh:0, md:0};
+  Object.keys(db.manhours).forEach(k=>{ if(k.slice(0,4)===yr&&k<=mk) ytd.mh+=+db.manhours[k]||0; });
+  Object.keys(db.mandays).forEach(k=>{ if(k.slice(0,4)===yr&&k<=mk) ytd.md+=+db.mandays[k]||0; });
+  const incYtd=db.incidents.filter(r=>r.date&&r.date.slice(0,4)===yr&&r.date.slice(0,7)<=mk);
+  ytd.acc=incYtd.filter(r=>ACC_TYPES.includes(r.type)).length;
+  ytd.lti=incYtd.filter(r=>r.type==='Lost Time Injury'||r.type==='Fatality').length;
+  ytd.nm=incYtd.filter(r=>r.type==='Near Miss').length;
+  ytd.doN=incYtd.filter(r=>r.type==='Dangerous Occurrence').length;
+  ytd.daysLost=incYtd.reduce((a,r)=>a+(+r.daysLost||0),0);
+  const nmM=db.incidents.filter(r=>r.date&&r.date.slice(0,7)===mk&&r.type==='Near Miss').length;
+  const ltiM=db.incidents.filter(r=>r.date&&r.date.slice(0,7)===mk&&(r.type==='Lost Time Injury'||r.type==='Fatality')).length;
+  const daysLostM=db.incidents.filter(r=>r.date&&r.date.slice(0,7)===mk).reduce((a,r)=>a+(+r.daysLost||0),0);
+  const inMonth=r=>r.date&&r.date.slice(0,7)===mk;
+  const acty={tbm:db.tbm.filter(inMonth).length, insp:db.inspections.filter(inMonth).length,
+    chk:db.checklists.filter(inMonth).length, train:db.training.filter(inMonth).length};
+  const kpi=(label,m,y)=>'<tr><td style="text-align:left">'+label+'</td><td>'+m+'</td><td>'+y+'</td></tr>';
+  const fmt=v=>v===null||v===undefined?'—':(typeof v==='number'&&v>=1000?v.toLocaleString():v);
+  /* header lines vary by client */
+  const hdrPairs=[['Project',s.project],['Main contract no.',s.hdbContract],['Site ref no.',s.siteRef]];
+  if(client==='HDB') hdrPairs.push(['Estate / Neighbourhood',[s.estate,s.neighbourhood].filter(Boolean).join(' / ')],['Precinct',s.precinct]);
+  hdrPairs.push(['Contractor',s.company],['Report format',client]);
+  const proj=hdrPairs.filter(x=>x[1]).map(x=>x[0]+': <b>'+esc(x[1])+'</b>').join('<br>');
+  /* sections */
+  const secSummary=
+    '<div class="card"><div class="charthead">Monthly Safety Report — '+MONTHS[+mk.slice(5,7)-1]+' '+mk.slice(0,4)+
+      (client!=='Generic'?' <span class="chip n">'+esc(client)+' format</span>':'')+'</div>'+
       (proj?'<div class="repmeta" style="margin-bottom:8px">'+proj+'</div>':'')+
       '<div class="repmeta">'+
         'Total workplace accidents reported: <b>'+d.acc+'</b><br>'+
@@ -1844,17 +1867,42 @@ function renderReport(){
       '<label class="noprint">Total mandays worked this month</label>'+
       '<input class="noprint" id="repMd" type="number" min="0" inputmode="numeric" value="'+(d.md||'')+'">'+
       (d.md?'<div class="repmeta">Total mandays worked: <b>'+d.md.toLocaleString()+'</b></div>':'')+
-    '</div>'+
-    '<div class="card"><div class="charthead">(a) Permit-To-Work status</div>'+
-      '<div class="hint">PTW records are managed in the SKYTOPIA ePTW system — attach its monthly PTW status breakdown (Draft / Submitted / Acknowledged / Assessed / Approved / Rejected / Work Completed / Closed) alongside this report.</div>'+
-    '</div>'+
-    '<div class="card"><div class="charthead">(b) Safety non-compliances by trade (ranked, % of '+tot+')</div>'+
+    '</div>';
+  const secKpi=  /* LTA / JTC style: month vs year-to-date SHE statistics */
+    '<div class="card"><div class="charthead">SHE statistics — month vs cumulative ('+yr+')</div>'+
+      '<table class="dtable"><tr><th style="text-align:left">Indicator</th><th>'+MONTHS[+mk.slice(5,7)-1]+'</th><th>YTD '+yr+'</th></tr>'+
+      kpi('Man-hours worked',fmt(d.mh||null),fmt(ytd.mh||null))+
+      kpi('Man-days worked',fmt(d.md||null),fmt(ytd.md||null))+
+      kpi('Reportable accidents',d.acc,ytd.acc)+
+      kpi('Lost-time injuries (incl. fatalities)',ltiM,ytd.lti)+
+      kpi('Man-days lost',daysLostM,ytd.daysLost)+
+      kpi('Dangerous occurrences',d.doN,ytd.doN)+
+      kpi('Near misses reported',nmM,ytd.nm)+
+      kpi('AFR (per million man-hours)',afrM===null?'—':afrM.toFixed(2),ytd.mh?(ytd.acc*1e6/ytd.mh).toFixed(2):'—')+
+      kpi('Severity rate (man-days lost / mil man-hours)',d.mh?(daysLostM*1e6/d.mh).toFixed(1):'—',ytd.mh?(ytd.daysLost*1e6/ytd.mh).toFixed(1):'—')+
+      '</table></div>'+
+    '<div class="card"><div class="charthead">Safety activities this month</div>'+
+      '<div class="repmeta">Toolbox meetings: <b>'+acty.tbm+'</b> &nbsp;·&nbsp; Inspections: <b>'+acty.insp+'</b> &nbsp;·&nbsp; '+
+      'Checklists: <b>'+acty.chk+'</b> &nbsp;·&nbsp; Training records: <b>'+acty.train+'</b></div></div>';
+  const secPtw=
+    '<div class="card"><div class="charthead">Permit-To-Work status</div>'+
+      '<div class="hint">PTW records are managed in the SKYTOPIA ePTW system — attach its monthly PTW status breakdown alongside this report.</div>'+
+    '</div>';
+  const secRanked=
+    '<div class="card"><div class="charthead">Safety non-compliances by trade (ranked, % of '+tot+')</div>'+
       rankedBars(d.trades.map(t=>({label:t[0], v:t[1], txt:(tot?(t[1]/tot*100).toFixed(0):0)+'% ('+t[1]+')'})))+
     '</div>'+
-    '<div class="card"><div class="charthead">(c) Safety non-compliances by subcontractor (ranked)</div>'+
+    '<div class="card"><div class="charthead">Safety non-compliances by subcontractor (ranked)</div>'+
       rankedBars(d.subs.map(t=>({label:t[0], v:t[1], txt:String(t[1])})))+
       (d.pos?'<div class="hint" style="margin-top:8px">'+d.pos+' positive observation(s) also recorded this month.</div>':'')+
-    '</div>'+
+    '</div>';
+  let body;
+  if(client==='HDB')            body=secSummary+secPtw+secRanked;          /* Appendix VI shape */
+  else if(client==='LTA'||client==='JTC') body=secSummary+secKpi+secRanked; /* contract SHE-stats shape */
+  else                          body=secSummary+secKpi+secRanked;          /* generic/private: full picture */
+  app.innerHTML = header('Monthly Safety Report', true,
+      '<select id="repMonth" class="noprint" style="width:auto;min-height:38px;padding:6px 8px">'+mOpts+'</select>')+
+    body+
     '<div class="btnrow noprint">'+
       '<button class="btn" onclick="window.print()">Print / save as PDF</button>'+
       '<button class="btn ghost" onclick="saveReportHtml()">Save to Safety folder</button>'+
@@ -1921,7 +1969,10 @@ function renderSettings(){
       '<div class="fld half"><label>Site reference no.</label><input id="setRef" value="'+esc(s.siteRef||'')+'"></div>'+
       '<div class="fld half"><label>Estate (if applicable)</label><input id="setEstate" value="'+esc(s.estate||'')+'"></div>'+
       '<div class="fld half"><label>Neighbourhood</label><input id="setNbh" value="'+esc(s.neighbourhood||'')+'"></div>'+
-      '<div class="fld"><label>Precinct</label><input id="setPrecinct" value="'+esc(s.precinct||'')+'"></div>'+
+      '<div class="fld half"><label>Precinct</label><input id="setPrecinct" value="'+esc(s.precinct||'')+'"></div>'+
+      '<div class="fld half"><label>Client / report format</label><select id="setClient">'+
+        ['Generic','HDB','LTA','JTC','Private'].map(c=>'<option'+(c===(s.client||'Generic')?' selected':'')+'>'+c+'</option>').join('')+
+      '</select><div class="hint">Controls the monthly report layout. Same data, client-specific presentation.</div></div>'+
     '</div><div class="hint">These fields appear on report headers. Estate / neighbourhood / precinct only apply to clients that use them.</div>'+
     '<div class="btnrow"><button class="btn" id="setSave">Save</button></div></div>'+
     '<div class="card"><label style="margin-top:0">Cloud sync (Supabase)</label>'+
@@ -1967,6 +2018,7 @@ function renderSettings(){
     s.estate=document.getElementById('setEstate').value.trim();
     s.neighbourhood=document.getElementById('setNbh').value.trim();
     s.precinct=document.getElementById('setPrecinct').value.trim();
+    s.client=document.getElementById('setClient').value;
     save(); location.hash='#/';
   };
   document.getElementById('addProj').onclick=()=>{
