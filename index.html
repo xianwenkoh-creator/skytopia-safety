@@ -464,7 +464,7 @@ function compressImage(file, cb){
 /* ============ storage (v2: company level + projects + subcon tags) ============ */
 const KEY='kkl-cms-v1';    /* legacy flat schema — migrated, never deleted */
 const KEY2='kkl-cms-v2';
-const COMPANY_STORES=['members','equipment','training'];
+const COMPANY_STORES=['members','equipment','training','raLibrary'];
 const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities'];
 const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
 function blankProject(name){
@@ -475,7 +475,7 @@ function blankProject(name){
 }
 function blankRoot(){
   const p=blankProject('');
-  return {v:2, company:{name:'', members:[], equipment:[], training:[]}, projects:[p], cur:p.id};
+  return {v:2, company:{name:'', members:[], equipment:[], training:[], raLibrary:[]}, projects:[p], cur:p.id};
 }
 function migrateV1(d){
   const root=blankRoot(), p=root.projects[0];
@@ -489,7 +489,7 @@ function migrateV1(d){
 }
 function fixRoot(r){
   if(!r || typeof r!=='object' || !Array.isArray(r.projects) || !r.projects.length) return blankRoot();
-  if(!r.company) r.company={name:'',members:[],equipment:[],training:[]};
+  if(!r.company) r.company={name:'',members:[],equipment:[],training:[],raLibrary:[]};
   COMPANY_STORES.forEach(k=>{ if(!Array.isArray(r.company[k])) r.company[k]=[]; });
   r.projects.forEach(p=>{
     if(!p.id) p.id=uid();
@@ -715,7 +715,7 @@ const NAV=[
  {group:'Site',    items:[['contacts','Contacts','contact'],['members','Member(s)','members'],['equipment','Equipment','equip'],
                           ['certexp','Cert Expiry','cert'],['documents','Documents','doc'],['actions','Actions','act']]},
  {group:'Safety',  items:[['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
-                          ['checklists','Checklists','check'],['ra','RA / SWP','ra'],['training','Training','train'],
+                          ['checklists','Checklists','check'],['ra','RA / SWP','ra'],['ralib','RA Library','ra'],['training','Training','train'],
                           ['meetings','Meetings','meet'],['incidents','Incidents','incid']]},
  {group:'Quality', items:[['defects','Defects','defect']]},
  {group:'Reports', items:[['stats','Statistics','stats'],['report','Monthly Report','print']]}
@@ -725,7 +725,7 @@ function buildNav(){
   nav.innerHTML =
     '<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'Project Home</a>'+
     NAV.map(g=>{
-      const items=g.items.filter(t=>t[0]!=='ra'||canRA());
+      const items=g.items.filter(t=>!(t[0]==='ra'||t[0]==='ralib')||canRA());
       if(!items.length) return '';
       return '<div class="sn-group">'+g.group+'</div>'+
       items.map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+
@@ -915,7 +915,7 @@ function route(){
   if(p[0]==='team') return renderTeam();
   if(p[0]==='toolbox') return renderToolbox();
   if(p[0]==='checkin' && p[3]) return renderCheckin(p[1], p[2], decodeURIComponent(p[3]));
-  if((p[0]==='ra'||p[0]==='raimport') && !canRA()){
+  if((p[0]==='ra'||p[0]==='raimport'||p[0]==='ralib') && !canRA()){
     app.innerHTML=header('RA / SWP', true)+
       '<div class="empty">The RA / SWP register is restricted to '+esc(root.company.name||'the main contractor')+'’s safety personnel<br>(admin / WSHO accounts).</div>';
     return;
@@ -1118,7 +1118,7 @@ const MODULES={
    {k:'swl',label:'SWL / capacity',half:1},
    {k:'status',label:'Status',type:'select',opts:['In service','Under repair','Off-site'],def:'In service',half:1},
    {k:'operator',label:'Assigned operator',half:1},
-   {k:'hdbML',label:'HDB Material List expiry',type:'date',half:1,hint:'For cranes registered under the HDB Material List.'},
+   {k:'hdbML',label:'Material list / client registration expiry',type:'date',half:1,hint:'For plant registered on a client’s approved material list, where applicable.'},
    {k:'aeDue',label:'Next AE inspection due',type:'date',half:1,hint:'Authorised Examiner test — 6-monthly or yearly. Reminder starts 1 month before.'},
    {k:'serviceDue',label:'Next servicing due',type:'date',half:1,hint:'Crane service by mechanic — monthly or 3-monthly. Reminder starts 2 weeks before.'},
    {k:'certs',label:'Certs & statutory tests (LM / LG)',type:'rows',add:'Add cert / test',
@@ -1208,7 +1208,7 @@ const MODULES={
    {k:'unit',label:'Unit',half:1},
    {k:'location',label:'Exact location / area'},
    {k:'waId',label:'Linked work activity',type:'select',opts:()=>db.workActivities.map(w=>[w.id,w.title]),half:1},
-   {k:'category',label:'Category (HDB standard list)',type:'select',opts:Object.keys(NEGCATS),req:1},
+   {k:'category',label:'Category (standard list)',type:'select',opts:Object.keys(NEGCATS),req:1},
    {k:'subitem',label:'Standard item',type:'select',opts:[]},
    {k:'desc',label:'Description / remarks',type:'textarea'},
    {k:'severity',label:'Severity',type:'select',opts:SEVHDB,half:1,hint:'For non-compliances.'},
@@ -1219,7 +1219,7 @@ const MODULES={
    {k:'verifiedBy',label:'Verified by',half:1},
    {k:'verifiedDate',label:'Verified date',type:'date',half:1},
    {k:'closedDate',label:'Closed date',type:'date',half:1},
-   {k:'beforePhotos',label:'Before photos',type:'photos',hint:'Mandatory for non-compliances (HDB requirement). Photos are compressed and stored on this device.'},
+   {k:'beforePhotos',label:'Before photos',type:'photos',hint:'Required for every non-compliance. Photos are compressed and stored on this device.'},
    {k:'afterPhotos',label:'After photos (on rectification)',type:'photos'}],
   afterRender:function(item){
     const kindSel=app.querySelector('[data-f="kind"]');
@@ -1239,7 +1239,7 @@ const MODULES={
   },
   beforeSave:function(obj){
     if(obj.kind!==OBS_POS && obj.status==='Open' && !(obj.beforePhotos||[]).length)
-      setTimeout(()=>alert('Reminder: HDB requires before/after photos for every safety non-compliance — attach a photo when you can.'),50);
+      setTimeout(()=>alert('Reminder: before/after photos are required for every safety non-compliance — attach a photo when you can.'),50);
   },
   line1:i=>esc(i.category||'Observation'),
   line2:i=>fmtD(i.date)+esc([i.subitem&&i.subitem!=='Others'?' · '+i.subitem:(i.desc?' · '+i.desc.split('\n')[0].slice(0,50):''), i.subcon?' · '+i.subcon:''].join('')),
@@ -1252,7 +1252,7 @@ const MODULES={
     }
     out+='<span class="chip '+(i.status==='Closed'?'g':'w')+'">'+esc(i.status||'Open')+'</span>';
     return out; },
-  empty:'Site observations per HDB Appendix VII — safety non-compliances (NCR/near-miss) and positive observations, with before/after photos and rectify → verify → close tracking.'},
+  empty:'Site observations — safety non-compliances (NCR/near-miss) and positive observations, with before/after photos and rectify → verify → close tracking.'},
 
  checklists:{ title:'Checklist', store:'checklists',
   fields:[
@@ -1286,8 +1286,8 @@ const MODULES={
   empty:'Standard inspection checklists — scaffold, lifting, excavation, WAH, hot work, confined space, housekeeping, electrical.'},
 
  ra:{ title:'RA / SWP', store:'ra',
-  listHeader:()=>(canRA()&&root.projects.length>1)?
-    '<div class="btnrow" style="margin:2px 0 12px"><button class="btn ghost" style="flex:1" onclick="location.hash=\'#/raimport\'">⤓ Import from another project — company RA library</button></div>':'',
+  listHeader:()=>(canRA()&&(db.raLibrary.length||root.projects.length>1))?
+    '<div class="btnrow" style="margin:2px 0 12px"><button class="btn ghost" style="flex:1" onclick="location.hash=\'#/raimport\'">⤓ Import from company RA library</button></div>':'',
   fields:[
    {k:'activity',label:'Work activity',req:1},
    {k:'ref',label:'RA ref no.',half:1},
@@ -1306,6 +1306,20 @@ const MODULES={
      {k:'s',label:'Severity 1–5',type:'select',opts:SEV135},
      {k:'l',label:'Likelihood 1–5',type:'select',opts:SEV135}]},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  afterRender:function(item){
+    if(!item||!canRA()) return;
+    const row=app.querySelector('.btnrow'); if(!row) return;
+    const b=document.createElement('button');
+    b.type='button'; b.className='minor'; b.textContent='⇧ Copy to company RA library (master)';
+    b.onclick=()=>{
+      const cp=structuredClone(item); cp.id=uid();
+      delete cp.status; delete cp.approved; delete cp.approvedDate; delete cp.reviewDate; delete cp.swpRef;
+      cp.remarks=((cp.remarks?cp.remarks+'\n':'')+'Added to library from "'+(curProj().settings.project||'project')+'" on '+fmtD(today())+'.');
+      db.raLibrary.push(cp); save();
+      toast('Master copy added to the company RA library');
+    };
+    row.parentNode.insertBefore(b,row);
+  },
   sort:(a,b)=>(a.activity||'').localeCompare(b.activity||''),
   line1:i=>esc(i.activity),
   line2:i=>esc([i.ref,i.rev?('Rev '+i.rev):'',i.swpRef].filter(Boolean).join(' · ')),
@@ -1415,7 +1429,7 @@ const MODULES={
    {k:'verifiedBy',label:'Verified by',half:1},
    {k:'verifiedDate',label:'Verified date',type:'date',half:1},
    {k:'closedDate',label:'Closed date',type:'date',half:1},
-   {k:'beforePhotos',label:'Before photos',type:'photos',hint:'Before and after photos are mandatory fields per HDB Appendix III.'},
+   {k:'beforePhotos',label:'Before photos',type:'photos',hint:'Before and after photos are required.'},
    {k:'afterPhotos',label:'After photos (on rectification)',type:'photos'}],
   line1:i=>esc([i.element,i.grouping].filter(Boolean).join(' — ')||i.desc||'Defect'),
   line2:i=>fmtD(i.date)+esc([i.block?' · Blk '+i.block:'',i.unit?' #'+i.unit:'',i.subcon?' · '+i.subcon:''].join('')),
@@ -1425,7 +1439,7 @@ const MODULES={
     if(i.status!=='Closed'&&d!==null&&d<0) out+='<span class="chip b">overdue</span>';
     out+='<span class="chip '+(i.status==='Closed'?'g':'w')+'">'+esc(i.status||'Open')+'</span>';
     return out; },
-  empty:'Quality defect register per HDB Appendix IV — element, grouping, location, photos, and the rectify → verify → close workflow.'},
+  empty:'Quality defect register — element, grouping, location, photos, and the rectify → verify → close workflow.'},
 
  work:{ title:'Work Activities', store:'workActivities',
   fields:[
@@ -1484,7 +1498,26 @@ const MODULES={
     const rd=(i.readiness||{}).status;
     if(rd) out+='<span class="chip '+(rd==='READY'?'g':rd==='BLOCKED'?'b':'w')+'">'+(rd==='READY_WITH_WARNINGS'?'WARNINGS':rd)+'</span>';
     return out; },
-  empty:'The hub of the platform — one record per work activity, linking crew, plant, RA revisions, permits, briefings, inspections, observations and incidents, with deterministic go/no-go readiness.'}
+  empty:'The hub of the platform — one record per work activity, linking crew, plant, RA revisions, permits, briefings, inspections, observations and incidents, with deterministic go/no-go readiness.'},
+
+ ralib:{ title:'RA Library (Company)', store:'raLibrary',
+  fields:[
+   {k:'activity',label:'Work activity',req:1},
+   {k:'ref',label:'Master ref no.',half:1},
+   {k:'rev',label:'Master revision',half:1},
+   {k:'prepared',label:'Prepared by',half:1},
+   {k:'hazards',label:'Key hazards (residual risk)',type:'rows',add:'Add hazard',
+    cols:[
+     {k:'desc',label:'Hazard / possible injury',type:'textarea',w:'full'},
+     {k:'controls',label:'Existing controls',type:'textarea',w:'full'},
+     {k:'s',label:'Severity 1–5',type:'select',opts:SEV135},
+     {k:'l',label:'Likelihood 1–5',type:'select',opts:SEV135}]},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  sort:(a,b)=>(a.activity||'').localeCompare(b.activity||''),
+  line1:i=>esc(i.activity),
+  line2:i=>esc([i.ref,i.rev?('Rev '+i.rev):'',i.prepared].filter(Boolean).join(' · ')),
+  meta:i=>{ const n=(i.hazards||[]).length; return n?'<span class="chip n">'+n+' hazard(s)</span>':''; },
+  empty:'Company-level master RAs, maintained once by your safety team and shared across every project. Import into a project’s RA/SWP register, then review & endorse the copy for that site.'}
 };
 
 /* ============ open-actions hub ============ */
@@ -1549,7 +1582,7 @@ function renderRecordPrint(key, id){
   const rows=mod.fields.map(f=>{ const v=val(f); if(!v) return '';
     return '<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">'+esc(f.label)+'</div>'+
       '<div style="font-size:14.5px">'+v+'</div></div>'; }).join('');
-  const proj=[['Project',s.project],['Contractor',s.company],['HDB contract no.',s.hdbContract],['Site ref',s.siteRef]]
+  const proj=[['Project',s.project],['Contractor',s.company],['Contract no.',s.hdbContract],['Site ref',s.siteRef]]
     .filter(x=>x[1]).map(x=>x[0]+': <b>'+esc(x[1])+'</b>').join(' &nbsp;·&nbsp; ');
   app.innerHTML = header(mod.title+' Report', true)+
     '<div class="card">'+
@@ -1586,7 +1619,7 @@ function certRows(){
   db.equipment.forEach(e=>{
     const label=[e.type,e.regNo].filter(Boolean).join(' ');
     (e.certs||[]).forEach(c=>push('Equipment', label, c.name||'LM/LG cert', c.expiry, '#/equipment/'+e.id));
-    if(e.hdbML) push('Equipment', label, 'HDB Material List', e.hdbML, '#/equipment/'+e.id);
+    if(e.hdbML) push('Equipment', label, 'Material list registration', e.hdbML, '#/equipment/'+e.id);
     if(e.aeDue) push('Equipment', label, 'AE inspection & test', e.aeDue, '#/equipment/'+e.id);
     if(e.serviceDue) push('Equipment', label, 'Crane servicing', e.serviceDue, '#/equipment/'+e.id, 14);
   });
@@ -1734,7 +1767,7 @@ function renderStats(){
       tile(openF,'Open actions')+
       tile(openObs,'Open observations')+
     '</div>'+
-    '<a class="btn ghost noprint" style="display:block;text-align:center;text-decoration:none;margin-bottom:12px" href="#/report">Monthly safety data report (HDB format) &rarr;</a>'+
+    '<a class="btn ghost noprint" style="display:block;text-align:center;text-decoration:none;margin-bottom:12px" href="#/report">Monthly safety data report &rarr;</a>'+
     '<div class="card"><div class="charthead">Incidents by month — '+yr+'</div>'+
       barChartSVG(MONTHS,incSeries)+dataTable(MONTHS,incSeries)+
       (typeCounts.length?'<div style="margin-top:10px">'+typeCounts.map(x=>'<span class="chip n" style="margin:2px">'+esc(x[0])+': <b>'+x[1]+'</b></span>').join(' ')+'</div>':'')+
@@ -1796,7 +1829,7 @@ function renderReport(){
   const d=repData(mk);
   const afrM=d.mh?(d.acc*1e6/d.mh):null;
   const tot=d.negs.length;
-  const proj=[['Project',s.project],['HDB building contract no.',s.hdbContract],['Site ref no.',s.siteRef],
+  const proj=[['Project',s.project],['Main contract no.',s.hdbContract],['Site ref no.',s.siteRef],
     ['Estate / Neighbourhood',[s.estate,s.neighbourhood].filter(Boolean).join(' / ')],['Precinct',s.precinct],['Contractor',s.company]]
     .filter(x=>x[1]).map(x=>x[0]+': <b>'+esc(x[1])+'</b>').join('<br>');
   app.innerHTML = header('Monthly Safety Report', true,
@@ -1827,7 +1860,7 @@ function renderReport(){
       '<button class="btn ghost" onclick="saveReportHtml()">Save to Safety folder</button>'+
       '<button class="btn ghost" onclick="exportReportCsv()">Export CSV (Excel)</button>'+
     '</div>'+
-    '<div class="hint noprint" style="margin-top:10px">Underlying observation data is tabulated in the CSV export, as required for HDB statistical analysis. Bulk SFTP data transfer to HDB (Appendix X) is a server-side process outside this app.</div>';
+    '<div class="hint noprint" style="margin-top:10px">Underlying observation data is tabulated in the CSV export, as required for client statistical analysis. Bulk electronic data transfer to a client system is a server-side process outside this app.</div>';
   document.getElementById('repMonth').onchange=e=>{ repMonth=e.target.value; renderReport(); };
   document.getElementById('repMd').onchange=e=>{
     const v=+e.target.value;
@@ -1884,12 +1917,12 @@ function renderSettings(){
     '<div class="card"><label style="margin-top:0">Current project — '+esc(s.project||'(unnamed)')+'</label><div class="fgrid">'+
       '<div class="fld"><label>Project name</label><input id="setProject" value="'+esc(s.project||'')+'" placeholder="Shown on the home screen"></div>'+
       '<div class="fld"><label>Contractor (for reports)</label><input id="setCompany" value="'+esc(s.company||'')+'"></div>'+
-      '<div class="fld half"><label>HDB building contract no.</label><input id="setHdb" value="'+esc(s.hdbContract||'')+'" placeholder="e.g. D/357/18"></div>'+
-      '<div class="fld half"><label>HDB site ref no.</label><input id="setRef" value="'+esc(s.siteRef||'')+'"></div>'+
-      '<div class="fld half"><label>Estate</label><input id="setEstate" value="'+esc(s.estate||'')+'"></div>'+
+      '<div class="fld half"><label>Main contract no.</label><input id="setHdb" value="'+esc(s.hdbContract||'')+'" placeholder="e.g. D/357/18"></div>'+
+      '<div class="fld half"><label>Site reference no.</label><input id="setRef" value="'+esc(s.siteRef||'')+'"></div>'+
+      '<div class="fld half"><label>Estate (if applicable)</label><input id="setEstate" value="'+esc(s.estate||'')+'"></div>'+
       '<div class="fld half"><label>Neighbourhood</label><input id="setNbh" value="'+esc(s.neighbourhood||'')+'"></div>'+
       '<div class="fld"><label>Precinct</label><input id="setPrecinct" value="'+esc(s.precinct||'')+'"></div>'+
-    '</div><div class="hint">The HDB fields appear on the monthly safety data report header.</div>'+
+    '</div><div class="hint">These fields appear on report headers. Estate / neighbourhood / precinct only apply to clients that use them.</div>'+
     '<div class="btnrow"><button class="btn" id="setSave">Save</button></div></div>'+
     '<div class="card"><label style="margin-top:0">Cloud sync (Supabase)</label>'+
       '<p class="hint">Connect a Supabase project to sync this device with the team — company registers and all projects, offline-first. See SETUP.md in the repo for the one-time setup.</p>'+
@@ -2067,7 +2100,7 @@ function checkEquipmentReadiness(equipmentId, workActivityId){
   const sv=e.serviceDue?daysTo(e.serviceDue):null;
   if(sv!==null&&sv<0) out.push(RR('EQP-SERVICE-DUE','WARN','Servicing overdue',label+': servicing was due '+fmtD(e.serviceDue)+'.','equipment',e.id));
   const ml=e.hdbML?daysTo(e.hdbML):null;
-  if(ml!==null&&ml<0) out.push(RR('EQP-HDBML','WARN','HDB Material List expired',label+': HDB ML listing expired '+fmtD(e.hdbML)+'.','equipment',e.id));
+  if(ml!==null&&ml<0) out.push(RR('EQP-HDBML','WARN','Material list registration expired',label+': material list registration expired '+fmtD(e.hdbML)+'.','equipment',e.id));
   if(wa&&wa.status==='Active'&&e.regNo){
     const pre=db.checklists.some(c=>c.date===today()&&((c.area||'')+' '+(c.template||'')).toLowerCase().includes(String(e.regNo).toLowerCase()));
     if(!pre) out.push(RR('EQP-PRESTART','WARN','No pre-start check today','No checklist today references '+label+' while the activity is Active.','equipment',e.id));
@@ -2229,34 +2262,36 @@ function canRA(){ return !SB.profile || ['admin','wsho'].includes(SB.profile.rol
 /* ---- company RA library: import RAs from another project as fresh drafts ---- */
 function renderRaImport(){
   const others=root.projects.filter(p=>p.id!==root.cur);
-  if(!others.length){ location.hash='#/ra'; return; }
-  let srcId=others[0].id;
+  const sources=[{id:'_lib',name:'Company RA Library ('+db.raLibrary.length+' master RA(s))',get:()=>db.raLibrary}]
+    .concat(others.map(p=>({id:p.id,name:(p.settings.project||'(unnamed)')+' — '+(p.ra||[]).length+' RA(s)',get:()=>p.ra||[]})));
+  let srcId=db.raLibrary.length?'_lib':(others.length?others[0].id:'_lib');
   const draw=()=>{
-    const proj=root.projects.find(p=>p.id===srcId);
-    const ras=(proj.ra||[]);
+    const src=sources.find(x=>x.id===srcId);
+    const ras=src.get();
     app.innerHTML=header('Import RA / SWP', true)+
       '<div class="card"><label style="margin-top:0">Company RA library — copy from another project</label>'+
       '<p class="hint">Copies arrive as <b>Rev A drafts, status "Under review"</b>, with approval cleared — each RA must be reviewed and endorsed for THIS site’s conditions before use (WSH Risk Management Regs).</p>'+
-      '<div class="fld"><label>Copy from project</label><select id="riProj">'+
-        others.map(p=>'<option value="'+p.id+'"'+(p.id===srcId?' selected':'')+'>'+esc(p.settings.project||'(unnamed)')+' — '+(p.ra||[]).length+' RA(s)</option>').join('')+'</select></div>'+
+      '<div class="fld"><label>Copy from</label><select id="riProj">'+
+        sources.map(x=>'<option value="'+x.id+'"'+(x.id===srcId?' selected':'')+'>'+esc(x.name)+'</option>').join('')+'</select></div>'+
       (ras.length?'<div style="margin-top:10px">'+ras.map(r=>'<label class="pick" style="display:flex;margin-bottom:6px"><input type="checkbox" data-ra="'+r.id+'">'+
         '<span>'+esc(r.activity||'(untitled)')+(r.rev?' · Rev '+r.rev:'')+(r.status?' · '+r.status:'')+'</span></label>').join('')+'</div>'
-       :'<div class="empty" style="margin-top:10px">That project has no RA/SWP records.</div>')+
+       :'<div class="empty" style="margin-top:10px">No RA/SWP records in this source yet.</div>')+
       '<div class="btnrow"><button class="btn" id="riGo"'+(ras.length?'':' disabled')+'>Import selected</button>'+
       '<button class="btn ghost" onclick="location.hash=\'#/ra\'">Cancel</button></div></div>';
     document.getElementById('riProj').onchange=e=>{ srcId=e.target.value; draw(); };
     document.getElementById('riGo').onclick=()=>{
       const ids=[...app.querySelectorAll('[data-ra]:checked')].map(c=>c.dataset.ra);
       if(!ids.length){ alert('Tick at least one RA to import.'); return; }
-      const src=root.projects.find(p=>p.id===srcId);
+      const srcObj=sources.find(x=>x.id===srcId);
+      const srcName=srcId==='_lib'?'the Company RA Library':'"'+(root.projects.find(p=>p.id===srcId).settings.project||'project')+'"';
       let n=0;
       ids.forEach(id=>{
-        const orig=(src.ra||[]).find(r=>r.id===id); if(!orig) return;
+        const orig=srcObj.get().find(r=>r.id===id); if(!orig) return;
         const cp=structuredClone(orig);
         cp.id=uid(); cp.rev='A'; cp.status='Under review';
         cp.approved=''; cp.approvedDate=''; cp.reviewDate='';
         cp.remarks=((cp.remarks?cp.remarks+'\n':'')+
-          'Imported from "'+(src.settings.project||'project')+'" (was Rev '+(orig.rev||'—')+') on '+fmtD(today())+' — review & endorse for this site.');
+          'Imported from '+srcName+' (was Rev '+(orig.rev||'—')+') on '+fmtD(today())+' — review & endorse for this site.');
         db.ra.push(cp); n++;
         EV.emit('record:changed',{store:'ra',id:cp.id});
       });

@@ -120,7 +120,7 @@ create policy rec_read on public.records
   for select using (
     org_id = public.my_org()
     and ( public.my_role() in ('admin','wsho')
-          or (public.my_role() = 'viewer' and store <> 'ra')
+          or (public.my_role() = 'viewer' and store not in ('ra','raLibrary'))
           or ( public.my_role() = 'subcon'
                and (store in ('_project','_meta') or public.subcon_scope(store, data)) ) )
   );
