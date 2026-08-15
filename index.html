@@ -852,6 +852,16 @@ function route(){
   const p=location.hash.replace(/^#\/?/,'').split('/').filter(Boolean);
   window.scrollTo(0,0);
   curEdit=null;
+  if(p[0]==='connect' && p[1]){ /* one-tap device setup: #/connect/<base64url cfg> */
+    try{
+      const cfg=JSON.parse(atob(decodeURIComponent(p[1]).replace(/-/g,'+').replace(/_/g,'/')));
+      if(cfg.url && cfg.anon){
+        localStorage.setItem(SB.cfgKey, JSON.stringify({url:cfg.url, anon:cfg.anon}));
+        location.hash='#/settings'; syncInit(); return;
+      }
+    }catch(e){}
+    location.hash='#/'; return;
+  }
   syncShell(p[0]||'');
   if(!p.length) return renderHome();
   const key=p[0], sub=p[1];
@@ -1754,6 +1764,7 @@ function renderSettings(){
       '<div class="btnrow" style="margin-top:10px">'+
         '<button class="btn ghost" id="sbMain">Save connection</button>'+
         '<button class="btn ghost" id="sbPush" style="display:none">Sync now</button>'+
+        '<button class="btn ghost" id="sbLink" style="display:none">Copy connect link</button>'+
         '<button class="btn danger" id="sbOut" style="display:none">Sign out</button>'+
       '</div>'+
     '</div>'+
@@ -2011,10 +2022,19 @@ async function pullNow(){
   }
 }
 function pushResetLocal(){ localStorage.removeItem(SB.hashKey); localStorage.removeItem(SB.syncKey); }
+function sbConnectLink(){
+  const cfg=sbCfg(); if(!cfg) return '';
+  const b64=btoa(JSON.stringify({url:cfg.url,anon:cfg.anon})).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  return location.origin+location.pathname+'#/connect/'+b64;
+}
 function sbBindSettings(){
   const cfg=sbCfg();
   const cfgWrap=document.getElementById('sbCfgWrap'), loginWrap=document.getElementById('sbLoginWrap');
   const main=document.getElementById('sbMain'), out=document.getElementById('sbOut'), push=document.getElementById('sbPush');
+  const lnk=document.getElementById('sbLink');
+  if(cfg && lnk){ lnk.style.display='';
+    lnk.onclick=()=>{ navigator.clipboard.writeText(sbConnectLink()).then(()=>toast('Connect link copied — send it to teammates; they tap it, then sign in.'))
+      .catch(()=>prompt('Copy this link:', sbConnectLink())); }; }
   sbSetStatus(SB.status, SB.statusMsg||'&hellip;');
   if(!cfg){
     cfgWrap.style.display=''; loginWrap.style.display='none';
