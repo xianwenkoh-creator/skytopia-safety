@@ -688,6 +688,7 @@ function buildNav(){
       g.items.map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+
         '<span class="sbdg" data-bdg="'+t[0]+'" style="display:none"></span></a>').join('')).join('')+
     '<div class="sn-group">Admin</div>'+
+    '<a class="sn-item" href="#/team" data-nav="team">'+ic('members')+'Team</a>'+
     '<a class="sn-item" href="#/settings" data-nav="settings">'+ic('gear')+'Settings</a>';
 }
 function renderProjMenu(){
@@ -852,6 +853,12 @@ function route(){
   const p=location.hash.replace(/^#\/?/,'').split('/').filter(Boolean);
   window.scrollTo(0,0);
   curEdit=null;
+  if(/^#access_token=|^#error/.test(location.hash)){ /* Supabase invite/recovery link landing */
+    app.innerHTML='<div class="empty" style="margin-top:60px">Completing sign-in&hellip;</div>';
+    return;
+  }
+  if(p[0]==='setpw') return renderSetPw();
+  if(p[0]==='team') return renderTeam();
   if(p[0]==='connect' && p[1]){ /* one-tap device setup: #/connect/<base64url cfg> */
     try{
       const cfg=JSON.parse(atob(decodeURIComponent(p[1]).replace(/-/g,'+').replace(/_/g,'/')));
@@ -1863,7 +1870,13 @@ function renderSettings(){
    project → subcon tiers. No config = pure local mode, zero network. */
 const SB={cfgKey:'kkl-sb-cfg', hashKey:'kkl-sb-pushed', syncKey:'kkl-sb-last',
           client:null, profile:null, status:'off', statusMsg:'', timer:null, busy:false, libP:null};
-function sbCfg(){ try{ return JSON.parse(localStorage.getItem(SB.cfgKey)||'null'); }catch(e){ return null; } }
+/* Baked-in default backend for this deployment — any device that opens the site
+   is pre-connected and only needs a sign-in. The anon key is public by design;
+   row-level security + disabled public signup are the guards. A locally saved
+   connection (Settings or #/connect link) overrides it. */
+const DEFAULT_SB={url:'https://wrxyajtopaxgdfuxoxxl.supabase.co',
+  anon:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndyeHlhanRvcGF4Z2RmdXhveHhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3Nzk0ODgsImV4cCI6MjEwMjM1NTQ4OH0.DdFHHuqKUjnOjf_V02p-sK5k5e4PzMEdNL7A1fgj5oI'};
+function sbCfg(){ try{ return JSON.parse(localStorage.getItem(SB.cfgKey)||'null')||DEFAULT_SB; }catch(e){ return DEFAULT_SB; } }
 function hashStr(s){ let h=5381; for(let i=0;i<s.length;i++){ h=((h<<5)+h+s.charCodeAt(i))|0; } return String(h)+':'+s.length; }
 function sbSetStatus(st,msg){
   SB.status=st; SB.statusMsg=msg;
@@ -1884,13 +1897,116 @@ function sbLoadLib(){
 async function syncInit(){
   const cfg=sbCfg();
   if(!cfg||!cfg.url||!cfg.anon){ sbSetStatus('off','<b>Not configured</b> — data stays on this device only.'); return; }
+  const fromAuthLink=/^#access_token=/.test(location.hash) && /type=(invite|recovery|magiclink|signup)/.test(location.hash);
   try{ await sbLoadLib(); }catch(e){ sbSetStatus('err','Offline or blocked — could not load the sync library. Will retry next launch.'); return; }
-  if(!SB.client) SB.client=window.supabase.createClient(cfg.url,cfg.anon);
+  if(!SB.client) SB.client=window.supabase.createClient(cfg.url,cfg.anon); /* detectSessionInUrl picks up invite links */
   try{
     const {data:{session}}=await SB.client.auth.getSession();
+    if(fromAuthLink && session){ location.hash='#/setpw'; return; }
+    if(/^#access_token=|^#error/.test(location.hash)){ location.hash='#/settings'; }
     if(!session){ sbSetStatus('off','Connected to Supabase — <b>not signed in</b>. Sign in below to sync.'); return; }
     await sbAfterLogin();
   }catch(e){ sbSetStatus('err','Sync init failed: '+esc(e.message||e)); }
+}
+/* invite / password-reset landing: user sets their own password, then syncs */
+function renderSetPw(){
+  app.innerHTML = header('Welcome — set your password', false)+
+    '<div class="card"><p class="hint" style="margin-top:0">Your account is verified. Choose a password for signing in on any device.</p>'+
+    '<div class="fgrid">'+
+    '<div class="fld half"><label>New password (min 8 chars)</label><input id="pw1" type="password" autocomplete="new-password"></div>'+
+    '<div class="fld half"><label>Repeat password</label><input id="pw2" type="password" autocomplete="new-password"></div>'+
+    '</div><div class="btnrow"><button class="btn" id="pwGo">Set password &amp; start</button></div></div>';
+  document.getElementById('pwGo').onclick=async()=>{
+    const a=document.getElementById('pw1').value, b=document.getElementById('pw2').value;
+    if(a.length<8){ alert('Use at least 8 characters.'); return; }
+    if(a!==b){ alert('Passwords do not match.'); return; }
+    try{
+      const {error}=await SB.client.auth.updateUser({password:a});
+      if(error) throw error;
+      toast('Password set — you are signed in on this device.');
+      await sbAfterLogin(); location.hash='#/';
+    }catch(e){ alert('Could not set password: '+(e.message||e)); }
+  };
+}
+/* ---- Team page (admins): invite by email, set roles, remove ---- */
+async function sbTeamCall(body){
+  const cfg=sbCfg();
+  const {data:{session}}=await SB.client.auth.getSession();
+  const r=await fetch(cfg.url+'/functions/v1/team',{method:'POST',
+    headers:{'Authorization':'Bearer '+session.access_token,'apikey':cfg.anon,'Content-Type':'application/json'},
+    body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status));
+  return d;
+}
+const ROLES=['admin','wsho','subcon','viewer'];
+const ROLEHELP={admin:'everything + manage team', wsho:'read/write all projects', subcon:'only their company’s items', viewer:'read-only'};
+async function renderTeam(){
+  if(!SB.profile){
+    app.innerHTML=header('Team', true)+'<div class="empty">Sign in first (Settings &rarr; Cloud sync) to manage the team.</div>';
+    return;
+  }
+  if(SB.profile.role!=='admin'){
+    app.innerHTML=header('Team', true)+'<div class="empty">Only admins can manage the team.</div>';
+    return;
+  }
+  app.innerHTML=header('Team', true)+'<div class="empty">Loading team&hellip;</div>';
+  let rows=[];
+  try{
+    const {data,error}=await SB.client.from('profiles').select('*').order('created_at');
+    if(error) throw error; rows=data||[];
+  }catch(e){
+    app.innerHTML=header('Team', true)+'<div class="empty">Could not load team: '+esc(e.message||e)+'</div>'; return;
+  }
+  const roleSel=(cur,id)=>'<select data-role="'+id+'" style="min-height:34px;padding:4px 6px;width:auto">'+
+    ROLES.map(r=>'<option'+(r===cur?' selected':'')+'>'+r+'</option>').join('')+'</select>';
+  app.innerHTML = header('Team', true)+
+    '<div class="card"><label style="margin-top:0">Invite a team member</label>'+
+    '<p class="hint">They get an email; the link signs them in and asks them to set a password. Roles: '+
+      ROLES.map(r=>'<b>'+r+'</b> = '+ROLEHELP[r]).join(' &nbsp;·&nbsp; ')+'.</p>'+
+    '<div class="fgrid">'+
+      '<div class="fld half"><label>Email</label><input id="invEmail" type="email" placeholder="name@company.com.sg"></div>'+
+      '<div class="fld half"><label>Role</label><select id="invRole">'+ROLES.map(r=>'<option'+(r==='wsho'?' selected':'')+'>'+r+'</option>').join('')+'</select></div>'+
+      '<div class="fld" id="invSubWrap" style="display:none"><label>Subcontractor company (exactly as typed on records)</label><input id="invSub" list="dl-invsub"><datalist id="dl-invsub">'+
+        [...new Set([].concat(...root.projects.map(p=>p.observations.concat(p.defects))).map(o=>(o.subcon||'').trim()).filter(Boolean))].map(s=>'<option value="'+esc(s)+'">').join('')+'</datalist></div>'+
+    '</div><div class="btnrow"><button class="btn" id="invGo">Send invite</button></div></div>'+
+    '<div class="card"><label style="margin-top:0">Members ('+rows.length+')</label>'+
+    rows.map(r=>'<div class="lrow" style="cursor:default"><div class="lmain">'+
+      '<div class="lt" style="color:var(--ink)">'+esc(r.email||r.id)+(r.id===SB.profile.id?' <span class="chip">you</span>':'')+'</div>'+
+      '<div class="ls">'+(r.subcon?esc(r.subcon)+' · ':'')+'joined '+fmtD((r.created_at||'').slice(0,10))+'</div></div>'+
+      '<div class="lmeta">'+(r.id===SB.profile.id?'<span class="chip">'+esc(r.role)+'</span>':
+        roleSel(r.role,r.id)+' <button class="btn danger" style="min-height:34px;padding:5px 10px" data-rm="'+r.id+'" data-em="'+esc(r.email||'')+'">Remove</button>')+
+      '</div></div>').join('')+
+    '</div>';
+  const invRole=document.getElementById('invRole'), invSubWrap=document.getElementById('invSubWrap');
+  invRole.onchange=()=>{ invSubWrap.style.display=invRole.value==='subcon'?'':'none'; };
+  document.getElementById('invGo').onclick=async()=>{
+    const email=document.getElementById('invEmail').value.trim();
+    const role=invRole.value, subcon=document.getElementById('invSub').value.trim();
+    if(!/^\S+@\S+\.\S+$/.test(email)){ alert('Enter a valid email.'); return; }
+    if(role==='subcon'&&!subcon){ alert('Enter the subcontractor company name for a subcon account.'); return; }
+    const btn=document.getElementById('invGo'); btn.disabled=true; btn.textContent='Sending…';
+    try{
+      await sbTeamCall({action:'invite', email, role, subcon:role==='subcon'?subcon:null,
+        redirectTo:location.origin+location.pathname});
+      toast('Invite sent to '+email);
+      renderTeam();
+    }catch(e){ alert('Invite failed: '+(e.message||e)); btn.disabled=false; btn.textContent='Send invite'; }
+  };
+  app.querySelectorAll('[data-role]').forEach(sel=>sel.onchange=async()=>{
+    const role=sel.value, id=sel.dataset.role;
+    let subcon=null;
+    if(role==='subcon'){ subcon=prompt('Subcontractor company name (exactly as typed on records):'); if(!subcon){ renderTeam(); return; } }
+    try{ await sbTeamCall({action:'setRole', userId:id, role, subcon}); toast('Role updated'); }
+    catch(e){ alert('Could not update role: '+(e.message||e)); }
+    renderTeam();
+  });
+  app.querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Remove '+(b.dataset.em||'this user')+'? They lose access immediately; records they created stay.')) return;
+    try{ await sbTeamCall({action:'remove', userId:b.dataset.rm}); toast('Removed'); }
+    catch(e){ alert('Could not remove: '+(e.message||e)); }
+    renderTeam();
+  });
 }
 async function sbAfterLogin(){
   const {data:{user}}=await SB.client.auth.getUser();

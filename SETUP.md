@@ -26,9 +26,11 @@ team sync: company registers + all projects shared across devices, with roles.
    connection** → sign in with the email + password from step 3.
 3. The dot on the gear icon turns green. Your device's data uploads on first sync.
 
-## 5. Add teammates
-For each person: **Authentication → Users → Add user** (auto-confirm), then set
-their role: **Table Editor → profiles** → edit their row:
+## 5. Add teammates — in the app, no dashboard needed
+Open the app → **Team** (Admin section of the sidebar) → enter their email,
+pick a role → **Send invite**. They receive an email; the link signs them in
+and asks them to set a password. Change roles or remove people from the same
+page. (The dashboard route below still works as a fallback.)
 
 | role     | can do |
 |----------|--------|
