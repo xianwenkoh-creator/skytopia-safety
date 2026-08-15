@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
     if (b.action === "invite") {
       const email = String(b.email || "").trim().toLowerCase();
       if (!/^\S+@\S+\.\S+$/.test(email)) return json({ error: "Invalid email" }, 400);
-      const role = ["admin", "wsho", "subcon", "viewer"].includes(b.role) ? b.role : "viewer";
+      const role = ["admin", "wsho", "hr", "subcon", "viewer"].includes(b.role) ? b.role : "viewer";
       const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
         redirectTo: b.redirectTo || undefined,
       });
@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     }
 
     if (b.action === "setRole") {
-      const role = ["admin", "wsho", "subcon", "viewer"].includes(b.role) ? b.role : null;
+      const role = ["admin", "wsho", "hr", "subcon", "viewer"].includes(b.role) ? b.role : null;
       if (!role || !b.userId) return json({ error: "Bad request" }, 400);
       if (b.userId === user.id) return json({ error: "Change your own role via another admin" }, 400);
       const { data: target } = await admin.from("profiles").select("org_id").eq("id", b.userId).single();

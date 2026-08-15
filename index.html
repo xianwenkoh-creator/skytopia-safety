@@ -78,6 +78,10 @@
            background:var(--card); border-right:1px solid var(--line); padding:6px 0 30px;}
   .sn-home{margin-top:6px;}
   .sn-group{font-size:10.5px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--sub); padding:16px 16px 5px;}
+  .mxt{border-collapse:collapse;font-size:12.5px;min-width:640px;background:var(--card,#fff)}
+  .mxt th,.mxt td{border:1px solid var(--line);padding:6px 8px;text-align:center}
+  .mxt tr{cursor:pointer}
+  .mxt td.mx.ok{color:#1e8e3e;font-weight:700}.mxt td.mx.warn{color:#b76e00;font-weight:700}.mxt td.mx.bad{color:#c5221f;font-weight:700}
   .sn-item{display:flex; align-items:center; gap:10px; padding:7.5px 14px 7.5px 13px; border-left:3px solid transparent;
            font-size:13.5px; font-weight:600; color:var(--ink); text-decoration:none;}
   .sn-item svg{width:17px; height:17px; color:var(--sub); flex:0 0 auto;}
@@ -464,8 +468,8 @@ function compressImage(file, cb){
 /* ============ storage (v2: company level + projects + subcon tags) ============ */
 const KEY='kkl-cms-v1';    /* legacy flat schema — migrated, never deleted */
 const KEY2='kkl-cms-v2';
-const COMPANY_STORES=['members','equipment','training','raLibrary','raMasters','raMasterVersions','legacyDocs','clientTemplates','auditEvents'];
-const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers'];
+const COMPANY_STORES=['members','equipment','training','raLibrary','raMasters','raMasterVersions','legacyDocs','clientTemplates','auditEvents','competencyTypes','workerCompetencies','sicProfiles','organisations','memberPrivate'];
+const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers','workerProjectAccess','sicSessions'];
 const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
 function blankProject(name){
   const p={id:uid(), settings:structuredClone(BLANK.settings), manhours:{}, mandays:{}};
@@ -712,10 +716,12 @@ function goBack(){ if(history.length>1) history.back(); else location.hash='#/';
 /* ============ app shell (Procore-style top bar + tool sidebar) ============ */
 const NAV=[
  {group:'Operations', items:[['work','Work Activities','work']]},
- {group:'Site',    items:[['contacts','Contacts','contact'],['members','Member(s)','members'],['equipment','Equipment','equip'],
-                          ['certexp','Cert Expiry','cert'],['documents','Documents','doc'],['actions','Actions','act']]},
+ {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','members'],
+                          ['workerCompetencies','Competencies','cert'],['training','Training','train'],['certexp','Cert Expiry','cert']]},
+ {group:'Site',    items:[['contacts','Contacts','contact'],['equipment','Equipment','equip'],
+                          ['documents','Documents','doc'],['actions','Actions','act']]},
  {group:'Safety',  items:[['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
-                          ['checklists','Checklists','check'],['rasys','RA / SWP','ra'],['training','Training','train'],
+                          ['checklists','Checklists','check'],['rasys','RA / SWP','ra'],
                           ['meetings','Meetings','meet'],['incidents','Incidents','incid']]},
  {group:'Quality', items:[['defects','Defects','defect']]},
  {group:'Reports', items:[['stats','Statistics','stats'],['report','Monthly Report','print']]}
@@ -726,7 +732,8 @@ function buildNav(){
     nav.innerHTML='<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'My Work</a>'+
       '<div class="sn-group">My Site</div>'+
       [['rasys','My RA / SWP','ra'],['observations','My Observations','obs'],['defects','My Defects','defect'],
-       ['members','My Workers','members'],['equipment','My Equipment','equip'],['training','My Training','train']]
+       ['members','My Workers','members'],['sicready','SIC Readiness','members'],['workerCompetencies','My Competencies','cert'],
+       ['equipment','My Equipment','equip'],['training','My Training','train']]
         .map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+'</a>').join('')+
       '<div class="sn-group">Admin</div>'+
       '<a class="sn-item" href="#/settings" data-nav="settings">'+ic('gear')+'Settings</a>';
@@ -799,6 +806,7 @@ function renderHome(){
       '<h2 class="sect">My site</h2>'+
       '<div class="grid">'+tile('rasys','My RA/SWP','ra')+tile('observations','Observations','obs')+
         tile('defects','Defects','defect')+tile('members','My Workers','members')+
+        tile('sicready','SIC Readiness','members')+tile('workerCompetencies','Competencies','cert')+
         tile('equipment','My Equipment','equip')+tile('training','Training','train')+'</div>'+
       '<div class="foot">Simplified subcontractor view — you see your own company\u2019s items only.</div>';
     return;
@@ -974,6 +982,11 @@ function route(){
   syncShell(p[0]||'');
   if(!p.length) return renderHome();
   const key=p[0], sub=p[1];
+  if(key==='matrix')   return renderMatrix();
+  if(key==='passport'&&sub) return renderPassport(sub);
+  if(key==='sic')      return sub?renderSicSession(sub):renderSic();
+  if(key==='sicready') return renderSicReadiness(null);
+  if(key==='memberPrivate'&&!canHR()){ app.innerHTML=header('Private (HR)', true)+'<div class="empty">HR-restricted records.</div>'; return; }
   if(key==='certexp')  return renderCertExp();
   if(key==='stats')    return renderStats();
   if(key==='report')   return renderReport();
@@ -1132,24 +1145,39 @@ const MODULES={
   fields:[
    {k:'name',label:'Full name',req:1},
    {k:'wid',label:'Worker ID no.',half:1,ph:'e.g. CEHYG01'},
+   {k:'status',label:'Status',type:'select',opts:['ACTIVE','INACTIVE'],half:1},
    {k:'company',label:'Company',half:1},
    {k:'trade',label:'Trade / role',type:'select',opts:TRADES,half:1},
+   {k:'designation',label:'Designation',half:1},
+   {k:'passType',label:'Pass type',type:'select',opts:['Work Permit','S Pass','Employment Pass','Singaporean / PR','Others'],half:1},
    {k:'idno',label:'NRIC / FIN (masked)',half:1,ph:'e.g. ****567A'},
    {k:'phone',label:'Phone',type:'tel',half:1},
    {k:'wpExpiry',label:'Work pass expiry',type:'date',half:1},
-   {k:'sicDate',label:'Safety induction (SIC) date',type:'date',half:1},
-   {k:'certs',label:'Competency certs',type:'rows',add:'Add cert',
-    cols:[{k:'name',label:'Cert (e.g. CSOC, WAH)',w:'full'},{k:'no',label:'Cert no.'},{k:'expiry',label:'Expiry',type:'date'}]},
+   {k:'sicDate',label:'Legacy SIC date (use SIC / Induction)',type:'date',half:1},
+   {k:'photos',label:'Worker photo',type:'photos'},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  beforeSave:function(obj){
+    if(!obj.status) obj.status='ACTIVE';
+    const prev=db.members.find(x=>x.id===obj.id);
+    if(prev&&(prev.wpExpiry!==obj.wpExpiry||prev.status!==obj.status))
+      audit('member-updated','member',obj.id,{wpExpiry:prev.wpExpiry,status:prev.status},{wpExpiry:obj.wpExpiry,status:obj.status});
+  },
+  afterRender:function(item){
+    if(!item) return;
+    const bar=document.querySelector('#app .btnrow');
+    if(bar){ const b=document.createElement('button'); b.type='button'; b.className='btn ghost';
+      b.textContent='Passport'; b.onclick=()=>location.hash='#/passport/'+item.id; bar.appendChild(b); }
+  },
   sort:(a,b)=>(a.name||'').localeCompare(b.name||''),
   listHeader:items=>items.length?'<div style="margin:0 0 10px">'+
     '<button class="btn ghost" onclick="exportSicCsv()">SIC register export</button>'+
     '<span class="hint" style="margin-left:8px">'+items.filter(m=>!m.sicDate).length+' without an SIC date</span></div>':'',
   line1:i=>esc(i.name),
   line2:i=>esc([i.wid,i.company,i.trade].filter(Boolean).join(' · ')),
-  meta:i=>{ const ds=[i.wpExpiry,...(i.certs||[]).map(c=>c.expiry)].filter(Boolean).map(daysTo).filter(d=>d!==null);
-    if(!ds.length) return ''; const m=Math.min(...ds);
-    return m<0?'<span class="chip b">cert expired</span>':m<=30?'<span class="chip w">cert '+m+'d</span>':''; },
+  meta:i=>{ const ds=[i.wpExpiry,...memberAllCerts(i).map(c=>c.expiry)].filter(Boolean).map(daysTo).filter(d=>d!==null);
+    const inactive=i.status==='INACTIVE'?'<span class="chip b">INACTIVE</span>':'';
+    if(!ds.length) return inactive; const m=Math.min(...ds);
+    return inactive+(m<0?'<span class="chip b">cert expired</span>':m<=30?'<span class="chip w">cert '+m+'d</span>':''); },
   empty:'Register every worker on site — their certs feed the Cert Expiry dashboard and TBM/meeting attendance lists.'},
 
  equipment:{ title:'Equipment', store:'equipment',
@@ -1161,7 +1189,9 @@ const MODULES={
    {k:'owner',label:'Owner / supplier',half:1},
    {k:'swl',label:'SWL / capacity',half:1},
    {k:'status',label:'Status',type:'select',opts:['In service','Under repair','Off-site'],def:'In service',half:1},
-   {k:'operator',label:'Assigned operator',half:1},
+   {k:'operator',label:'Assigned operator (name)',half:1},
+   {k:'operatorMemberId',label:'Operator (registered worker)',type:'select',half:1,
+    opts:()=>[['','— none —']].concat(db.members.map(m=>[m.id,memberLabel(m)]))},
    {k:'hdbML',label:'Material list / client registration expiry',type:'date',half:1,hint:'For plant registered on a client’s approved material list, where applicable.'},
    {k:'aeDue',label:'Next AE inspection due',type:'date',half:1,hint:'Authorised Examiner test — 6-monthly or yearly. Reminder starts 1 month before.'},
    {k:'serviceDue',label:'Next servicing due',type:'date',half:1,hint:'Crane service by mechanic — monthly or 3-monthly. Reminder starts 2 weeks before.'},
@@ -1380,6 +1410,8 @@ const MODULES={
 
  training:{ title:'Training', store:'training',
   fields:[
+   {k:'memberId',label:'Registered worker (links this record)',type:'select',
+    opts:()=>[['','— not linked —']].concat(db.members.map(m=>[m.id,memberLabel(m)]))},
    {k:'name',label:'Worker name',req:1,list:()=>db.members.map(m=>m.name).filter(Boolean)},
    {k:'course',label:'Course',req:1,list:COURSES},
    {k:'provider',label:'Training provider',half:1},
@@ -1387,11 +1419,75 @@ const MODULES={
    {k:'date',label:'Completion date',type:'date',half:1},
    {k:'expiry',label:'Expiry (if applicable)',type:'date',half:1},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  beforeSave:function(obj){
+    if(obj.memberId){ const m=db.members.find(x=>x.id===obj.memberId);
+      if(m){ if(!obj.name) obj.name=m.name; obj.company=m.company||''; } }
+  },
   sort:(a,b)=>(b.date||'').localeCompare(a.date||''),
   line1:i=>esc(i.course),
   line2:i=>esc([i.name,i.provider].filter(Boolean).join(' · ')),
   meta:i=>i.expiry?expChip(i.expiry):(i.date?'<span class="chip n">'+fmtD(i.date)+'</span>':''),
   empty:'Training records per worker — expiring courses appear in the Cert Expiry dashboard.'},
+
+ workerCompetencies:{ title:'Competency', store:'workerCompetencies',
+  fields:[
+   {k:'memberId',label:'Worker',req:1,type:'select',opts:()=>db.members.map(m=>[m.id,memberLabel(m)])},
+   {k:'typeCode',label:'Competency type',req:1,type:'select',opts:()=>db.competencyTypes.map(t=>[t.code,t.name])},
+   {k:'typeName',label:'Certificate name (as printed)',half:1},
+   {k:'certNo',label:'Cert no.',half:1},
+   {k:'issuer',label:'Issuer / provider',half:1},
+   {k:'issued',label:'Issue date',type:'date',half:1},
+   {k:'expiry',label:'Expiry',type:'date',half:1},
+   {k:'verification',label:'Verification',type:'select',half:1,opts:['UNVERIFIED','VERIFIED','AI_EXTRACTED','LEGACY']},
+   {k:'photos',label:'Certificate photo',type:'photos'},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  beforeSave:function(obj){
+    const m=db.members.find(x=>x.id===obj.memberId);
+    if(m){ obj.memberName=m.name||''; obj.company=m.company||''; }
+    const t=compTypeByCode(obj.typeCode);
+    if(t&&!obj.typeName) obj.typeName=t.name;
+    if(!obj.verification) obj.verification='UNVERIFIED';
+    const prev=db.workerCompetencies.find(x=>x.id===obj.id);
+    if(obj.verification==='VERIFIED'&&(!prev||prev.verification!=='VERIFIED')){
+      obj.verifiedBy=raWho(); obj.verifiedAt=today();
+      audit('competency-verified','workerCompetency',obj.id,prev?{verification:prev.verification}:null,{verification:'VERIFIED'});
+    }else if(prev&&prev.verification==='VERIFIED'&&obj.verification!=='VERIFIED'){
+      audit('competency-unverified','workerCompetency',obj.id,{verification:'VERIFIED'},{verification:obj.verification});
+    }else if(!prev){
+      audit('competency-added','workerCompetency',obj.id,null,{typeCode:obj.typeCode,memberId:obj.memberId});
+    }
+  },
+  sort:(a,b)=>(a.memberName||'').localeCompare(b.memberName||'')||(a.typeName||'').localeCompare(b.typeName||''),
+  line1:i=>esc(i.typeName||i.typeCode||''),
+  line2:i=>esc([i.memberName,i.company,i.certNo].filter(Boolean).join(' · ')),
+  meta:i=>(i.expiry?expChip(i.expiry):'')+(i.verification==='VERIFIED'||i.verification==='LEGACY'?'':'<span class="chip w">'+esc(i.verification||'UNVERIFIED')+'</span>'),
+  empty:'Structured worker competencies — one record per certificate, with verification and expiry. Legacy cert rows on workers were wrapped in automatically.'},
+
+ sicProfiles:{ title:'SIC profile', store:'sicProfiles',
+  fields:[
+   {k:'name',label:'Profile name',req:1},
+   {k:'client',label:'Client / main contractor',half:1},
+   {k:'requirements',label:'Requirements',type:'rows',add:'Add requirement',
+    cols:[{k:'req',label:'Requirement — type code (CSOC, WAH, EXC…) or PHOTO / WORKPASS',w:'full'},
+          {k:'trade',label:'Applies to trade (contains, blank = all)'}]},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  sort:(a,b)=>(a.name||'').localeCompare(b.name||''),
+  line1:i=>esc(i.name),
+  line2:i=>esc([i.client,(i.requirements||[]).map(r=>r.req).filter(Boolean).join(', ')].filter(Boolean).join(' · ')),
+  empty:'Configurable SIC requirement sets per client / main contractor. Use competency type codes (CSOC, WAH, CS, RIG, SIG, LS, EXC, CRA…) plus PHOTO and WORKPASS.'},
+
+ memberPrivate:{ title:'Private (HR)', store:'memberPrivate',
+  fields:[
+   {k:'memberName',label:'Worker',req:1},
+   {k:'idnoFull',label:'Full NRIC / FIN / passport no. (HR-restricted)',half:1},
+   {k:'empNo',label:'Employee no.',half:1},
+   {k:'photos',label:'Work pass / HR documents',type:'photos'},
+   {k:'remarks',label:'HR notes',type:'textarea',rows:2}],
+  beforeSave:function(obj){ audit('private-updated','memberPrivate',obj.id,null,null); },
+  sort:(a,b)=>(a.memberName||'').localeCompare(b.memberName||''),
+  line1:i=>esc(i.memberName||''),
+  line2:()=>'HR-restricted record',
+  empty:'HR-restricted worker records — visible to admin / HR / WSHO roles only (enforced by the server).'},
 
  meetings:{ title:'Meeting', store:'meetings',
   fields:[
@@ -1721,12 +1817,15 @@ function exportSicCsv(){
   const items=[...db.members].sort((a,b)=>(a.company||'').localeCompare(b.company||'')||(a.name||'').localeCompare(b.name||''));
   const heads=['S/N','Worker ID','Full name','NRIC / FIN (masked)','Company','Trade / designation','Phone',
     'Work pass expiry','SIC date','SIC status','Competency certs (name / no. / expiry)','Remarks'];
-  const lines=[heads.map(csvEsc).join(',')].concat(items.map((m,i)=>[
+  const lines=[heads.map(csvEsc).join(',')].concat(items.map((m,i)=>{
+    const acc=memberAccess(m.id);
+    const sic=acc&&acc.sicStatus==='COMPLETE'?(acc.sicDate||'Completed'):(m.sicDate?m.sicDate+' (legacy)':'');
+    return [
     i+1, m.wid||'', m.name||'', m.idno||'', m.company||'', m.trade||'', m.phone||'',
-    m.wpExpiry||'', m.sicDate||'', m.sicDate?'Completed':'PENDING',
-    (m.certs||[]).map(c=>[c.name,c.no,c.expiry].filter(Boolean).join(' / ')).join(' | '),
+    m.wpExpiry||'', sic, sic?'Completed':'PENDING',
+    memberAllCerts(m).filter(c=>c.name).map(c=>[c.name,c.no,c.expiry].filter(Boolean).join(' / ')).join(' | '),
     m.remarks||''
-  ].map(csvEsc).join(',')));
+  ].map(csvEsc).join(','); }));
   saveOrDownload('Registers','SIC-register-'+today()+'.csv',lines.join('\r\n'),'text/csv;charset=utf-8');
 }
 
@@ -2164,9 +2263,13 @@ const REQ_CERT={
   'Scaffolding':{role:{'Scaffolder':['scaffold']}}
 };
 function memberAllCerts(m){
-  return [...(m.certs||[])].concat(
-    db.training.filter(t=>(t.name||'').trim().toLowerCase()===(m.name||'').trim().toLowerCase())
-      .map(t=>({name:t.course||'',expiry:t.expiry||''})));
+  /* structured competencies are authoritative; legacy cert rows only count until
+     the member has wrapped/added competency records; training linked by ID first */
+  const comps=memberComps(m.id).map(c=>({name:c.typeName||c.typeCode||'', no:c.certNo, expiry:c.expiry||'', ver:c.verification||'UNVERIFIED'}));
+  const legacy=comps.length?[]:(m.certs||[]).map(c=>({name:c.name,no:c.no,expiry:c.expiry,ver:'LEGACY'}));
+  const train=db.training.filter(t=>t.memberId?t.memberId===m.id:(t.name||'').trim().toLowerCase()===(m.name||'').trim().toLowerCase())
+    .map(t=>({name:t.course||'',expiry:t.expiry||'',ver:'VERIFIED'}));
+  return legacy.concat(comps,train);
 }
 function certLive(c){ return !c.expiry || (daysTo(c.expiry)??0)>=0; }
 function hasLiveCert(m,kws){ return memberAllCerts(m).some(c=>certLive(c)&&kws.some(k=>(c.name||'').toLowerCase().includes(k))); }
@@ -2176,10 +2279,16 @@ function checkMemberEligibility(memberId, workActivityId){
   const m=db.members.find(x=>x.id===memberId);
   if(!m) return [RR('MEM-404','BLOCK','Member not found','Assigned member no longer exists in the register.','member',memberId)];
   const wa=workActivityId?db.workActivities.find(w=>w.id===workActivityId):null;
+  if(m.status==='INACTIVE') out.push(RR('MEM-INACTIVE','BLOCK','Worker inactive',m.name+' is marked INACTIVE in the worker register.','member',m.id));
   const wp=m.wpExpiry?daysTo(m.wpExpiry):null;
   if(wp!==null&&wp<0) out.push(RR('MEM-WP-EXPIRED','BLOCK','Work pass expired',m.name+'’s work pass expired '+fmtD(m.wpExpiry)+'.','member',m.id));
   else if(wp!==null&&wp<=30) out.push(RR('MEM-WP-30D','WARN','Work pass expiring',m.name+'’s work pass expires in '+wp+' day(s).','member',m.id));
-  if(!m.sicDate) out.push(RR('MEM-SIC-MISSING','WARN','No safety induction',m.name+' has no SIC date recorded.','member',m.id));
+  const acc=memberAccess(m.id);
+  if(acc&&acc.accessStatus==='BLOCKED') out.push(RR('MEM-ACCESS','BLOCK','Project access blocked',m.name+'’s access to this project is blocked.','member',m.id));
+  if(acc&&acc.sicStatus==='COMPLETE'&&(!acc.sicExpiry||(daysTo(acc.sicExpiry)??0)>=0)){ /* project SIC in order */ }
+  else if(acc&&acc.sicStatus==='COMPLETE') out.push(RR('MEM-SIC-EXPIRED','WARN','SIC expired',m.name+'’s site induction needs renewal.','member',m.id));
+  else if(m.sicDate) out.push(RR('MEM-SIC-LEGACY','WARN','SIC not recorded for this project',m.name+' has only a legacy SIC date — record project SIC via SIC / Induction.','member',m.id));
+  else out.push(RR('MEM-SIC-MISSING','WARN','No safety induction',m.name+' has no SIC recorded for this project.','member',m.id));
   const certs=memberAllCerts(m);
   certs.filter(c=>c.expiry&&(daysTo(c.expiry)??0)<0).forEach(c=>
     out.push(RR('MEM-CERT-EXPIRED','WARN','Cert expired',m.name+': '+c.name+' expired '+fmtD(c.expiry)+'.','member',m.id)));
@@ -2190,10 +2299,12 @@ function checkMemberEligibility(memberId, workActivityId){
     const crewRow=(wa.crew||[]).find(c=>c.memberId===memberId);
     const role=crewRow?crewRow.role:'';
     if(req){
-      if(req.all&&!hasLiveCert(m,req.all))
-        out.push(RR('MEM-COMP-REQ','BLOCK','Required competency missing',m.name+' has no live "'+req.all[0]+'" competency required for '+wa.type+'.','member',m.id));
-      if(req.role&&req.role[role]&&!hasLiveCert(m,req.role[role]))
-        out.push(RR('MEM-COMP-REQ','BLOCK','Required competency missing',m.name+' is assigned as '+role+' but has no live '+role+' competency.','member',m.id));
+      if(req.all){ const v=hasLiveCertV(m,req.all);
+        if(!v.has) out.push(RR('MEM-COMP-REQ','BLOCK','Required competency missing',m.name+' has no live "'+req.all[0]+'" competency required for '+wa.type+'.','member',m.id));
+        else if(!v.verified) out.push(RR('MEM-COMP-UNVER','WARN','Competency unverified',m.name+'’s '+req.all[0]+' certificate has not been verified.','member',m.id)); }
+      if(req.role&&req.role[role]){ const v=hasLiveCertV(m,req.role[role]);
+        if(!v.has) out.push(RR('MEM-COMP-REQ','BLOCK','Required competency missing',m.name+' is assigned as '+role+' but has no live '+role+' competency.','member',m.id));
+        else if(!v.verified) out.push(RR('MEM-COMP-UNVER','WARN','Competency unverified',m.name+'’s '+role+' certificate has not been verified.','member',m.id)); }
     }
   }
   if(!out.length) out.push(RR('MEM-OK','PASS','Eligible',m.name+' is eligible.','member',m.id));
@@ -2221,6 +2332,19 @@ function checkEquipmentReadiness(equipmentId, workActivityId){
   if(wa&&wa.status==='Active'&&e.regNo){
     const pre=db.checklists.some(c=>c.date===today()&&((c.area||'')+' '+(c.template||'')).toLowerCase().includes(String(e.regNo).toLowerCase()));
     if(!pre) out.push(RR('EQP-PRESTART','WARN','No pre-start check today','No checklist today references '+label+' while the activity is Active.','equipment',e.id));
+  }
+  if(e.operatorMemberId){
+    const op=db.members.find(x=>x.id===e.operatorMemberId);
+    if(!op) out.push(RR('EQP-OP-GONE','WARN','Operator not found','Assigned operator no longer exists in the worker register.','equipment',e.id));
+    else{
+      if(op.status==='INACTIVE') out.push(RR('EQP-OP-INACTIVE','BLOCK','Operator inactive',op.name+' is marked INACTIVE.','equipment',e.id));
+      const opk=[['excavator',['excavator']],['crane',['crane operator','mobile crane','crawler crane','lorry crane']],
+                 ['forklift',['forklift']],['mewp',['mewp','boom lift']],['piling',['piling']]]
+        .find(x=>String(e.type||'').toLowerCase().includes(x[0]));
+      if(opk){ const v=hasLiveCertV(op,opk[1]);
+        if(!v.has) out.push(RR('EQP-OP-COMP','WARN','Operator competency missing','No live '+opk[0]+' operator competency on record for '+op.name+'.','equipment',e.id));
+        else if(!v.verified) out.push(RR('EQP-OP-UNVER','WARN','Operator competency unverified',op.name+'’s '+opk[0]+' operator certificate is unverified.','equipment',e.id)); }
+    }
   }
   if(!out.length) out.push(RR('EQP-OK','PASS','Ready',label+' is ready.','equipment',e.id));
   return out;
@@ -2355,8 +2479,12 @@ function affectedWAs(store,id){
   switch(store){
     case 'members': return W.filter(w=>(w.crew||[]).some(c=>c.memberId===id));
     case 'training': { const t=db.training.find(x=>x.id===id);
-      const m=t?db.members.find(x=>(x.name||'').trim().toLowerCase()===(t.name||'').trim().toLowerCase()):null;
+      const m=t?(t.memberId?db.members.find(x=>x.id===t.memberId)
+                          :db.members.find(x=>(x.name||'').trim().toLowerCase()===(t.name||'').trim().toLowerCase())):null;
       return m?W.filter(w=>(w.crew||[]).some(c=>c.memberId===m.id)):[]; }
+    case 'workerCompetencies': case 'workerProjectAccess': {
+      const r=(db[store]||[]).find(x=>x.id===id);
+      return r?W.filter(w=>(w.crew||[]).some(c=>c.memberId===r.memberId)):[]; }
     case 'equipment': return W.filter(w=>(w.plant||[]).some(p=>p.equipmentId===id));
     case 'checklists': return W.filter(w=>w.status==='Active'&&(w.plant||[]).length);
     case 'ra': return W.filter(w=>(w.raRefs||[]).some(r=>r.raId===id));
@@ -2377,6 +2505,7 @@ EV.on('record:deleted',({store,id})=>{
 });
 EV.on('sync:applied',()=>{                            /* teammate changed something */
   if(SB.profile && !['admin','wsho'].includes(SB.profile.role)) return; /* partial-data roles must not recompute gates */
+  wfMigrate();                                        /* one-time wrap runs after first full pull */
   const W=db.workActivities;
   if(W.length){ W.forEach(recalcWA); localStorage.setItem(KEY2, JSON.stringify(root)); }
 });
@@ -3612,6 +3741,422 @@ async function renderCheckin(projId, tbmId, token){
   };
 }
 
+/* ============ WORKFORCE: worker master + competency + SIC + passport ============
+   Members stays the single Worker Master (one record per person, company-tier).
+   This layer adds structured competencies, per-project SIC/access, the passport
+   view and the competency matrix. Legacy cert rows are wrapped once into
+   workerCompetencies (originals untouched); training gains a proper memberId. */
+const COMP_SEED=[
+ {code:'CSOC',name:'CSOC / WSH in Construction',cat:'Safety',kws:['csoc','wsh in construction','safety orientation'],core:1},
+ {code:'WAH', name:'Work at Height',cat:'Safety',kws:['work at height','wah'],core:1},
+ {code:'CS',  name:'Confined Space',cat:'Safety',kws:['confined space'],core:1},
+ {code:'RIG', name:'Rigger',cat:'Lifting',kws:['rigger'],core:1},
+ {code:'SIG', name:'Signalman',cat:'Lifting',kws:['signalman'],core:1},
+ {code:'LS',  name:'Lifting Supervisor',cat:'Lifting',kws:['lifting supervisor'],core:1},
+ {code:'EXC', name:'Excavator Operator',cat:'Plant',kws:['excavator'],core:1},
+ {code:'CRA', name:'Crane Operator',cat:'Plant',kws:['crane operator','mobile crane','crawler crane'],core:1},
+ {code:'FLB', name:'Forklift Operator',cat:'Plant',kws:['forklift']},
+ {code:'MEWP',name:'MEWP / Boom Lift Operator',cat:'Plant',kws:['mewp','boom lift']},
+ {code:'SCAF',name:'Scaffold Erector',cat:'Safety',kws:['scaffold']},
+ {code:'FA',  name:'First Aider',cat:'Safety',kws:['first aid']},
+ {code:'BCSS',name:'BCSS / Supervisor Safety',cat:'Safety',kws:['bcss','supervisors safety']},
+ {code:'OTH', name:'Other',cat:'Other',kws:[]}
+];
+function compTypeByCode(code){ return db.competencyTypes.find(t=>(t.code||'').toLowerCase()===String(code||'').toLowerCase()); }
+function compTypeKws(t){ return (t&&t.kws&&t.kws.length)?t.kws:(t?[String(t.name||'').toLowerCase()]:[]); }
+function memberComps(mid){ return db.workerCompetencies.filter(c=>c.memberId===mid); }
+function memberLabel(m){ return (m.wid?m.wid+' — ':'')+(m.name||''); }
+function canHR(){ return !SB.profile || ['admin','wsho','hr'].includes(SB.profile.role); }
+function wfGuessType(certName){
+  const n=String(certName||'').toLowerCase();
+  const t=db.competencyTypes.find(x=>(x.kws||[]).some(k=>n.includes(k)));
+  return t||compTypeByCode('OTH');
+}
+function memberAccess(mid){ return db.workerProjectAccess.find(a=>a.memberId===mid); }
+
+/* one-time, idempotent unification: seed types, link training by ID where the
+   name matches exactly one member, wrap legacy cert rows into competencies */
+function wfMigrate(){
+  let changed=false;
+  if(!db.competencyTypes.length){
+    COMP_SEED.forEach(t=>db.competencyTypes.push(Object.assign({id:'ct-'+t.code.toLowerCase()},t)));
+    changed=true;
+  }
+  db.training.forEach(t=>{
+    if(t.memberId) return;
+    const nm=(t.name||'').trim().toLowerCase(); if(!nm) return;
+    const hits=db.members.filter(m=>(m.name||'').trim().toLowerCase()===nm);
+    if(hits.length===1){ t.memberId=hits[0].id; changed=true; }
+  });
+  db.members.forEach(m=>{
+    if(!(m.certs||[]).length || memberComps(m.id).length) return;
+    (m.certs||[]).forEach((c,i)=>{
+      if(!(c.name||c.no||c.expiry)) return;
+      const t=wfGuessType(c.name);
+      db.workerCompetencies.push({id:'wc-'+m.id+'-'+i, memberId:m.id, memberName:m.name||'',
+        company:m.company||'', typeCode:t?t.code:'OTH', typeName:c.name||(t?t.name:'Other'),
+        certNo:c.no||'', expiry:c.expiry||'', verification:'LEGACY', source:'wrapped-from-member'});
+    });
+    changed=true;
+  });
+  if(!db.organisations.length && db.members.length){
+    [...new Set(db.members.map(m=>(m.company||'').trim()).filter(Boolean))].forEach(nm=>{
+      db.organisations.push({id:'org-'+nm.toLowerCase().replace(/[^a-z0-9]+/g,'-').slice(0,30),
+        name:nm, type:/^kkl/i.test(nm)?'own':'subcon'});
+    });
+    changed=true;
+  }
+  if(changed) save();
+}
+
+/* ---- verified-aware competency lookup (used by eligibility + SIC + matrix) ---- */
+function hasLiveCertV(m,kws){
+  const hits=memberAllCerts(m).filter(c=>certLive(c)&&kws.some(k=>(c.name||'').toLowerCase().includes(k)));
+  return {has:hits.length>0, verified:hits.some(c=>!c.ver||c.ver==='VERIFIED'||c.ver==='LEGACY')};
+}
+
+/* ---- SIC requirement profiles + readiness ---- */
+function sicProfile(){
+  if(!db.sicProfiles.length){
+    db.sicProfiles.push({id:'sp-standard', name:'Standard (pass + photo + CSOC)', client:'',
+      requirements:[{req:'WORKPASS'},{req:'PHOTO'},{req:'CSOC'}]});
+    save();
+  }
+  return db.sicProfiles.find(p=>p.id===db.settings.sicProfileId)||db.sicProfiles[0];
+}
+/* per-worker requirement check → [{label, ok, warn, why, fix}] */
+function sicCheckMember(m, prof){
+  const out=[];
+  (prof&&prof.requirements||[]).forEach(r=>{
+    const code=String(r.req||'').trim(); if(!code) return;
+    const tr=String(r.trade||'').trim().toLowerCase();
+    if(tr && !((m.trade||'')+' '+(m.remarks||'')).toLowerCase().includes(tr)) return; /* requirement not applicable to this trade */
+    const C=code.toUpperCase();
+    if(C==='PHOTO'){ out.push({label:'Worker photo', ok:!!(m.photos&&m.photos.length), why:'No photo on record', fix:'#/members/'+m.id}); return; }
+    if(C==='WORKPASS'){
+      const d=m.wpExpiry?daysTo(m.wpExpiry):null;
+      out.push({label:'Valid work pass', ok:d!==null&&d>=0,
+        why:d===null?'No work pass expiry recorded':(d<0?'Pass expired '+fmtD(m.wpExpiry):''), fix:'#/members/'+m.id});
+      return;
+    }
+    const t=compTypeByCode(C)||db.competencyTypes.find(x=>(x.name||'').toLowerCase()===code.toLowerCase());
+    const v=hasLiveCertV(m, t?compTypeKws(t):[code.toLowerCase()]);
+    out.push({label:t?t.name:code, ok:v.has, warn:v.has&&!v.verified,
+      why:v.has?(v.verified?'':'Held but unverified'):'Not held or expired', fix:'#/workerCompetencies/new'});
+  });
+  if(m.status==='INACTIVE') out.push({label:'Worker active', ok:false, why:'Worker is marked INACTIVE', fix:'#/members/'+m.id});
+  return out;
+}
+function sicReady(m, prof){ return sicCheckMember(m, prof).every(r=>r.ok); }
+
+/* ---- SIC / induction pages ---- */
+let SICX=null;
+function renderSic(){
+  const prof=sicProfile();
+  const legacyN=db.members.filter(m=>m.sicDate&&!memberAccess(m.id)).length;
+  const sess=[...db.sicSessions].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const accN=db.workerProjectAccess.filter(a=>a.sicStatus==='COMPLETE').length;
+  app.innerHTML=header('SIC / Induction')+
+    '<div class="card"><label style="margin-top:0">Requirement profile (per client / main contractor)</label>'+
+    '<div class="fld"><select id="sicProf">'+db.sicProfiles.map(p=>'<option value="'+p.id+'"'+(p.id===prof.id?' selected':'')+'>'+esc(p.name)+'</option>').join('')+'</select></div>'+
+    '<div class="btnrow"><button class="btn" id="sicNewBtn" style="flex:1">+ New SIC session</button>'+
+    '<button class="btn ghost" onclick="location.hash=\'#/sicready\'">Readiness check</button>'+
+    '<button class="btn ghost" onclick="location.hash=\'#/sicProfiles\'">Profiles</button></div>'+
+    (legacyN?'<div class="hint" style="margin-top:8px">'+legacyN+' worker(s) have a legacy SIC date but no project SIC record. <button class="btn ghost" id="sicBackfill" style="padding:6px 10px">Backfill into this project</button></div>':'')+
+    '</div>'+
+    '<h2 class="sect">Project access</h2>'+
+    '<div class="card"><b>'+accN+'</b> worker(s) SIC-complete on this project · '+db.workerProjectAccess.filter(a=>a.accessStatus==='BLOCKED').length+' blocked</div>'+
+    '<h2 class="sect">Sessions</h2>'+
+    (sess.length?sess.map(s=>'<div class="lrow" onclick="location.hash=\'#/sic/'+s.id+'\'">'+
+      '<div><div class="l1">'+esc(fmtD(s.date))+' — '+(s.workers||[]).length+' worker(s)</div>'+
+      '<div class="l2">'+esc(s.conductor||'')+'</div></div>'+
+      '<div class="lmeta"><span class="chip '+(s.status==='COMPLETED'?'g':'n')+'">'+esc(s.status||'DRAFT')+'</span></div></div>').join('')
+     :'<div class="empty">No SIC sessions yet.<br>Create one to run readiness checks and record induction.</div>');
+  document.getElementById('sicProf').onchange=e=>{ db.settings.sicProfileId=e.target.value; save(); };
+  document.getElementById('sicNewBtn').onclick=()=>{ SICX={sel:{}}; renderSicNew(); };
+  const bf=document.getElementById('sicBackfill');
+  if(bf) bf.onclick=()=>{
+    if(!confirm('Create SIC-complete project access for every worker with a legacy SIC date? Use only if their SIC was for THIS project.')) return;
+    let n=0;
+    db.members.filter(m=>m.sicDate&&!memberAccess(m.id)).forEach(m=>{
+      db.workerProjectAccess.push({id:'wpa-'+m.id, memberId:m.id, memberName:m.name||'', company:m.company||'',
+        sicStatus:'COMPLETE', sicDate:m.sicDate, accessStatus:'ALLOWED', source:'legacy-backfill'});
+      audit('sic-backfill','member',m.id,null,{sicDate:m.sicDate}); n++;
+    });
+    save(); EV.emit('sync:applied',{}); alert(n+' project access record(s) created.'); renderSic();
+  };
+}
+function renderSicNew(){
+  if(!SICX){ location.hash='#/sic'; return; }
+  const prof=sicProfile();
+  const q=(SICX.q||'').toLowerCase();
+  const list=db.members.filter(m=>m.status!=='INACTIVE')
+    .filter(m=>!q||JSON.stringify(m).toLowerCase().includes(q))
+    .sort((a,b)=>(a.company||'').localeCompare(b.company||'')||(a.name||'').localeCompare(b.name||''));
+  const selN=Object.values(SICX.sel).filter(Boolean).length;
+  app.innerHTML=header('New SIC session', true)+
+    '<div class="card"><label style="margin-top:0">Select workers · profile: '+esc(prof.name)+'</label>'+
+    '<input id="sicQ" placeholder="Search name / ID / company / trade" value="'+esc(SICX.q||'')+'">'+
+    '<div class="btnrow" style="margin-top:8px">'+
+      '<button class="btn ghost" id="sicAll" style="flex:1">Select all shown ('+list.length+')</button>'+
+      '<button class="btn ghost" id="sicNone">Clear</button></div></div>'+
+    '<div style="max-height:46vh;overflow-y:auto;margin-top:10px" id="sicList">'+
+    list.slice(0,400).map(m=>'<label class="pick" style="display:flex;margin-bottom:6px"><input type="checkbox" data-m="'+m.id+'"'+(SICX.sel[m.id]?' checked':'')+'>'+
+      '<span>'+esc(memberLabel(m))+' <span class="hint">'+esc([m.company,m.trade].filter(Boolean).join(' · '))+'</span></span></label>').join('')+
+    (list.length>400?'<div class="hint">Showing first 400 — refine the search.</div>':'')+'</div>'+
+    '<div class="btnrow" style="margin-top:12px"><button class="btn" id="sicCheck" style="flex:1"'+(selN?'':' disabled')+'>Check readiness ('+selN+')</button></div>';
+  document.getElementById('sicQ').oninput=e=>{ SICX.q=e.target.value; renderSicNew(); };
+  document.getElementById('sicAll').onclick=()=>{ list.forEach(m=>SICX.sel[m.id]=true); renderSicNew(); };
+  document.getElementById('sicNone').onclick=()=>{ SICX.sel={}; renderSicNew(); };
+  document.querySelectorAll('#sicList input[type=checkbox]').forEach(cb=>cb.onchange=()=>{
+    SICX.sel[cb.dataset.m]=cb.checked;
+    const n=Object.values(SICX.sel).filter(Boolean).length;
+    const btn=document.getElementById('sicCheck'); btn.disabled=!n; btn.textContent='Check readiness ('+n+')';
+  });
+  document.getElementById('sicCheck').onclick=()=>{ renderSicReadiness(Object.keys(SICX.sel).filter(k=>SICX.sel[k])); };
+}
+/* shared by the session wizard, the standalone readiness page and Subcon Lite */
+function renderSicReadiness(memberIds){
+  const prof=sicProfile();
+  const ms=(memberIds?memberIds.map(id=>db.members.find(m=>m.id===id)).filter(Boolean)
+                     :db.members.filter(m=>m.status!=='INACTIVE'));
+  const rows=ms.map(m=>({m, checks:sicCheckMember(m,prof)}));
+  const ready=rows.filter(r=>r.checks.every(c=>c.ok));
+  const attn=rows.filter(r=>!r.checks.every(c=>c.ok));
+  app.innerHTML=header('SIC readiness', true)+
+    '<div class="tiles">'+
+      '<div class="stile"><div class="v">'+rows.length+'</div><div class="l">Selected</div></div>'+
+      '<div class="stile"><div class="v" style="color:var(--good-ink)">'+ready.length+'</div><div class="l">READY</div></div>'+
+      '<div class="stile"><div class="v'+(attn.length?' w':'')+'">'+attn.length+'</div><div class="l">Require attention</div></div></div>'+
+    (attn.length?'<h2 class="sect">Requires attention</h2>'+attn.map(r=>
+      '<div class="card" style="margin-bottom:8px"><b>'+esc(memberLabel(r.m))+'</b> <span class="hint">'+esc(r.m.company||'')+'</span>'+
+      r.checks.filter(c=>!c.ok).map(c=>'<div style="margin-top:6px"><span class="chip b">'+esc(c.label)+'</span> '+esc(c.why||'')+
+        (c.fix?' <a href="'+c.fix+'">Fix</a>':'')+'</div>').join('')+'</div>').join(''):'')+
+    (ready.length?'<h2 class="sect">Ready ('+ready.length+')</h2>'+
+      '<div class="card">'+ready.map(r=>esc(memberLabel(r.m))).join(' · ')+'</div>':'')+
+    '<div class="btnrow" style="margin-top:12px">'+
+      (SICX?'<button class="btn" id="sicConduct" style="flex:1"'+(rows.length?'':' disabled')+'>Conduct SIC ('+rows.length+')</button>':'')+
+      '<button class="btn ghost" id="sicPack" style="flex:1">Generate SIC pack</button></div>';
+  const cd=document.getElementById('sicConduct');
+  if(cd) cd.onclick=()=>renderSicConduct(rows);
+  document.getElementById('sicPack').onclick=()=>sicPack(rows, prof);
+}
+function renderSicConduct(rows){
+  app.innerHTML=header('Conduct SIC', true)+
+    '<div class="card">'+
+    '<div class="fld half"><label>Date</label><input type="date" id="scDate" value="'+today()+'"></div>'+
+    '<div class="fld half"><label>Conducted by (Safety Officer) *</label><input id="scBy" list="dl-scby">'+
+    '<datalist id="dl-scby">'+db.members.filter(m=>/wsh|safety/i.test(m.trade||'')).map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist></div>'+
+    '<div class="fld"><label>Remarks</label><input id="scRem" placeholder="Venue, language, interpreter…"></div></div>'+
+    '<h2 class="sect">Attendance & acknowledgement</h2>'+
+    rows.map(r=>{ const ok=r.checks.every(c=>c.ok);
+      return '<label class="pick" style="display:flex;margin-bottom:6px"><input type="checkbox" data-m="'+r.m.id+'"'+(ok?' checked':'')+'>'+
+        '<span>'+esc(memberLabel(r.m))+(ok?'':' <span class="chip w">docs incomplete</span>')+'</span></label>'; }).join('')+
+    '<div class="hint">Ticked = attended and acknowledged the induction. Workers with incomplete documents can still be inducted, but their access stays flagged until documents are resolved.</div>'+
+    '<div class="btnrow" style="margin-top:12px"><button class="btn" id="scDone" style="flex:1">Complete SIC session</button></div>';
+  document.getElementById('scDone').onclick=()=>{
+    const by=document.getElementById('scBy').value.trim();
+    if(!by){ alert('Enter the conducting Safety Officer.'); return; }
+    const date=document.getElementById('scDate').value||today();
+    const present=[...document.querySelectorAll('input[data-m]:checked')].map(cb=>cb.dataset.m);
+    if(!present.length){ alert('No attendance ticked.'); return; }
+    const sess={id:uid(), date, conductor:by, remarks:document.getElementById('scRem').value.trim(),
+      profileId:sicProfile().id, status:'COMPLETED',
+      workers:rows.map(r=>({memberId:r.m.id, name:r.m.name, company:r.m.company||'',
+        ready:r.checks.every(c=>c.ok), present:present.includes(r.m.id)}))};
+    db.sicSessions.push(sess);
+    present.forEach(mid=>{
+      const m=db.members.find(x=>x.id===mid); if(!m) return;
+      const docsOk=rows.find(r=>r.m.id===mid).checks.every(c=>c.ok);
+      let acc=memberAccess(mid);
+      if(!acc){ acc={id:'wpa-'+mid, memberId:mid}; db.workerProjectAccess.push(acc); }
+      Object.assign(acc,{memberName:m.name||'', company:m.company||'', sicStatus:'COMPLETE', sicDate:date,
+        sessionId:sess.id, approvedBy:by, accessStatus:docsOk?'ALLOWED':'FLAGGED'});
+      audit('sic-complete','member',mid,null,{date, by, session:sess.id});
+    });
+    save(); EV.emit('record:changed',{store:'sicSessions', id:sess.id}); EV.emit('sync:applied',{});
+    SICX=null; location.hash='#/sic/'+sess.id;
+  };
+}
+function renderSicSession(id){
+  const s=db.sicSessions.find(x=>x.id===id);
+  if(!s){ location.hash='#/sic'; return; }
+  app.innerHTML=header('SIC session', true)+
+    '<div class="card"><b>'+esc(fmtD(s.date))+'</b> · conducted by '+esc(s.conductor||'')+
+    (s.remarks?'<div class="hint">'+esc(s.remarks)+'</div>':'')+'</div>'+
+    '<h2 class="sect">Workers ('+(s.workers||[]).length+')</h2>'+
+    (s.workers||[]).map(w=>'<div class="lrow" onclick="location.hash=\'#/passport/'+w.memberId+'\'">'+
+      '<div><div class="l1">'+esc(w.name||'')+'</div><div class="l2">'+esc(w.company||'')+'</div></div>'+
+      '<div class="lmeta">'+(w.present?'<span class="chip g">inducted</span>':'<span class="chip n">absent</span>')+
+      (w.ready?'':'<span class="chip w">docs</span>')+'</div></div>').join('');
+}
+/* SIC submission pack: register + per-worker cards, saved into Skytopia\Safety\SIC Packs */
+function sicPack(rows, prof){
+  const proj=db.settings.project||'Project';
+  const missing=rows.filter(r=>!r.checks.every(c=>c.ok));
+  if(missing.length && !confirm(missing.length+' worker(s) have missing requirements — generate the pack anyway? Missing items are flagged inside the pack.')) return;
+  let b='<h2>SIC Submission Pack — '+esc(proj)+'</h2>'+
+    '<p>Profile: '+esc(prof.name)+(prof.client?' ('+esc(prof.client)+')':'')+' · Generated '+esc(today())+
+    ' · '+rows.length+' worker(s), '+(rows.length-missing.length)+' submission-ready</p>'+
+    '<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px">'+
+    '<tr style="background:#eee"><th>S/N</th><th>Worker ID</th><th>Name</th><th>Company</th><th>Trade</th><th>Pass expiry</th><th>Status</th></tr>'+
+    rows.map((r,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(r.m.wid||'')+'</td><td>'+esc(r.m.name||'')+'</td><td>'+esc(r.m.company||'')+
+      '</td><td>'+esc(r.m.trade||'')+'</td><td>'+esc(r.m.wpExpiry?fmtD(r.m.wpExpiry):'')+'</td><td>'+
+      (r.checks.every(c=>c.ok)?'READY':'MISSING: '+r.checks.filter(c=>!c.ok).map(c=>esc(c.label)).join(', '))+'</td></tr>').join('')+'</table>';
+  rows.forEach(r=>{
+    b+='<div style="page-break-before:always;border:1px solid #ccc;padding:14px;margin-top:14px">'+
+      '<table style="width:100%"><tr><td style="vertical-align:top">'+
+      '<h3 style="margin:0">'+esc(r.m.name||'')+'</h3>'+
+      '<p style="margin:6px 0">Worker ID: <b>'+esc(r.m.wid||'—')+'</b> · '+esc(r.m.company||'')+' · '+esc(r.m.trade||'')+'<br>'+
+      'NRIC/FIN: '+esc(r.m.idno||'—')+' · Pass expiry: '+esc(r.m.wpExpiry?fmtD(r.m.wpExpiry):'—')+'</p></td>'+
+      '<td style="width:110px;text-align:right">'+((r.m.photos&&r.m.photos[0])?'<img src="'+r.m.photos[0]+'" style="width:100px;border:1px solid #999">':'<div style="width:100px;height:120px;border:1px dashed #999;display:inline-block;font-size:11px;color:#888">no photo</div>')+'</td></tr></table>'+
+      '<table border="1" cellspacing="0" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px;margin-top:8px">'+
+      '<tr style="background:#eee"><th style="text-align:left">Requirement</th><th>Status</th><th style="text-align:left">Notes</th></tr>'+
+      r.checks.map(c=>'<tr><td>'+esc(c.label)+'</td><td style="text-align:center">'+(c.ok?(c.warn?'&#9888;':'&#10003;'):'&#10007;')+'</td><td>'+esc(c.why||(c.warn?'Unverified':''))+'</td></tr>').join('')+'</table>'+
+      '<table border="0" style="width:100%;font-size:12px;margin-top:6px"><tr>'+
+      memberAllCerts(r.m).filter(c=>c.name).slice(0,8).map(c=>'<td>'+esc(c.name)+(c.expiry?' (exp '+esc(fmtD(c.expiry))+')':'')+'</td>').join('')+'</tr></table></div>';
+  });
+  saveOrDownload('SIC Packs','SIC-pack-'+fileStamp(proj)+'-'+today()+'.html', reportDocHtml('SIC Submission Pack', b), 'text/html');
+}
+
+/* ---- competency matrix + workforce dashboard ---- */
+let MTX={q:'',co:'',show:'ALL',all:false};
+function renderMatrix(){
+  const cols=db.competencyTypes.filter(t=>t.core);
+  const compIdx={};
+  db.workerCompetencies.forEach(c=>{ (compIdx[c.memberId]=compIdx[c.memberId]||[]).push(c); });
+  const cell=(m,t)=>{
+    const kws=compTypeKws(t);
+    const certs=memberAllCerts(m).filter(c=>kws.some(k=>(c.name||'').toLowerCase().includes(k)));
+    if(!certs.length) return '<td class="mx">—</td>';
+    const live=certs.filter(certLive);
+    if(!live.length) return '<td class="mx bad">&#10007;</td>';
+    const d=Math.min(...live.map(c=>c.expiry?(daysTo(c.expiry)??9999):9999));
+    const unver=!live.some(c=>!c.ver||c.ver==='VERIFIED'||c.ver==='LEGACY');
+    if(d<=30||unver) return '<td class="mx warn">&#9888;</td>';
+    return '<td class="mx ok">&#10003;</td>';
+  };
+  const q=MTX.q.toLowerCase();
+  let ms=db.members.filter(m=>!q||JSON.stringify(m).toLowerCase().includes(q));
+  if(MTX.co) ms=ms.filter(m=>(m.company||'')===MTX.co);
+  const rows=ms.map(m=>{
+    const acc=memberAccess(m.id);
+    const sic=acc&&acc.sicStatus==='COMPLETE'?(acc.sicExpiry&&(daysTo(acc.sicExpiry)??0)<0?'EXPIRED':'OK'):(m.sicDate?'LEGACY':'NONE');
+    const el=checkMemberEligibility(m.id,null);
+    const worst=el.some(r=>r.status==='BLOCK')?'BLOCKED':el.some(r=>r.status==='WARN')?'WARN':'READY';
+    const exp=memberAllCerts(m).map(c=>c.expiry?daysTo(c.expiry):null).filter(d=>d!==null);
+    if(m.wpExpiry) exp.push(daysTo(m.wpExpiry));
+    const minExp=exp.length?Math.min(...exp):null;
+    return {m,sic,worst,minExp};
+  }).filter(r=>{
+    if(MTX.show==='SIC') return r.sic!=='OK';
+    if(MTX.show==='BLOCKED') return r.worst==='BLOCKED';
+    if(MTX.show==='E7') return r.minExp!==null&&r.minExp<=7;
+    if(MTX.show==='E30') return r.minExp!==null&&r.minExp<=30;
+    if(MTX.show==='E60') return r.minExp!==null&&r.minExp<=60;
+    if(MTX.show==='E90') return r.minExp!==null&&r.minExp<=90;
+    if(MTX.show==='EXP') return r.minExp!==null&&r.minExp<0;
+    return true;
+  }).sort((a,b)=>(a.m.company||'').localeCompare(b.m.company||'')||(a.m.name||'').localeCompare(b.m.name||''));
+  const active=db.members.filter(m=>m.status!=='INACTIVE').length;
+  const sicMiss=db.members.filter(m=>m.status!=='INACTIVE'&&!(memberAccess(m.id)&&memberAccess(m.id).sicStatus==='COMPLETE')).length;
+  const e30=db.members.filter(m=>memberAllCerts(m).concat(m.wpExpiry?[{expiry:m.wpExpiry}]:[]).some(c=>{const d=c.expiry?daysTo(c.expiry):null; return d!==null&&d>=0&&d<=30;})).length;
+  const expd=db.members.filter(m=>memberAllCerts(m).some(c=>{const d=c.expiry?daysTo(c.expiry):null; return d!==null&&d<0;})).length;
+  const shown=MTX.all?rows:rows.slice(0,150);
+  app.innerHTML=header('Competency Matrix')+
+    '<div class="tiles">'+
+      '<div class="stile"><div class="v">'+active+'</div><div class="l">Active workers</div></div>'+
+      '<div class="stile"><div class="v'+(sicMiss?' w':'')+'">'+sicMiss+'</div><div class="l">SIC incomplete</div></div>'+
+      '<div class="stile"><div class="v'+(e30?' w':'')+'">'+e30+'</div><div class="l">Expiring &le;30d</div></div>'+
+      '<div class="stile"><div class="v'+(expd?' w':'')+'">'+expd+'</div><div class="l">Expired certs</div></div></div>'+
+    '<div class="card"><input id="mxQ" placeholder="Search worker / ID / trade" value="'+esc(MTX.q)+'">'+
+    '<div class="btnrow" style="margin-top:8px">'+
+    '<select id="mxCo" style="flex:1"><option value="">All companies</option>'+
+      [...new Set(db.members.map(m=>m.company).filter(Boolean))].map(c=>'<option'+(MTX.co===c?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select>'+
+    '<select id="mxShow" style="flex:1">'+
+      [['ALL','Show all'],['SIC','SIC incomplete'],['BLOCKED','Blocked'],['EXP','Expired'],['E7','Expiring ≤7d'],['E30','Expiring ≤30d'],['E60','Expiring ≤60d'],['E90','Expiring ≤90d']]
+      .map(o=>'<option value="'+o[0]+'"'+(MTX.show===o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></div></div>'+
+    '<div style="overflow-x:auto;margin-top:10px"><table class="mxt"><tr><th style="text-align:left">Worker</th><th>SIC</th>'+
+    cols.map(t=>'<th>'+esc(t.code)+'</th>').join('')+'<th>Status</th></tr>'+
+    shown.map(r=>'<tr onclick="location.hash=\'#/passport/'+r.m.id+'\'"><td style="text-align:left;white-space:nowrap">'+esc(memberLabel(r.m))+
+      '<div class="hint">'+esc(r.m.company||'')+'</div></td>'+
+      '<td class="mx'+(r.sic==='OK'?' ok':r.sic==='NONE'?'':' warn')+'">'+(r.sic==='OK'?'&#10003;':r.sic==='LEGACY'?'L':r.sic==='EXPIRED'?'&#10007;':'—')+'</td>'+
+      cols.map(t=>cell(r.m,t)).join('')+
+      '<td><span class="chip '+(r.worst==='READY'?'g':r.worst==='WARN'?'w':'b')+'">'+r.worst+'</span></td></tr>').join('')+
+    '</table></div>'+
+    (rows.length>shown.length?'<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="mxAll" style="flex:1">Show all '+rows.length+'</button></div>':'')+
+    '<p class="hint">&#10003; valid · &#9888; expiring &le;30d or unverified · &#10007; expired · — not held · SIC "L" = legacy date only. Tap a row for the Worker Passport.</p>';
+  document.getElementById('mxQ').oninput=e=>{ MTX.q=e.target.value; MTX.all=false; renderMatrix(); };
+  document.getElementById('mxCo').onchange=e=>{ MTX.co=e.target.value; renderMatrix(); };
+  document.getElementById('mxShow').onchange=e=>{ MTX.show=e.target.value; renderMatrix(); };
+  const ma=document.getElementById('mxAll'); if(ma) ma.onclick=()=>{ MTX.all=true; renderMatrix(); };
+}
+
+/* ---- worker passport ---- */
+function renderPassport(mid){
+  const m=db.members.find(x=>x.id===mid);
+  if(!m){ location.hash='#/members'; return; }
+  const acc=memberAccess(mid);
+  const comps=memberComps(mid);
+  const core=db.competencyTypes.filter(t=>t.core);
+  const wpD=m.wpExpiry?daysTo(m.wpExpiry):null;
+  const todayWAs=db.workActivities.filter(w=>w.status==='Active'&&(w.crew||[]).some(c=>c.memberId===mid));
+  const tbxHist=db.tbm.filter(t=>(t.checkins||[]).some(c=>c.memberId===mid)||(t.attendees||[]).includes(mid))
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const train=db.training.filter(t=>t.memberId===mid||(!t.memberId&&(t.name||'').trim().toLowerCase()===(m.name||'').trim().toLowerCase()));
+  const projAccess=root.projects.map(p=>{
+    const a=(p.workerProjectAccess||[]).find(x=>x.memberId===mid);
+    return {name:p.settings.project||'(unnamed)', a};
+  });
+  const compRow=t=>{
+    const v=hasLiveCertV(m,compTypeKws(t));
+    const held=memberAllCerts(m).filter(c=>compTypeKws(t).some(k=>(c.name||'').toLowerCase().includes(k)));
+    const exp=held.map(c=>c.expiry).filter(Boolean).sort().pop();
+    return '<div class="lrow" style="cursor:default"><div><div class="l1">'+esc(t.name)+'</div>'+
+      (exp?'<div class="l2">expiry '+esc(fmtD(exp))+'</div>':'')+'</div><div class="lmeta">'+
+      (v.has?(v.verified?'<span class="chip g">VALID</span>':'<span class="chip w">UNVERIFIED</span>')
+            :(held.length?'<span class="chip b">EXPIRED</span>':'<span class="chip n">NOT HELD</span>'))+'</div></div>';
+  };
+  app.innerHTML=header('Worker Passport', true)+
+    '<div class="card"><table style="width:100%"><tr><td style="vertical-align:top">'+
+    '<h2 style="margin:0 0 4px">'+esc(m.name||'')+'</h2>'+
+    '<div class="hint">'+esc([m.wid,m.company,m.trade,m.designation].filter(Boolean).join(' · '))+'</div>'+
+    '<div style="margin-top:8px"><span class="chip '+(m.status==='INACTIVE'?'b':'g')+'">'+(m.status==='INACTIVE'?'INACTIVE':'ACTIVE')+'</span>'+
+    (m.passType?' <span class="chip n">'+esc(m.passType)+'</span>':'')+'</div></td>'+
+    '<td style="width:92px;text-align:right">'+((m.photos&&m.photos[0])?'<img src="'+m.photos[0]+'" style="width:84px;border-radius:6px">':'')+'</td></tr></table>'+
+    '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" onclick="location.hash=\'#/members/'+m.id+'\'">Edit worker</button>'+
+    '<button class="btn ghost" onclick="location.hash=\'#/workerCompetencies/new\'">+ Competency</button>'+
+    (canHR()?'<button class="btn ghost" id="ppPriv">Private (HR)</button>':'')+'</div></div>'+
+    '<h2 class="sect">Work pass</h2>'+
+    '<div class="card">'+(m.wpExpiry?('Expiry <b>'+esc(fmtD(m.wpExpiry))+'</b> '+(wpD<0?'<span class="chip b">EXPIRED</span>':wpD<=30?'<span class="chip w">'+wpD+'d</span>':'<span class="chip g">VALID</span>')):'<span class="hint">No expiry recorded — HR to update.</span>')+'</div>'+
+    '<h2 class="sect">Competencies</h2>'+core.map(compRow).join('')+
+    (comps.filter(c=>!core.some(t=>t.code===c.typeCode)).length?
+      '<h2 class="sect">Other certificates</h2>'+comps.filter(c=>!core.some(t=>t.code===c.typeCode)).map(c=>
+      '<div class="lrow" onclick="location.hash=\'#/workerCompetencies/'+c.id+'\'"><div><div class="l1">'+esc(c.typeName||c.typeCode)+'</div>'+
+      '<div class="l2">'+esc([c.certNo,c.issuer].filter(Boolean).join(' · '))+'</div></div>'+
+      '<div class="lmeta">'+(c.expiry?expChip(c.expiry):'')+'</div></div>').join(''):'')+
+    '<h2 class="sect">Project access</h2>'+
+    projAccess.map(p=>'<div class="lrow" style="cursor:default"><div><div class="l1">'+esc(p.name)+'</div></div><div class="lmeta">'+
+      (p.a&&p.a.sicStatus==='COMPLETE'?'<span class="chip g">SIC '+esc(fmtD(p.a.sicDate||''))+'</span>'+(p.a.accessStatus==='FLAGGED'?'<span class="chip w">docs</span>':'')+(p.a.accessStatus==='BLOCKED'?'<span class="chip b">BLOCKED</span>':'')
+       :'<span class="chip n">NOT INDUCTED</span>')+'</div></div>').join('')+
+    (todayWAs.length?'<h2 class="sect">Current deployment</h2>'+todayWAs.map(w=>
+      '<div class="lrow" onclick="location.hash=\'#/work/'+w.id+'\'"><div><div class="l1">'+esc(w.title||w.type||'Work activity')+'</div>'+
+      '<div class="l2">'+esc([w.location,(w.crew||[]).find(c=>c.memberId===mid)?.role].filter(Boolean).join(' · '))+'</div></div></div>').join(''):'')+
+    '<h2 class="sect">History</h2>'+
+    '<div class="card">Toolbox attendance: <b>'+tbxHist.length+'</b>'+(tbxHist[0]?' · last '+esc(fmtD(tbxHist[0].date)):'')+
+    '<br>Training records: <b>'+train.length+'</b>'+
+    '<br>SIC sessions: <b>'+db.sicSessions.filter(s=>(s.workers||[]).some(w=>w.memberId===mid&&w.present)).length+'</b></div>'+
+    (train.length?train.slice(0,6).map(t=>'<div class="lrow" onclick="location.hash=\'#/training/'+t.id+'\'"><div><div class="l1">'+esc(t.course||'')+'</div>'+
+      '<div class="l2">'+esc(fmtD(t.date||''))+'</div></div><div class="lmeta">'+(t.expiry?expChip(t.expiry):'')+'</div></div>').join(''):'');
+  const pv=document.getElementById('ppPriv');
+  if(pv) pv.onclick=()=>{
+    if(!db.memberPrivate.find(x=>x.id==='pv-'+mid)){
+      db.memberPrivate.push({id:'pv-'+mid, memberId:mid, memberName:m.name||''}); save();
+    }
+    location.hash='#/memberPrivate/pv-'+mid;
+  };
+}
+
 /* ============ cloud sync (Supabase, offline-first) ============
    Local storage stays the source of truth on-device; changes diff-push to a
    `records` table (JSONB rows keyed org/project/store/id) and pull back
@@ -3992,7 +4537,7 @@ function renderLanding(){
   document.getElementById('lgGo').onclick=go;
   document.getElementById('lgPass').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
   document.getElementById('lgLocal').onclick=()=>{
-    localStorage.setItem('kkl-local-ok','1'); unGate(); route(); syncInit();
+    localStorage.setItem('kkl-local-ok','1'); unGate(); wfMigrate(); route(); syncInit();
   };
 }
 function unGate(){ GATED=false; document.body.classList.remove('gated'); }
@@ -4004,9 +4549,9 @@ initShell();
   if(cfg && cfg.url && !authLink && !localStorage.getItem('kkl-local-ok')){
     renderLanding();
     await syncInit();                       /* existing session on this device? */
-    if(SB.profile){ unGate(); route(); }    /* yes — straight into the app */
+    if(SB.profile){ unGate(); wfMigrate(); route(); }  /* yes — straight into the app */
   }else{
-    route(); syncInit();
+    wfMigrate(); route(); syncInit();
   }
 })();
 </script>

@@ -18,7 +18,7 @@ create table if not exists public.profiles (
   email        text,
   display_name text,
   role         text not null default 'viewer'
-               check (role in ('admin','wsho','subcon','viewer')),
+               check (role in ('admin','wsho','hr','subcon','viewer')),
   subcon       text,          -- subcontractor company name, only for role='subcon'
   created_at   timestamptz not null default now()
 );
@@ -90,7 +90,7 @@ create or replace function public.subcon_scope(store text, data jsonb) returns b
 language sql stable as $$
   select (store in ('observations','defects')
             and lower(coalesce(data->>'subcon',''))  = lower(coalesce(public.my_subcon(),'')))
-      or (store in ('members','equipment','training')
+      or (store in ('members','equipment','training','workerCompetencies')
             and lower(coalesce(data->>'company','')) = lower(coalesce(public.my_subcon(),'')))
       or (store in ('raAdoptions','raProjectVersions')
             and lower(coalesce(data->>'subcon','')) = lower(coalesce(public.my_subcon(),'')))
@@ -115,17 +115,22 @@ create policy profiles_admin_update on public.profiles
   for update using (org_id = public.my_org() and public.my_role() = 'admin')
   with check (org_id = public.my_org());
 
--- read: admin/wsho see everything; viewers see everything EXCEPT the RA/SWP
--- register (company safety personnel only); subcons see only their scope
+-- read: admin/wsho see everything; hr sees everything except the RA/SWP system;
+-- viewers additionally lose HR-restricted records; subcons see only their scope
 drop policy if exists rec_read on public.records;
 create policy rec_read on public.records
   for select using (
     org_id = public.my_org()
     and ( public.my_role() in ('admin','wsho')
+          or (public.my_role() = 'hr' and store not in
+              ('ra','raLibrary','raMasters','raMasterVersions','legacyDocs','raAdoptions','raProjectVersions','reviewTriggers'))
           or (public.my_role() = 'viewer' and store not in
-              ('ra','raLibrary','raMasters','raMasterVersions','legacyDocs','raAdoptions','raProjectVersions','reviewTriggers','auditEvents'))
+              ('ra','raLibrary','raMasters','raMasterVersions','legacyDocs','raAdoptions','raProjectVersions','reviewTriggers','auditEvents','memberPrivate'))
           or ( public.my_role() = 'subcon'
-               and (store in ('_project','_meta') or public.subcon_scope(store, data)) ) )
+               and (store in ('_project','_meta','sicProfiles','competencyTypes','organisations')
+                    or (store = 'workerProjectAccess'
+                        and lower(coalesce(data->>'company','')) = lower(coalesce(public.my_subcon(),'')))
+                    or public.subcon_scope(store, data)) ) )
   );
 
 -- write: admin + wsho anywhere in the org
@@ -136,6 +141,22 @@ create policy rec_staff_insert on public.records
 drop policy if exists rec_staff_update on public.records;
 create policy rec_staff_update on public.records
   for update using (org_id = public.my_org() and public.my_role() in ('admin','wsho'))
+  with check (org_id = public.my_org());
+
+-- write: hr maintains HR-owned worker information only
+drop policy if exists rec_hr_insert on public.records;
+create policy rec_hr_insert on public.records
+  for insert with check (
+    org_id = public.my_org() and public.my_role() = 'hr'
+    and store in ('members','memberPrivate','workerCompetencies','training','organisations')
+  );
+
+drop policy if exists rec_hr_update on public.records;
+create policy rec_hr_update on public.records
+  for update using (
+    org_id = public.my_org() and public.my_role() = 'hr'
+    and store in ('members','memberPrivate','workerCompetencies','training','organisations')
+  )
   with check (org_id = public.my_org());
 
 -- write: subcon only inside their scope (and cannot re-tag rows to another company)
