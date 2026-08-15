@@ -416,6 +416,7 @@ async function saveToSafety(cat, name, text, mime){
     await w.write(new Blob([bom+text],{type:mime||'text/plain'}));
     await w.close();
     toast('Saved: '+root.name+' \\ '+cat+' \\ '+name);
+    autoBackup();                      /* permission is fresh — good moment for the daily backup */
     return true;
   }catch(e){ console.warn('folder save failed',e); toast('Folder save failed — downloading instead', true); return false; }
 }
@@ -479,7 +480,8 @@ function blankProject(name){
 }
 function blankRoot(){
   const p=blankProject('');
-  return {v:2, company:{name:'', members:[], equipment:[], training:[], raLibrary:[]}, projects:[p], cur:p.id};
+  /* run through fixRoot so every COMPANY_STORES entry (present and future) exists */
+  return fixRoot({v:2, company:{name:''}, projects:[p], cur:p.id});
 }
 function migrateV1(d){
   const root=blankRoot(), p=root.projects[0];
@@ -2161,10 +2163,12 @@ function renderSettings(){
       '<p class="hint">Connect your <b>Skytopia \\ Safety</b> folder (OneDrive) so reports, CSV exports and backups save straight into it — each report type goes to its own subfolder (Inspections, Observations, Monthly Reports, &hellip;). Works in Chrome / Edge.</p>'+
       '<p class="hint" id="fsStatus">Checking&hellip;</p>'+
       '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="fsPick">Connect folder</button>'+
+      '<button class="btn ghost" id="fsDocs">Export worker documents</button>'+
       '<button class="btn danger" id="fsForget" style="display:none">Disconnect</button></div>'+
+      '<p class="hint">While connected, the app also files a <b>daily automatic backup</b> into Backups, and worker / certificate photos into <b>Worker Documents\\&lt;Worker ID&gt;</b> whenever records are saved on this device.</p>'+
     '</div>'+
     '<div class="card"><label style="margin-top:0">Backup &amp; restore</label>'+
-      '<p class="hint">Data lives only in this browser. Export a backup file regularly and keep it somewhere safe; import it to restore or to move to another device.</p>'+
+      '<p class="hint">Live data syncs to the cloud (see Cloud sync above); this device also keeps a working copy in the browser. Backups export the full dataset as a file — automatic daily when the folder is connected, or manually here.</p>'+
       '<p class="hint">Storage used: ~'+Math.round(JSON.stringify(root).length/1024).toLocaleString()+' KB of a ~5,000 KB browser limit. Photos use the most space.</p>'+
       '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="expBtn">Export backup</button>'+
       '<button class="btn ghost" id="impBtn">Import</button></div>'+
@@ -2219,6 +2223,7 @@ function renderSettings(){
     }catch(e){ /* user cancelled */ }
   };
   fsForget.onclick=async()=>{ await idbDel('safetyDir').catch(()=>{}); fsRefresh(); };
+  document.getElementById('fsDocs').onclick=exportAllWorkerDocs;
   fsRefresh();
   const impFile=document.getElementById('impFile');
   document.getElementById('impBtn').onclick=()=>impFile.click();
@@ -2509,6 +2514,74 @@ EV.on('sync:applied',()=>{                            /* teammate changed someth
   const W=db.workActivities;
   if(W.length){ W.forEach(recalcWA); localStorage.setItem(KEY2, JSON.stringify(root)); }
 });
+
+/* ---- OneDrive filing: daily auto-backup + worker document mirror ----
+   Both are best-effort and silent when the Safety folder is not connected or
+   permission is not yet granted this session (no prompts without a gesture). */
+let ABK_BUSY=false;
+async function autoBackup(force){
+  if(ABK_BUSY||!fsSupported()) return;
+  const last=+localStorage.getItem('kkl-auto-backup')||0;
+  if(!force && Date.now()-last < 20*3600e3) return;          /* ~once a day */
+  const dirRoot=await getSafetyDir(false); if(!dirRoot) return;
+  ABK_BUSY=true;
+  try{
+    const dir=await dirRoot.getDirectoryHandle('Backups',{create:true});
+    const fh=await dir.getFileHandle('auto-backup-'+today()+'.json',{create:true});
+    const w=await fh.createWritable();
+    await w.write(new Blob([JSON.stringify(root)],{type:'application/json'}));
+    await w.close();
+    localStorage.setItem('kkl-auto-backup', String(Date.now()));
+    toast('Daily backup filed: Backups \\ auto-backup-'+today()+'.json');
+  }catch(e){ console.warn('auto-backup failed',e); }
+  finally{ ABK_BUSY=false; }
+}
+function dataUrlBlob(d){
+  const m=/^data:([^;]+);base64,(.*)$/.exec(String(d||'')); if(!m) return null;
+  try{ const bin=atob(m[2]); const u=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i);
+    return new Blob([u],{type:m[1]}); }catch(e){ return null; }
+}
+function wdFolderName(m){ return ((m.wid?m.wid+' ':'')+(m.name||m.id)).trim().replace(/[\\/:*?"<>|]+/g,'-').slice(0,60); }
+async function mirrorWorkerDocs(store, rec, dirRootIn){
+  if(!fsSupported()||!rec) return 0;
+  const dirRoot=dirRootIn||await getSafetyDir(false); if(!dirRoot) return 0;
+  let m=null, files=[];
+  if(store==='members'){ m=rec; files=(rec.photos||[]).map((p,i)=>['worker-photo'+(i?'-'+(i+1):'')+'.jpg',p]); }
+  else if(store==='workerCompetencies'){ m=db.members.find(x=>x.id===rec.memberId);
+    const base=(rec.typeCode||'CERT')+(rec.certNo?'-'+String(rec.certNo).replace(/[^A-Za-z0-9-]+/g,''):'');
+    files=(rec.photos||[]).map((p,i)=>[base+(i?'-'+(i+1):'')+'.jpg',p]); }
+  else if(store==='memberPrivate'){ m=db.members.find(x=>x.id===rec.memberId)||{id:rec.id,name:rec.memberName};
+    files=(rec.photos||[]).map((p,i)=>['hr-doc-'+(i+1)+'.jpg',p]); }
+  if(!m||!files.length) return 0;
+  try{
+    const wd=await dirRoot.getDirectoryHandle('Worker Documents',{create:true});
+    const dir=await wd.getDirectoryHandle(wdFolderName(m),{create:true});
+    let n=0;
+    for(const f of files){
+      const b=dataUrlBlob(f[1]); if(!b) continue;
+      const fh=await dir.getFileHandle(f[0],{create:true});
+      const w=await fh.createWritable(); await w.write(b); await w.close(); n++;
+    }
+    return n;
+  }catch(e){ console.warn('worker doc mirror failed',e); return 0; }
+}
+EV.on('record:changed',({store,id})=>{
+  if(!['members','workerCompetencies','memberPrivate'].includes(store)) return;
+  const rec=(db[store]||[]).find(x=>x.id===id);
+  if(rec&&(rec.photos||[]).length)
+    mirrorWorkerDocs(store,rec).then(n=>{ if(n) toast('Filed to OneDrive \\ Worker Documents'); });
+});
+async function exportAllWorkerDocs(){
+  const dirRoot=await getSafetyDir(true);
+  if(!dirRoot){ alert('Connect your Skytopia \\ Safety folder first.'); return; }
+  let n=0;
+  for(const m of db.members) n+=await mirrorWorkerDocs('members',m,dirRoot);
+  for(const c of db.workerCompetencies) n+=await mirrorWorkerDocs('workerCompetencies',c,dirRoot);
+  for(const p of db.memberPrivate) n+=await mirrorWorkerDocs('memberPrivate',p,dirRoot);
+  alert(n?n+' document file(s) filed into Worker Documents \\ <worker> folders.'
+        :'No photos or documents on worker records yet — nothing to export.');
+}
 
 /* RA/SWP register is restricted to the company's own safety personnel.
    Unsigned local-only devices see only their own local data, so they pass. */
@@ -4553,6 +4626,7 @@ initShell();
   }else{
     wfMigrate(); route(); syncInit();
   }
+  setTimeout(()=>autoBackup(), 4000);   /* daily OneDrive backup, silent if folder not connected */
 })();
 </script>
 </body>
