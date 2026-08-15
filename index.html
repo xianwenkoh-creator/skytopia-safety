@@ -259,6 +259,22 @@
   .toast.show{transform:translateX(-50%); opacity:1;}
   .toast.bad{background:#8f1f1f;}
 
+  /* project switcher */
+  .projmenu{position:fixed; top:50px; left:56px; z-index:45; min-width:250px; max-width:86vw; display:none;
+            background:var(--card); border:1px solid var(--line); border-radius:6px; box-shadow:0 6px 24px rgba(0,0,0,.22); padding:6px 0;}
+  .projmenu.open{display:block;}
+  .pm-head{font-size:10.5px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--sub); padding:8px 14px 4px;}
+  .pm-item{display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:none; border:none; font:inherit;
+           font-size:13.5px; font-weight:600; color:var(--ink); padding:9px 14px; cursor:pointer;}
+  .pm-item:hover{background:var(--bg);}
+  .pm-item.on{color:var(--acc);}
+  .pm-item .tick{width:16px; flex:0 0 auto; color:var(--acc);}
+  .pm-new{border-top:1px solid var(--line); margin-top:4px; color:var(--blue);}
+
+  /* sync status dot */
+  .syncdot{position:absolute; bottom:5px; right:5px; width:9px; height:9px; border-radius:50%; border:1.5px solid var(--hdr); background:#7a8791;}
+  .syncdot.ok{background:#2fbf4f;} .syncdot.err{background:#e04b4b;} .syncdot.off{background:#7a8791;}
+
   select{appearance:auto;}
   @media (max-width:390px){ .grid{grid-template-columns:repeat(3,1fr); gap:8px 6px;} .tile .ic{width:40px;height:40px;} .tiles{grid-template-columns:repeat(2,1fr);} }
   @media print{
@@ -283,6 +299,7 @@
   <button class="iconbtn" id="bellBtn" aria-label="Cert expiry alerts" style="position:relative"></button>
   <button class="iconbtn" id="gearBtn" aria-label="Settings"></button>
 </div>
+<div class="projmenu" id="projmenu"></div>
 <div class="shell">
   <nav class="sidenav" id="sidenav" aria-label="Tools"></nav>
   <div class="scrim" id="scrim"></div>
@@ -410,18 +427,74 @@ function compressImage(file, cb){
   img.src=URL.createObjectURL(file);
 }
 
-/* ============ storage ============ */
-const KEY='kkl-cms-v1';
+/* ============ storage (v2: company level + projects + subcon tags) ============ */
+const KEY='kkl-cms-v1';    /* legacy flat schema — migrated, never deleted */
+const KEY2='kkl-cms-v2';
+const COMPANY_STORES=['members','equipment','training'];
+const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects'];
 const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
-function load(){ try{ const raw=localStorage.getItem(KEY);
-    if(raw){ const d=JSON.parse(raw); const out=structuredClone(BLANK);
-      for(const k in out){ if(d[k]!==undefined) out[k]=d[k]; } return out; }
+function blankProject(name){
+  const p={id:uid(), settings:structuredClone(BLANK.settings), manhours:{}, mandays:{}};
+  p.settings.project=name||'';
+  PROJECT_STORES.forEach(k=>p[k]=[]);
+  return p;
+}
+function blankRoot(){
+  const p=blankProject('');
+  return {v:2, company:{name:'', members:[], equipment:[], training:[]}, projects:[p], cur:p.id};
+}
+function migrateV1(d){
+  const root=blankRoot(), p=root.projects[0];
+  const src=structuredClone(BLANK);
+  for(const k in src){ if(d[k]!==undefined) src[k]=d[k]; }
+  COMPANY_STORES.forEach(k=>root.company[k]=src[k]);
+  PROJECT_STORES.forEach(k=>p[k]=src[k]);
+  p.manhours=src.manhours; p.mandays=src.mandays; p.settings=src.settings;
+  root.company.name=src.settings.company||'';
+  return root;
+}
+function fixRoot(r){
+  if(!r || typeof r!=='object' || !Array.isArray(r.projects) || !r.projects.length) return blankRoot();
+  if(!r.company) r.company={name:'',members:[],equipment:[],training:[]};
+  COMPANY_STORES.forEach(k=>{ if(!Array.isArray(r.company[k])) r.company[k]=[]; });
+  r.projects.forEach(p=>{
+    if(!p.id) p.id=uid();
+    if(!p.settings) p.settings=structuredClone(BLANK.settings);
+    if(!p.manhours) p.manhours={}; if(!p.mandays) p.mandays={};
+    PROJECT_STORES.forEach(k=>{ if(!Array.isArray(p[k])) p[k]=[]; });
+  });
+  if(!r.projects.some(p=>p.id===r.cur)) r.cur=r.projects[0].id;
+  return r;
+}
+function load(){
+  try{
+    const raw2=localStorage.getItem(KEY2);
+    if(raw2) return fixRoot(JSON.parse(raw2));
+    const raw=localStorage.getItem(KEY);
+    if(raw) return migrateV1(JSON.parse(raw));
   }catch(e){ console.warn('load failed',e); }
-  return structuredClone(BLANK); }
-let db=load();
+  return blankRoot();
+}
+let root=load();
+if(!localStorage.getItem(KEY2)){ try{ localStorage.setItem(KEY2, JSON.stringify(root)); }catch(e){} }
+function curProj(){ return root.projects.find(p=>p.id===root.cur)||root.projects[0]; }
+/* facade: existing module code keeps reading db.<store>; routing decides the tier */
+const db={};
+COMPANY_STORES.forEach(k=>Object.defineProperty(db,k,{get:()=>root.company[k], set:v=>{root.company[k]=v;}}));
+PROJECT_STORES.forEach(k=>Object.defineProperty(db,k,{get:()=>curProj()[k], set:v=>{curProj()[k]=v;}}));
+['manhours','mandays','settings'].forEach(k=>Object.defineProperty(db,k,{get:()=>curProj()[k], set:v=>{curProj()[k]=v;}}));
 function save(){
-  try{ localStorage.setItem(KEY, JSON.stringify(db)); }
+  try{ localStorage.setItem(KEY2, JSON.stringify(root)); }
   catch(e){ alert('Browser storage is full — the last change could NOT be saved. Remove some photos or old records, or export a backup and clear data.'); }
+  schedulePush();
+}
+function switchProject(id){
+  if(!root.projects.some(p=>p.id===id)) return;
+  root.cur=id; save(); route();
+}
+function addProject(name){
+  const p=blankProject(name);
+  root.projects.push(p); root.cur=p.id; save(); return p;
 }
 
 /* ============ icons ============ */
@@ -617,6 +690,17 @@ function buildNav(){
     '<div class="sn-group">Admin</div>'+
     '<a class="sn-item" href="#/settings" data-nav="settings">'+ic('gear')+'Settings</a>';
 }
+function renderProjMenu(){
+  const m=document.getElementById('projmenu');
+  m.innerHTML='<div class="pm-head">'+esc(root.company.name||'Projects')+'</div>'+
+    root.projects.map(p=>'<button class="pm-item'+(p.id===root.cur?' on':'')+'" data-proj="'+p.id+'">'+
+      '<span class="tick">'+(p.id===root.cur?'&#10003;':'')+'</span>'+esc(p.settings.project||'(unnamed project)')+'</button>').join('')+
+    '<button class="pm-item pm-new" data-newproj="1"><span class="tick">+</span>New project</button>';
+  m.querySelectorAll('[data-proj]').forEach(b=>b.onclick=()=>{ m.classList.remove('open'); switchProject(b.dataset.proj); });
+  m.querySelector('[data-newproj]').onclick=()=>{ m.classList.remove('open');
+    const name=prompt('New project name:'); if(!name) return;
+    addProject(name.trim()); location.hash='#/settings'; route(); };
+}
 function syncShell(cur){
   document.getElementById('projName').textContent = db.settings.project || 'Site Safety';
   document.querySelectorAll('#sidenav .sn-item').forEach(a=>a.classList.toggle('on', a.dataset.nav===cur));
@@ -631,9 +715,12 @@ function syncShell(cur){
 function initShell(){
   document.getElementById('navBtn').innerHTML=ic('menu');
   document.getElementById('bellBtn').innerHTML=ic('bell')+'<span class="abadge" id="bellBadge" style="display:none"></span>';
-  document.getElementById('gearBtn').innerHTML=ic('gear');
+  document.getElementById('gearBtn').innerHTML=ic('gear')+'<span class="syncdot off" id="syncDot"></span>';
+  document.getElementById('gearBtn').style.position='relative';
   document.getElementById('projSel').insertAdjacentHTML('beforeend', ic('chev'));
-  document.getElementById('projSel').onclick=()=>location.hash='#/settings';
+  document.getElementById('projSel').onclick=e=>{ e.stopPropagation(); renderProjMenu(); document.getElementById('projmenu').classList.toggle('open'); };
+  document.addEventListener('click',e=>{ const m=document.getElementById('projmenu');
+    if(m && !e.target.closest('.projmenu')) m.classList.remove('open'); });
   document.getElementById('bellBtn').onclick=()=>location.hash='#/certexp';
   document.getElementById('gearBtn').onclick=()=>location.hash='#/settings';
   const nav=document.getElementById('sidenav'), scrim=document.getElementById('scrim');
@@ -696,25 +783,35 @@ function renderList(key){
   const mod=MODULES[key];
   let items=[...db[mod.store]];
   items.sort(mod.sort || ((a,b)=>(b.date||'').localeCompare(a.date||'')));
+  const subconField=mod.fields.some(f=>f.k==='subcon');
+  const subcons=subconField?[...new Set(items.map(i=>(i.subcon||'').trim()).filter(Boolean))].sort():[];
   app.innerHTML = header(mod.title, true,
       (items.length?'<button class="iconbtn" aria-label="Export CSV" title="Export CSV (Excel)" onclick="exportModuleCsv(\''+key+'\')">'+ic('dl')+'</button>':'')+
       '<button class="iconbtn" aria-label="Add" onclick="location.hash=\'#/'+key+'/new\'">'+ic('plus')+'</button>')+
-    '<div class="searchwrap"><input id="q" type="search" placeholder="Search '+mod.title.toLowerCase()+'&hellip;" autocomplete="off"></div>'+
+    '<div class="searchwrap" style="display:flex;gap:8px;flex-wrap:wrap">'+
+      '<input id="q" type="search" placeholder="Search '+mod.title.toLowerCase()+'&hellip;" autocomplete="off" style="flex:1;min-width:180px">'+
+      (subcons.length?'<select id="fSub" style="width:auto;max-width:220px"><option value="">All subcontractors</option>'+
+        subcons.map(s=>'<option>'+esc(s)+'</option>').join('')+'</select>':'')+
+    '</div>'+
     '<div id="rows"></div>';
   const rowsEl=document.getElementById('rows');
-  const draw=q=>{
-    q=(q||'').toLowerCase();
-    const f=q?items.filter(i=>JSON.stringify(i).toLowerCase().includes(q)):items;
+  const draw=()=>{
+    const q=(document.getElementById('q').value||'').toLowerCase();
+    const fs=document.getElementById('fSub'); const sub=fs?fs.value:'';
+    let f=items;
+    if(sub) f=f.filter(i=>(i.subcon||'').trim()===sub);
+    if(q) f=f.filter(i=>JSON.stringify(i).toLowerCase().includes(q));
     rowsEl.innerHTML = f.length ? f.map(i=>
       '<div class="lrow" onclick="location.hash=\'#/'+key+'/'+i.id+'\'">'+
         '<div class="lmain"><div class="lt">'+(mod.line1(i)||'<span style="color:var(--sub)">(untitled)</span>')+'</div>'+
         '<div class="ls">'+(mod.line2?mod.line2(i):'')+'</div></div>'+
         '<div class="lmeta">'+(mod.meta?mod.meta(i):'')+'</div></div>').join('')
-     : '<div class="empty">'+(q?'No matches.':(mod.empty||'No records yet.'))+
-       (q?'':'<br><button class="btn" style="margin-top:12px" onclick="location.hash=\'#/'+key+'/new\'">+ Add first record</button>')+'</div>';
+     : '<div class="empty">'+((q||sub)?'No matches.':(mod.empty||'No records yet.'))+
+       ((q||sub)?'':'<br><button class="btn" style="margin-top:12px" onclick="location.hash=\'#/'+key+'/new\'">+ Add first record</button>')+'</div>';
   };
-  draw('');
-  document.getElementById('q').oninput=e=>draw(e.target.value);
+  draw();
+  document.getElementById('q').oninput=draw;
+  const fs=document.getElementById('fSub'); if(fs) fs.onchange=draw;
 }
 
 function renderEdit(key, id){
@@ -1622,9 +1719,20 @@ function saveReportHtml(){
 function renderSettings(){
   const s=db.settings;
   app.innerHTML = header('Settings', true)+
-    '<div class="card"><div class="fgrid">'+
+    '<div class="card"><label style="margin-top:0">Projects (company level)</label>'+
+      '<p class="hint">Company registers — Member(s), Equipment, Training — are shared across all projects. Everything else below belongs to the project selected in the top bar.</p>'+
+      '<div class="fgrid"><div class="fld"><label>Company name</label><input id="setCoName" value="'+esc(root.company.name||'')+'" placeholder="e.g. Koh Kock Leong Enterprise Pte Ltd"></div></div>'+
+      '<div id="projList" style="margin-top:10px">'+root.projects.map(p=>
+        '<div class="lrow" style="cursor:default"><div class="lmain"><div class="lt" style="color:var(--ink)">'+esc(p.settings.project||'(unnamed project)')+(p.id===root.cur?' <span class="chip">current</span>':'')+'</div>'+
+        '<div class="ls">'+esc([p.settings.hdbContract,p.settings.siteRef].filter(Boolean).join(' · '))+'</div></div>'+
+        '<div class="lmeta">'+(p.id===root.cur?'':'<button class="btn ghost" style="min-height:34px;padding:6px 12px" data-open="'+p.id+'">Open</button> ')+
+        (root.projects.length>1?'<button class="btn danger" style="min-height:34px;padding:6px 12px" data-delproj="'+p.id+'">Delete</button>':'')+'</div></div>').join('')+
+      '</div>'+
+      '<button class="minor" id="addProj">+ New project</button>'+
+    '</div>'+
+    '<div class="card"><label style="margin-top:0">Current project — '+esc(s.project||'(unnamed)')+'</label><div class="fgrid">'+
       '<div class="fld"><label>Project name</label><input id="setProject" value="'+esc(s.project||'')+'" placeholder="Shown on the home screen"></div>'+
-      '<div class="fld"><label>Company</label><input id="setCompany" value="'+esc(s.company||'')+'"></div>'+
+      '<div class="fld"><label>Contractor (for reports)</label><input id="setCompany" value="'+esc(s.company||'')+'"></div>'+
       '<div class="fld half"><label>HDB building contract no.</label><input id="setHdb" value="'+esc(s.hdbContract||'')+'" placeholder="e.g. D/357/18"></div>'+
       '<div class="fld half"><label>HDB site ref no.</label><input id="setRef" value="'+esc(s.siteRef||'')+'"></div>'+
       '<div class="fld half"><label>Estate</label><input id="setEstate" value="'+esc(s.estate||'')+'"></div>'+
@@ -1632,6 +1740,23 @@ function renderSettings(){
       '<div class="fld"><label>Precinct</label><input id="setPrecinct" value="'+esc(s.precinct||'')+'"></div>'+
     '</div><div class="hint">The HDB fields appear on the monthly safety data report header.</div>'+
     '<div class="btnrow"><button class="btn" id="setSave">Save</button></div></div>'+
+    '<div class="card"><label style="margin-top:0">Cloud sync (Supabase)</label>'+
+      '<p class="hint">Connect a Supabase project to sync this device with the team — company registers and all projects, offline-first. See SETUP.md in the repo for the one-time setup.</p>'+
+      '<p class="hint" id="sbStatus">&hellip;</p>'+
+      '<div id="sbCfgWrap"><div class="fgrid">'+
+        '<div class="fld half"><label>Supabase project URL</label><input id="sbUrl" placeholder="https://xxxx.supabase.co"></div>'+
+        '<div class="fld half"><label>Anon (public) key</label><input id="sbAnon" placeholder="eyJ&hellip;"></div>'+
+      '</div></div>'+
+      '<div id="sbLoginWrap" style="display:none"><div class="fgrid">'+
+        '<div class="fld half"><label>Email</label><input id="sbEmail" type="email" autocomplete="username"></div>'+
+        '<div class="fld half"><label>Password</label><input id="sbPass" type="password" autocomplete="current-password"></div>'+
+      '</div></div>'+
+      '<div class="btnrow" style="margin-top:10px">'+
+        '<button class="btn ghost" id="sbMain">Save connection</button>'+
+        '<button class="btn ghost" id="sbPush" style="display:none">Sync now</button>'+
+        '<button class="btn danger" id="sbOut" style="display:none">Sign out</button>'+
+      '</div>'+
+    '</div>'+
     '<div class="card"><label style="margin-top:0">SKYTOPIA Safety folder</label>'+
       '<p class="hint">Connect your <b>Skytopia \\ Safety</b> folder (OneDrive) so reports, CSV exports and backups save straight into it — each report type goes to its own subfolder (Inspections, Observations, Monthly Reports, &hellip;). Works in Chrome / Edge.</p>'+
       '<p class="hint" id="fsStatus">Checking&hellip;</p>'+
@@ -1640,7 +1765,7 @@ function renderSettings(){
     '</div>'+
     '<div class="card"><label style="margin-top:0">Backup &amp; restore</label>'+
       '<p class="hint">Data lives only in this browser. Export a backup file regularly and keep it somewhere safe; import it to restore or to move to another device.</p>'+
-      '<p class="hint">Storage used: ~'+Math.round(JSON.stringify(db).length/1024).toLocaleString()+' KB of a ~5,000 KB browser limit. Photos use the most space.</p>'+
+      '<p class="hint">Storage used: ~'+Math.round(JSON.stringify(root).length/1024).toLocaleString()+' KB of a ~5,000 KB browser limit. Photos use the most space.</p>'+
       '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="expBtn">Export backup</button>'+
       '<button class="btn ghost" id="impBtn">Import</button></div>'+
       '<input type="file" id="impFile" accept=".json,application/json" hidden>'+
@@ -1649,6 +1774,7 @@ function renderSettings(){
       '<div class="btnrow" style="margin-top:10px"><button class="btn danger" id="clrBtn" style="flex:1">Erase all data on this device</button></div>'+
     '</div>';
   document.getElementById('setSave').onclick=()=>{
+    root.company.name=document.getElementById('setCoName').value.trim();
     s.project=document.getElementById('setProject').value.trim();
     s.company=document.getElementById('setCompany').value.trim();
     s.hdbContract=document.getElementById('setHdb').value.trim();
@@ -1658,8 +1784,23 @@ function renderSettings(){
     s.precinct=document.getElementById('setPrecinct').value.trim();
     save(); location.hash='#/';
   };
+  document.getElementById('addProj').onclick=()=>{
+    const name=prompt('New project name:'); if(!name) return;
+    addProject(name.trim()); renderSettings();
+  };
+  app.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>switchProject(b.dataset.open));
+  app.querySelectorAll('[data-delproj]').forEach(b=>b.onclick=()=>{
+    const p=root.projects.find(x=>x.id===b.dataset.delproj); if(!p) return;
+    if(confirm('Delete project "'+(p.settings.project||'(unnamed)')+'" and ALL its records? Company registers are not affected.')
+       && confirm('Really delete this project? This cannot be undone on this device.')){
+      root.projects=root.projects.filter(x=>x.id!==p.id);
+      if(root.cur===p.id) root.cur=root.projects[0].id;
+      save(); renderSettings();
+    }
+  });
+  sbBindSettings();
   document.getElementById('expBtn').onclick=()=>{
-    saveOrDownload('Backups', 'cms-backup-'+today()+'.json', JSON.stringify(db,null,1), 'application/json');
+    saveOrDownload('Backups', 'cms-backup-'+today()+'.json', JSON.stringify(root,null,1), 'application/json');
   };
   const fsStatus=document.getElementById('fsStatus'), fsPick=document.getElementById('fsPick'), fsForget=document.getElementById('fsForget');
   async function fsRefresh(){
@@ -1686,24 +1827,253 @@ function renderSettings(){
     rd.onload=()=>{
       try{
         const d=JSON.parse(rd.result);
-        if(!d||typeof d!=='object'||!Array.isArray(d.members||[])) throw new Error('bad file');
+        if(!d||typeof d!=='object') throw new Error('bad file');
         if(!confirm('Importing replaces ALL data currently on this device. Continue?')) return;
-        const out=structuredClone(BLANK);
-        for(const k in out){ if(d[k]!==undefined) out[k]=d[k]; }
-        db=out; save(); alert('Backup imported.'); location.hash='#/';
+        if(d.v===2 && Array.isArray(d.projects)) root=fixRoot(d);          /* v2 backup */
+        else if(Array.isArray(d.members||d.tbm)) root=migrateV1(d);        /* v1 backup */
+        else throw new Error('bad file');
+        pushResetLocal();
+        save(); alert('Backup imported.'); location.hash='#/';
       }catch(e){ alert('Could not read that file — is it a CMS backup (.json)?'); }
     };
     rd.readAsText(f);
   };
   document.getElementById('clrBtn').onclick=()=>{
     if(confirm('Erase ALL records on this device?') && confirm('Really erase? Export a backup first if unsure.')){
-      db=structuredClone(BLANK); save(); location.hash='#/';
+      root=blankRoot(); pushResetLocal(); save(); location.hash='#/';
     }
+  };
+}
+
+/* ============ cloud sync (Supabase, offline-first) ============
+   Local storage stays the source of truth on-device; changes diff-push to a
+   `records` table (JSONB rows keyed org/project/store/id) and pull back
+   incrementally by updated_at. RLS on the server enforces the company →
+   project → subcon tiers. No config = pure local mode, zero network. */
+const SB={cfgKey:'kkl-sb-cfg', hashKey:'kkl-sb-pushed', syncKey:'kkl-sb-last',
+          client:null, profile:null, status:'off', statusMsg:'', timer:null, busy:false, libP:null};
+function sbCfg(){ try{ return JSON.parse(localStorage.getItem(SB.cfgKey)||'null'); }catch(e){ return null; } }
+function hashStr(s){ let h=5381; for(let i=0;i<s.length;i++){ h=((h<<5)+h+s.charCodeAt(i))|0; } return String(h)+':'+s.length; }
+function sbSetStatus(st,msg){
+  SB.status=st; SB.statusMsg=msg;
+  const d=document.getElementById('syncDot'); if(d) d.className='syncdot '+(st==='ok'?'ok':st==='err'?'err':'off');
+  const el=document.getElementById('sbStatus'); if(el) el.innerHTML=msg;
+}
+function sbLoadLib(){
+  if(window.supabase) return Promise.resolve();
+  if(SB.libP) return SB.libP;
+  SB.libP=new Promise((res,rej)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+    s.onload=res; s.onerror=()=>{ SB.libP=null; rej(new Error('could not load Supabase library')); };
+    document.head.appendChild(s);
+  });
+  return SB.libP;
+}
+async function syncInit(){
+  const cfg=sbCfg();
+  if(!cfg||!cfg.url||!cfg.anon){ sbSetStatus('off','<b>Not configured</b> — data stays on this device only.'); return; }
+  try{ await sbLoadLib(); }catch(e){ sbSetStatus('err','Offline or blocked — could not load the sync library. Will retry next launch.'); return; }
+  if(!SB.client) SB.client=window.supabase.createClient(cfg.url,cfg.anon);
+  try{
+    const {data:{session}}=await SB.client.auth.getSession();
+    if(!session){ sbSetStatus('off','Connected to Supabase — <b>not signed in</b>. Sign in below to sync.'); return; }
+    await sbAfterLogin();
+  }catch(e){ sbSetStatus('err','Sync init failed: '+esc(e.message||e)); }
+}
+async function sbAfterLogin(){
+  const {data:{user}}=await SB.client.auth.getUser();
+  const {data:prof,error}=await SB.client.from('profiles').select('*').eq('id',user.id).single();
+  if(error||!prof){ sbSetStatus('err','Signed in, but no profile found — ask your admin to add you (SETUP.md step 5).'); return; }
+  SB.profile=prof;
+  sbSetStatus('ok','Signed in as <b>'+esc(prof.email||user.email||'')+'</b> — role: <b>'+esc(prof.role)+'</b>'+
+    (prof.subcon?' ('+esc(prof.subcon)+')':'')+'. Sync is on.');
+  try{ await pullNow(); }catch(e){ console.warn('initial pull',e); }
+  schedulePush();
+  if(!SB.timer){
+    SB.timer=setInterval(()=>{ pullNow().catch(()=>{}); }, 60000);
+    document.addEventListener('visibilitychange',()=>{ if(!document.hidden) pullNow().catch(()=>{}); });
+  }
+}
+function rowsFromRoot(){
+  const rows=[];
+  COMPANY_STORES.forEach(st=>root.company[st].forEach(rec=>{ if(rec.id) rows.push({id:rec.id, project_id:'_company', store:st, data:rec}); }));
+  rows.push({id:'_companymeta', project_id:'_company', store:'_meta', data:{name:root.company.name||''}});
+  root.projects.forEach(p=>{
+    PROJECT_STORES.forEach(st=>p[st].forEach(rec=>{ if(rec.id) rows.push({id:rec.id, project_id:p.id, store:st, data:rec}); }));
+    rows.push({id:p.id, project_id:p.id, store:'_project', data:{settings:p.settings, manhours:p.manhours, mandays:p.mandays}});
+  });
+  return rows;
+}
+let pushTimer=null;
+function schedulePush(){
+  if(!SB.client||!SB.profile) return;
+  clearTimeout(pushTimer);
+  pushTimer=setTimeout(()=>pushNow().catch(e=>{
+    console.warn('push',e);
+    sbSetStatus('err','Could not sync latest change ('+esc(e.message||'network')+') — kept locally, will retry.');
+  }), 1500);
+}
+async function pushNow(){
+  if(!SB.client||!SB.profile||SB.busy) return;
+  SB.busy=true;
+  try{
+    const pushed=JSON.parse(localStorage.getItem(SB.hashKey)||'{}');
+    const rows=rowsFromRoot(), up=[], seen={};
+    rows.forEach(r=>{
+      const k=r.project_id+'|'+r.store+'|'+r.id, h=hashStr(JSON.stringify(r.data));
+      seen[k]=h;
+      if(pushed[k]!==h) up.push({id:r.id, project_id:r.project_id, store:r.store, data:r.data, deleted:false});
+    });
+    Object.keys(pushed).forEach(k=>{
+      if(!(k in seen)){
+        const i1=k.indexOf('|'), i2=k.indexOf('|',i1+1);
+        up.push({id:k.slice(i2+1), project_id:k.slice(0,i1), store:k.slice(i1+1,i2), data:{}, deleted:true});
+      }
+    });
+    for(let i=0;i<up.length;i+=100){
+      const chunk=up.slice(i,i+100).map(r=>({...r, org_id:SB.profile.org_id, updated_by:SB.profile.id}));
+      const {error}=await SB.client.from('records').upsert(chunk);
+      if(error) throw error;
+    }
+    localStorage.setItem(SB.hashKey, JSON.stringify(seen));
+    if(up.length) sbSetStatus('ok','Synced '+up.length+' change(s) · '+new Date().toLocaleTimeString());
+  }finally{ SB.busy=false; }
+}
+function localHashOf(project_id, store, id){
+  if(project_id==='_company'){
+    if(store==='_meta') return hashStr(JSON.stringify({name:root.company.name||''}));
+    const rec=(root.company[store]||[]).find(x=>x.id===id);
+    return rec?hashStr(JSON.stringify(rec)):null;
+  }
+  const p=root.projects.find(x=>x.id===project_id);
+  if(!p) return null;
+  if(store==='_project') return hashStr(JSON.stringify({settings:p.settings, manhours:p.manhours, mandays:p.mandays}));
+  const rec=(p[store]||[]).find(x=>x.id===id);
+  return rec?hashStr(JSON.stringify(rec)):null;
+}
+function applyRemote(r, pushed){
+  const k=r.project_id+'|'+r.store+'|'+r.id;
+  const localH=localHashOf(r.project_id, r.store, r.id);
+  if(pushed[k]!==undefined && localH!==null && localH!==pushed[k]) return false; /* local unpushed edit wins */
+  const remoteH=hashStr(JSON.stringify(r.data||{}));
+  if(r.project_id==='_company'){
+    if(r.store==='_meta'){ if(!r.deleted){ root.company.name=(r.data&&r.data.name)||''; pushed[k]=remoteH; } return true; }
+    if(!COMPANY_STORES.includes(r.store)) return false;
+    const arr=root.company[r.store];
+    const i=arr.findIndex(x=>x.id===r.id);
+    if(r.deleted){ if(i>=0) arr.splice(i,1); delete pushed[k]; return i>=0; }
+    if(i>=0) arr[i]=r.data; else arr.push(r.data);
+    pushed[k]=remoteH; return true;
+  }
+  let p=root.projects.find(x=>x.id===r.project_id);
+  if(r.store==='_project'){
+    if(r.deleted){
+      if(p && root.projects.length>1){ root.projects=root.projects.filter(x=>x.id!==p.id);
+        if(root.cur===r.project_id) root.cur=root.projects[0].id; }
+      delete pushed[k]; return !!p;
+    }
+    if(!p){ p=blankProject(''); p.id=r.project_id; root.projects.push(p); }
+    if(r.data.settings) p.settings=r.data.settings;
+    if(r.data.manhours) p.manhours=r.data.manhours;
+    if(r.data.mandays) p.mandays=r.data.mandays;
+    pushed[k]=remoteH; return true;
+  }
+  if(!PROJECT_STORES.includes(r.store)) return false;
+  if(!p){ if(r.deleted) return false; p=blankProject(''); p.id=r.project_id; root.projects.push(p); }
+  const arr=p[r.store];
+  const i=arr.findIndex(x=>x.id===r.id);
+  if(r.deleted){ if(i>=0) arr.splice(i,1); delete pushed[k]; return i>=0; }
+  if(i>=0) arr[i]=r.data; else arr.push(r.data);
+  pushed[k]=remoteH; return true;
+}
+async function pullNow(){
+  if(!SB.client||!SB.profile) return;
+  const last=localStorage.getItem(SB.syncKey)||'1970-01-01T00:00:00Z';
+  let from=last, changed=false, guard=0;
+  while(guard++<40){
+    const {data,error}=await SB.client.from('records')
+      .select('id,project_id,store,data,deleted,updated_at')
+      .gt('updated_at',from).order('updated_at',{ascending:true}).limit(500);
+    if(error) throw error;
+    if(!data||!data.length) break;
+    const pushed=JSON.parse(localStorage.getItem(SB.hashKey)||'{}');
+    data.forEach(r=>{ try{ if(applyRemote(r,pushed)) changed=true; }catch(e){ console.warn('apply',r.store,r.id,e); } });
+    localStorage.setItem(SB.hashKey, JSON.stringify(pushed));
+    from=data[data.length-1].updated_at;
+    if(data.length<500) break;
+  }
+  if(from!==last) localStorage.setItem(SB.syncKey, from);
+  if(changed){
+    if(!root.projects.some(p=>p.id===root.cur)) root.cur=root.projects[0].id;
+    localStorage.setItem(KEY2, JSON.stringify(root));
+    if(!curEdit) route(); /* don't clobber a form mid-edit */
+  }
+}
+function pushResetLocal(){ localStorage.removeItem(SB.hashKey); localStorage.removeItem(SB.syncKey); }
+function sbBindSettings(){
+  const cfg=sbCfg();
+  const cfgWrap=document.getElementById('sbCfgWrap'), loginWrap=document.getElementById('sbLoginWrap');
+  const main=document.getElementById('sbMain'), out=document.getElementById('sbOut'), push=document.getElementById('sbPush');
+  sbSetStatus(SB.status, SB.statusMsg||'&hellip;');
+  if(!cfg){
+    cfgWrap.style.display=''; loginWrap.style.display='none';
+    main.textContent='Save connection';
+    sbSetStatus('off','<b>Not configured</b> — data stays on this device only.');
+    main.onclick=()=>{
+      const url=document.getElementById('sbUrl').value.trim().replace(/\/+$/,'');
+      const anon=document.getElementById('sbAnon').value.trim();
+      if(!/^https:\/\/.+\.supabase\.co$/.test(url)){ alert('That does not look like a Supabase project URL (https://xxxx.supabase.co).'); return; }
+      if(anon.length<80){ alert('That does not look like the anon public key — copy it from Supabase → Settings → API.'); return; }
+      localStorage.setItem(SB.cfgKey, JSON.stringify({url,anon}));
+      syncInit().then(()=>renderSettings());
+    };
+    return;
+  }
+  cfgWrap.style.display='none';
+  if(!SB.profile){
+    loginWrap.style.display='';
+    main.textContent='Sign in';
+    main.onclick=async()=>{
+      const email=document.getElementById('sbEmail').value.trim(), pw=document.getElementById('sbPass').value;
+      if(!email||!pw) return;
+      main.disabled=true;
+      try{
+        await sbLoadLib();
+        if(!SB.client) SB.client=window.supabase.createClient(cfg.url,cfg.anon);
+        const {error}=await SB.client.auth.signInWithPassword({email, password:pw});
+        if(error) throw error;
+        await sbAfterLogin(); renderSettings();
+      }catch(e){ alert('Sign-in failed: '+(e.message||e)); }
+      finally{ main.disabled=false; }
+    };
+    out.style.display='';
+    out.textContent='Forget connection';
+    out.onclick=()=>{ if(confirm('Remove the Supabase connection from this device? Local data stays.')){
+      localStorage.removeItem(SB.cfgKey); pushResetLocal(); SB.client=null; SB.profile=null; renderSettings(); } };
+    return;
+  }
+  loginWrap.style.display='none';
+  main.style.display='none';
+  push.style.display='';
+  push.onclick=async()=>{ push.disabled=true;
+    try{ await pushNow(); await pullNow(); toast('Sync complete'); }
+    catch(e){ toast('Sync failed: '+(e.message||'network'), true); }
+    finally{ push.disabled=false; } };
+  out.style.display='';
+  out.textContent='Sign out';
+  out.onclick=async()=>{
+    if(!confirm('Sign out of cloud sync on this device? Local data stays.')) return;
+    try{ await SB.client.auth.signOut(); }catch(e){}
+    SB.profile=null; clearInterval(SB.timer); SB.timer=null;
+    sbSetStatus('off','Signed out — local-only until you sign in again.');
+    renderSettings();
   };
 }
 
 initShell();
 route();
+syncInit();
 </script>
 </body>
 </html>
