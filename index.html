@@ -1427,7 +1427,7 @@ const MODULES={
    {k:'block',label:'Block / zone',half:1},
    {k:'storey',label:'Storey',half:1},
    {k:'location',label:'Exact location / area'},
-   {k:'ptw',label:'ePTW permit no(s).',half:1,hint:'Required before hot works, confined space, WAH, lifting and excavation can go Active.'},
+   {k:'ptw',label:'ePTW permit no(s). — fill in AFTER approval',half:1,hint:'Leave blank while Planned; apply in Sky ePTW, then paste the approved permit number here. Permit-class work (hot works, confined space, WAH, lifting, excavation) cannot go Active without it.'},
    {k:'crew',label:'Crew — assigned members & their roles',type:'rows',add:'Add member',cols:[
      {k:'memberId',label:'Member',type:'select',opts:()=>db.members.map(m=>[m.id,m.name])},
      {k:'role',label:'Role in activity',type:'select',opts:['Worker','Supervisor / Foreman','Lifting Supervisor','Rigger / Signalman','Banksman','Operator','Scaffolder','Welder','Confined Space Attendant','Others']}]},
