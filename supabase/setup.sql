@@ -215,7 +215,7 @@ create policy rec_read on public.records
       or ( not public.my_hq() and public.my_role() in ('wsho','viewer')
            and (public.my_project() is null or project_id = public.my_project() or project_id = '_company')
            and ( project_id <> '_company'
-                 or store in ('members','equipment','training','competencyTypes','workerCompetencies','sicProfiles','_meta')
+                 or store in ('members','equipment','training','competencyTypes','workerCompetencies','sicProfiles','companyDocs','_meta')
                  or (public.my_role() = 'wsho' and store in ('raLibrary','raMasters','raMasterVersions')) )
            and store not in ('auditEvents','organisations','clientTemplates','legacyDocs','memberPrivate')
            and (public.my_role() <> 'viewer' or store not in

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-16-0025">
+<meta name="build" content="2026-08-16-0100">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -475,7 +475,7 @@ function compressImage(file, cb){
 /* ============ storage (v2: company level + projects + subcon tags) ============ */
 const KEY='kkl-cms-v1';    /* legacy flat schema — migrated, never deleted */
 const KEY2='kkl-cms-v2';
-const COMPANY_STORES=['members','equipment','training','raLibrary','raMasters','raMasterVersions','legacyDocs','clientTemplates','auditEvents','competencyTypes','workerCompetencies','sicProfiles','organisations','memberPrivate'];
+const COMPANY_STORES=['members','equipment','training','raLibrary','raMasters','raMasterVersions','legacyDocs','clientTemplates','auditEvents','competencyTypes','workerCompetencies','sicProfiles','organisations','memberPrivate','companyDocs'];
 const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers','workerProjectAccess','sicSessions'];
 const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
 function blankProject(name){
@@ -735,10 +735,10 @@ const NAV=[
  {group:'Quality', items:[['defects','Defects','defect']]},
  {group:'Reports', items:[['stats','Statistics','stats'],['report','Monthly Report','print']]},
  {group:'Company (HQ)', items:[['companyhome','Company Home','home'],['ramasters','Master RA Library','ra'],
-                          ['organisations','Organisations','contact'],['sicProfiles','SIC Profiles','sic'],
-                          ['audit','Audit Log','doc']]}
+                          ['companyDocs','Company Documents','doc'],['organisations','Organisations','contact'],
+                          ['sicProfiles','SIC Profiles','sic'],['audit','Audit Log','doc']]}
 ];
-const HQ_NAV=['companyhome','ramasters','organisations','sicProfiles','audit'];
+const HQ_NAV=['companyhome','ramasters','companyDocs','organisations','sicProfiles','audit'];
 function buildNav(){
   const nav=document.getElementById('sidenav');
   if(SB.profile&&SB.profile.role==='subcon'){
@@ -902,28 +902,42 @@ function renderHome(){
     '<div class="foot">Synced to your team workspace — daily backups file to OneDrive when the Safety folder is connected (Settings).</div>';
 }
 
+/* company registers viewed from a project default to the site subset; HQ can
+   flip to the whole company. Searching always spans the whole register so a
+   worker/machine can be found and brought onto site. */
+const LSCOPE={};
 function renderList(key){
   const mod=MODULES[key];
   let items=[...db[mod.store]];
   items.sort(mod.sort || ((a,b)=>(b.date||'').localeCompare(a.date||'')));
+  const scoped=!!mod.siteFilter;
+  const scope=scoped?(LSCOPE[key]||'site'):'company';
+  const siteItems=scoped?mod.siteFilter(items):items;
   const subconField=mod.fields.some(f=>f.k==='subcon');
   const subcons=subconField?[...new Set(items.map(i=>(i.subcon||'').trim()).filter(Boolean))].sort():[];
   const newHash=mod.newRoute||('#/'+key+'/new');
   app.innerHTML = header(mod.title, true,
       (items.length?'<button class="iconbtn" aria-label="Export CSV" title="Export CSV (Excel)" onclick="exportModuleCsv(\''+key+'\')">'+ic('dl')+'</button>':'')+
       '<button class="iconbtn" aria-label="Add" onclick="location.hash=\''+newHash+'\'">'+ic('plus')+'</button>')+
-    (mod.listHeader?mod.listHeader(items):'')+
+    (scoped?'<div class="btnrow" style="margin:0 0 10px">'+
+      '<button class="btn'+(scope==='site'?'':' ghost')+'" id="scSite" style="flex:1">On this project ('+siteItems.length+')</button>'+
+      (isHQ()?'<button class="btn'+(scope==='company'?'':' ghost')+'" id="scAll" style="flex:1">Whole company ('+items.length+')</button>':'')+
+      '</div>':'')+
+    (mod.listHeader?mod.listHeader(scope==='site'?siteItems:items):'')+
     '<div class="searchwrap" style="display:flex;gap:8px;flex-wrap:wrap">'+
-      '<input id="q" type="search" placeholder="Search '+mod.title.toLowerCase()+'&hellip;" autocomplete="off" style="flex:1;min-width:180px">'+
+      '<input id="q" type="search" placeholder="Search '+mod.title.toLowerCase()+(scoped?' (searches the whole register)':'')+'&hellip;" autocomplete="off" style="flex:1;min-width:180px">'+
       (subcons.length?'<select id="fSub" style="width:auto;max-width:220px"><option value="">All subcontractors</option>'+
         subcons.map(s=>'<option>'+esc(s)+'</option>').join('')+'</select>':'')+
     '</div>'+
     '<div id="rows"></div>';
+  const sB=document.getElementById('scSite'), aB=document.getElementById('scAll');
+  if(sB) sB.onclick=()=>{ LSCOPE[key]='site'; renderList(key); };
+  if(aB) aB.onclick=()=>{ LSCOPE[key]='company'; renderList(key); };
   const rowsEl=document.getElementById('rows');
   const draw=()=>{
     const q=(document.getElementById('q').value||'').toLowerCase();
     const fs=document.getElementById('fSub'); const sub=fs?fs.value:'';
-    let f=items;
+    let f=(scope==='site'&&!q)?siteItems:items;
     if(sub) f=f.filter(i=>(i.subcon||'').trim()===sub);
     if(q) f=f.filter(i=>JSON.stringify(i).toLowerCase().includes(q));
     rowsEl.innerHTML = f.length ? f.map(i=>
@@ -1212,6 +1226,7 @@ const MODULES={
     if(bar){ const b=document.createElement('button'); b.type='button'; b.className='btn ghost';
       b.textContent='Passport'; b.onclick=()=>location.hash='#/passport/'+item.id; bar.appendChild(b); }
   },
+  siteFilter:items=>{ const ids=projectMemberIds(); return items.filter(m=>ids.has(m.id)); },
   sort:(a,b)=>(a.name||'').localeCompare(b.name||''),
   listHeader:items=>items.length?'<div style="margin:0 0 10px">'+
     '<button class="btn ghost" onclick="exportSicCsv()">SIC register export</button>'+
@@ -1233,6 +1248,8 @@ const MODULES={
    {k:'owner',label:'Owner / supplier',half:1},
    {k:'swl',label:'SWL / capacity',half:1},
    {k:'status',label:'Status',type:'select',opts:['In service','Under repair','Off-site'],def:'In service',half:1},
+   {k:'projectId',label:'Deployed at project',type:'select',half:1,
+    opts:()=>[['','— yard / unassigned —']].concat(root.projects.map(p=>[p.id,p.settings.project||'(unnamed)']))},
    {k:'operator',label:'Assigned operator (name)',half:1},
    {k:'operatorMemberId',label:'Operator (registered worker)',type:'select',half:1,
     opts:()=>[['','— none —']].concat(db.members.map(m=>[m.id,memberLabel(m)]))},
@@ -1242,6 +1259,7 @@ const MODULES={
    {k:'certs',label:'Certs & statutory tests (LM / LG)',type:'rows',add:'Add cert / test',
     cols:[{k:'name',label:'Cert (e.g. LM cert, PE test, calibration)',w:'full'},{k:'no',label:'Cert no.'},{k:'expiry',label:'Expiry',type:'date'}]},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  siteFilter:items=>{ const pIds=projectPlantIds(); return items.filter(e=>equipOnSite(e,pIds)); },
   sort:(a,b)=>(a.type||'').localeCompare(b.type||'')||(a.regNo||'').localeCompare(b.regNo||''),
   line1:i=>esc([i.type,i.regNo].filter(Boolean).join(' — ')),
   line2:i=>esc([i.name,i.owner].filter(Boolean).join(' · ')),
@@ -1467,6 +1485,8 @@ const MODULES={
     if(obj.memberId){ const m=db.members.find(x=>x.id===obj.memberId);
       if(m){ if(!obj.name) obj.name=m.name; obj.company=m.company||''; } }
   },
+  siteFilter:items=>{ const ids=projectMemberIds();
+    return items.filter(t=>{ const m=trainingMemberOf(t); return m&&ids.has(m.id); }); },
   sort:(a,b)=>(b.date||'').localeCompare(a.date||''),
   line1:i=>esc(i.course),
   line2:i=>esc([i.name,i.provider].filter(Boolean).join(' · ')),
@@ -1501,6 +1521,7 @@ const MODULES={
       audit('competency-added','workerCompetency',obj.id,null,{typeCode:obj.typeCode,memberId:obj.memberId});
     }
   },
+  siteFilter:items=>{ const ids=projectMemberIds(); return items.filter(c=>ids.has(c.memberId)); },
   sort:(a,b)=>(a.memberName||'').localeCompare(b.memberName||'')||(a.typeName||'').localeCompare(b.typeName||''),
   line1:i=>esc(i.typeName||i.typeCode||''),
   line2:i=>esc([i.memberName,i.company,i.certNo].filter(Boolean).join(' · ')),
@@ -1519,6 +1540,21 @@ const MODULES={
   line1:i=>esc(i.name),
   line2:i=>esc([i.client,(i.requirements||[]).map(r=>r.req).filter(Boolean).join(', ')].filter(Boolean).join(' · ')),
   empty:'Configurable SIC requirement sets per client / main contractor. Use competency type codes (CSOC, WAH, CS, RIG, SIG, LS, EXC, CRA…) plus PHOTO and WORKPASS.'},
+
+ companyDocs:{ title:'Company Document', store:'companyDocs',
+  fields:[
+   {k:'title',label:'Title',req:1},
+   {k:'category',label:'Category',type:'select',opts:DOCCATS,half:1},
+   {k:'ref',label:'Reference no.',half:1},
+   {k:'rev',label:'Revision',half:1},
+   {k:'date',label:'Issue date',type:'date',half:1},
+   {k:'expiry',label:'Valid until (optional)',type:'date',half:1},
+   {k:'location',label:'Where it is kept',half:1,ph:'e.g. HQ server / OneDrive folder'},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  line1:i=>esc(i.title),
+  line2:i=>esc([i.category,i.ref,i.rev?('Rev '+i.rev):''].filter(Boolean).join(' · ')),
+  meta:i=>i.expiry?expChip(i.expiry):(i.date?'<span class="chip n">'+fmtD(i.date)+'</span>':''),
+  empty:'Company-level controlled documents — WSH policy, corporate insurances, bizSAFE certs, licences. One register for the whole company instead of copies in every project.'},
 
  organisations:{ title:'Organisation', store:'organisations',
   fields:[
@@ -1813,29 +1849,60 @@ function saveRecordHtml(key, id){
 }
 
 /* ============ cert expiry dashboard ============ */
-function certRows(){
+/* which company resources touch the CURRENT project */
+function projectMemberIds(){
+  const s=new Set();
+  db.workerProjectAccess.forEach(a=>a.memberId&&s.add(a.memberId));
+  db.workActivities.forEach(w=>(w.crew||[]).forEach(c=>c.memberId&&s.add(c.memberId)));
+  db.tbm.forEach(t=>{ (t.checkins||[]).forEach(c=>c.memberId&&s.add(c.memberId));
+                      (t.attendees||[]).forEach(id=>s.add(id)); });
+  db.equipment.forEach(e=>{ if(e.projectId===root.cur&&e.operatorMemberId) s.add(e.operatorMemberId); });
+  return s;
+}
+function projectPlantIds(){
+  const s=new Set();
+  db.workActivities.forEach(w=>(w.plant||[]).forEach(p=>p.equipmentId&&s.add(p.equipmentId)));
+  return s;
+}
+function equipOnSite(e, pIds){ return e.projectId===root.cur || (pIds||projectPlantIds()).has(e.id); }
+function trainingMemberOf(t){
+  return t.memberId?db.members.find(x=>x.id===t.memberId)
+        :db.members.find(x=>(x.name||'').trim().toLowerCase()===(t.name||'').trim().toLowerCase());
+}
+function certRows(scope){
   const out=[];
   const push=(cat,owner,name,expiry,link,warn)=>{ const d=daysTo(expiry);
     if(d!==null) out.push({cat,owner,name,expiry,days:d,link,warn:warn||30}); };
+  const mIds=scope==='site'?projectMemberIds():null;
+  const pIds=scope==='site'?projectPlantIds():null;
   db.members.forEach(m=>{
+    if(mIds&&!mIds.has(m.id)) return;
     if(m.wpExpiry) push('Work pass', m.name, 'Work pass', m.wpExpiry, '#/members/'+m.id);
-    (m.certs||[]).forEach(c=>push('Member cert', m.name, c.name||'Cert', c.expiry, '#/members/'+m.id));
+    const comps=memberComps(m.id);
+    if(comps.length) comps.forEach(c=>push('Competency', m.name, c.typeName||c.typeCode||'Cert', c.expiry, '#/workerCompetencies/'+c.id));
+    else (m.certs||[]).forEach(c=>push('Member cert', m.name, c.name||'Cert', c.expiry, '#/members/'+m.id));
   });
   db.equipment.forEach(e=>{
+    if(pIds&&!equipOnSite(e,pIds)) return;
     const label=[e.type,e.regNo].filter(Boolean).join(' ');
     (e.certs||[]).forEach(c=>push('Equipment', label, c.name||'LM/LG cert', c.expiry, '#/equipment/'+e.id));
     if(e.hdbML) push('Equipment', label, 'Material list registration', e.hdbML, '#/equipment/'+e.id);
     if(e.aeDue) push('Equipment', label, 'AE inspection & test', e.aeDue, '#/equipment/'+e.id);
     if(e.serviceDue) push('Equipment', label, 'Crane servicing', e.serviceDue, '#/equipment/'+e.id, 14);
   });
-  db.training.forEach(t=>push('Training', t.name, t.course, t.expiry, '#/training/'+t.id));
+  db.training.forEach(t=>{
+    if(mIds){ const m=trainingMemberOf(t); if(!m||!mIds.has(m.id)) return; }
+    push('Training', t.name, t.course, t.expiry, '#/training/'+t.id);
+  });
   db.documents.forEach(d=>push('Document', d.title, 'Validity', d.expiry, '#/documents/'+d.id));
+  if(scope!=='site') db.companyDocs.forEach(d=>push('Company doc', d.title, 'Validity', d.expiry, '#/companyDocs/'+d.id));
   return out.sort((a,b)=>a.days-b.days);
 }
-function certBadgeCount(){ return certRows().filter(r=>r.days<=r.warn).length; }
+function certBadgeCount(){ return certRows('site').filter(r=>r.days<=r.warn).length; }
 
+let CES={scope:'site'};
 function renderCertExp(){
-  const rows=certRows();
+  const rows=certRows(CES.scope);
   const groups=[
    {t:'Expired', c:'b', f:r=>r.days<0},
    {t:'Due within 30 days', c:'w', f:r=>r.days>=0&&r.days<=30},
@@ -1846,10 +1913,17 @@ function renderCertExp(){
     '<div class="ls">'+esc(r.cat)+' · '+esc(r.name)+'</div></div>'+
     '<div class="lmeta">'+expChip(r.expiry, r.warn)+'</div></div>';
   app.innerHTML = header('Cert Expiry', true)+
+    '<div class="btnrow" style="margin:0 0 10px">'+
+      '<button class="btn'+(CES.scope==='site'?'':' ghost')+'" id="ceSite" style="flex:1">This project</button>'+
+      (isHQ()?'<button class="btn'+(CES.scope==='company'?'':' ghost')+'" id="ceAll" style="flex:1">Whole company</button>':'')+
+    '</div>'+
     (rows.length
       ? groups.map(g=>{ const gr=rows.filter(g.f); if(!gr.length) return '';
           return '<div class="exphead '+g.c+'">'+g.t+' ('+gr.length+')</div>'+gr.map(row).join(''); }).join('')
-      : '<div class="empty">Nothing to track yet.<br>Expiry dates you enter on Members, Equipment, Training and Documents all roll up here automatically.</div>');
+      : '<div class="empty">Nothing to track '+(CES.scope==='site'?'on this project yet — workers and plant appear here once inducted, crewed or deployed.':'yet.')+'</div>');
+  const cs=document.getElementById('ceSite'), ca=document.getElementById('ceAll');
+  if(cs) cs.onclick=()=>{ CES.scope='site'; renderCertExp(); };
+  if(ca) ca.onclick=()=>{ CES.scope='company'; renderCertExp(); };
 }
 
 /* ============ CSV export ============ */
@@ -4188,11 +4262,12 @@ function sicPack(rows, prof){
 }
 
 /* ---- competency matrix + workforce dashboard ---- */
-let MTX={q:'',co:'',show:'ALL',all:false};
+let MTX={q:'',co:'',show:'ALL',all:false,scope:'site'};
 function renderMatrix(){
   const cols=db.competencyTypes.filter(t=>t.core);
   const compIdx={};
   db.workerCompetencies.forEach(c=>{ (compIdx[c.memberId]=compIdx[c.memberId]||[]).push(c); });
+  const siteIds=MTX.scope==='site'?projectMemberIds():null;
   const cell=(m,t)=>{
     const kws=compTypeKws(t);
     const certs=memberAllCerts(m).filter(c=>kws.some(k=>(c.name||'').toLowerCase().includes(k)));
@@ -4206,6 +4281,7 @@ function renderMatrix(){
   };
   const q=MTX.q.toLowerCase();
   let ms=db.members.filter(m=>!q||JSON.stringify(m).toLowerCase().includes(q));
+  if(siteIds&&!q) ms=ms.filter(m=>siteIds.has(m.id));
   if(MTX.co) ms=ms.filter(m=>(m.company||'')===MTX.co);
   const rows=ms.map(m=>{
     const acc=memberAccess(m.id);
@@ -4226,12 +4302,17 @@ function renderMatrix(){
     if(MTX.show==='EXP') return r.minExp!==null&&r.minExp<0;
     return true;
   }).sort((a,b)=>(a.m.company||'').localeCompare(b.m.company||'')||(a.m.name||'').localeCompare(b.m.name||''));
-  const active=db.members.filter(m=>m.status!=='INACTIVE').length;
-  const sicMiss=db.members.filter(m=>m.status!=='INACTIVE'&&!(memberAccess(m.id)&&memberAccess(m.id).sicStatus==='COMPLETE')).length;
-  const e30=db.members.filter(m=>memberAllCerts(m).concat(m.wpExpiry?[{expiry:m.wpExpiry}]:[]).some(c=>{const d=c.expiry?daysTo(c.expiry):null; return d!==null&&d>=0&&d<=30;})).length;
-  const expd=db.members.filter(m=>memberAllCerts(m).some(c=>{const d=c.expiry?daysTo(c.expiry):null; return d!==null&&d<0;})).length;
+  const base=siteIds?db.members.filter(m=>siteIds.has(m.id)):db.members;
+  const active=base.filter(m=>m.status!=='INACTIVE').length;
+  const sicMiss=base.filter(m=>m.status!=='INACTIVE'&&!(memberAccess(m.id)&&memberAccess(m.id).sicStatus==='COMPLETE')).length;
+  const e30=base.filter(m=>memberAllCerts(m).concat(m.wpExpiry?[{expiry:m.wpExpiry}]:[]).some(c=>{const d=c.expiry?daysTo(c.expiry):null; return d!==null&&d>=0&&d<=30;})).length;
+  const expd=base.filter(m=>memberAllCerts(m).some(c=>{const d=c.expiry?daysTo(c.expiry):null; return d!==null&&d<0;})).length;
   const shown=MTX.all?rows:rows.slice(0,150);
   app.innerHTML=header('Competency Matrix')+
+    '<div class="btnrow" style="margin:0 0 10px">'+
+      '<button class="btn'+(MTX.scope==='site'?'':' ghost')+'" id="mxSite" style="flex:1">This project</button>'+
+      (isHQ()?'<button class="btn'+(MTX.scope==='company'?'':' ghost')+'" id="mxAllScope" style="flex:1">Whole company</button>':'')+
+    '</div>'+
     '<div class="tiles">'+
       '<div class="stile"><div class="v">'+active+'</div><div class="l">Active workers</div></div>'+
       '<div class="stile"><div class="v'+(sicMiss?' w':'')+'">'+sicMiss+'</div><div class="l">SIC incomplete</div></div>'+
@@ -4254,6 +4335,9 @@ function renderMatrix(){
     '</table></div>'+
     (rows.length>shown.length?'<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="mxAll" style="flex:1">Show all '+rows.length+'</button></div>':'')+
     '<p class="hint">&#10003; valid · &#9888; expiring &le;30d or unverified · &#10007; expired · — not held · SIC "L" = legacy date only. Tap a row for the Worker Passport.</p>';
+  const ms1=document.getElementById('mxSite'), ms2=document.getElementById('mxAllScope');
+  if(ms1) ms1.onclick=()=>{ MTX.scope='site'; renderMatrix(); };
+  if(ms2) ms2.onclick=()=>{ MTX.scope='company'; renderMatrix(); };
   document.getElementById('mxQ').oninput=e=>{ MTX.q=e.target.value; MTX.all=false; renderMatrix(); };
   document.getElementById('mxCo').onchange=e=>{ MTX.co=e.target.value; renderMatrix(); };
   document.getElementById('mxShow').onchange=e=>{ MTX.show=e.target.value; renderMatrix(); };
@@ -4347,9 +4431,9 @@ function renderCompanyHome(){
       '<div><b>'+esc(root.company.name||'Company')+'</b><div class="hint">'+root.projects.length+' project(s) · company-level view (HQ)</div></div></div>'+
     '<h2 class="sect">Company overview</h2>'+
     '<div class="tiles">'+
-      '<a class="stile" href="#/members"><div class="v">'+active+'</div><div class="l">Active workers</div></a>'+
-      '<a class="stile" href="#/matrix"><div class="v'+(e30?' w':'')+'">'+e30+'</div><div class="l">Certs expiring &le;30d</div></a>'+
-      '<a class="stile" href="#/equipment"><div class="v">'+fleet+'</div><div class="l">Equipment</div></a>'+
+      '<a class="stile" href="#/members" onclick="LSCOPE.members=\'company\'"><div class="v">'+active+'</div><div class="l">Active workers</div></a>'+
+      '<a class="stile" href="#/matrix" onclick="MTX.scope=\'company\'"><div class="v'+(e30?' w':'')+'">'+e30+'</div><div class="l">Certs expiring &le;30d</div></a>'+
+      '<a class="stile" href="#/equipment" onclick="LSCOPE.equipment=\'company\'"><div class="v">'+fleet+'</div><div class="l">Equipment fleet</div></a>'+
       '<a class="stile" href="#/ramasters"><div class="v">'+masters+'</div><div class="l">Master RAs</div></a>'+
       '<a class="stile" href="#/organisations"><div class="v">'+orgs+'</div><div class="l">Organisations</div></a>'+
     '</div>'+
@@ -4362,6 +4446,7 @@ function renderCompanyHome(){
     '<h2 class="sect">Company administration</h2>'+
     '<div class="grid">'+
       '<a class="tile" href="#/ramasters"><span class="ic">'+ic('ra')+'</span><span class="tl">Master RA Library</span></a>'+
+      '<a class="tile" href="#/companyDocs"><span class="ic">'+ic('doc')+'</span><span class="tl">Company Documents</span></a>'+
       '<a class="tile" href="#/organisations"><span class="ic">'+ic('contact')+'</span><span class="tl">Organisations</span></a>'+
       '<a class="tile" href="#/sicProfiles"><span class="ic">'+ic('sic')+'</span><span class="tl">SIC Profiles</span></a>'+
       '<a class="tile" href="#/audit"><span class="ic">'+ic('doc')+'</span><span class="tl">Audit Log</span></a>'+
