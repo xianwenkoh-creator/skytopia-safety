@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-16-0140">
+<meta name="build" content="2026-08-16-0230">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -92,6 +92,8 @@
   .sn-item svg{width:17px; height:17px; color:var(--acc); flex:0 0 auto;}
   .sn-item:hover{background:var(--bg);}
   .sn-item.on{border-left-color:var(--acc); background:var(--acc-soft);}
+  .sp-t.on{background:var(--acc); color:#fff; border-color:var(--acc);}
+  #spQr .lrow, [id$='-r'] .lrow{padding:8px 10px;}
   .sn-item.on svg{color:var(--acc);}
   .sn-item .sbdg{margin-left:auto; min-width:20px; text-align:center; padding:0 6px; border-radius:9px;
                  background:var(--badge); color:#fff; font-size:11px; font-weight:700; line-height:18px;}
@@ -476,7 +478,7 @@ function compressImage(file, cb){
 const KEY='kkl-cms-v1';    /* legacy flat schema — migrated, never deleted */
 const KEY2='kkl-cms-v2';
 const COMPANY_STORES=['members','equipment','training','raLibrary','raMasters','raMasterVersions','legacyDocs','clientTemplates','auditEvents','competencyTypes','workerCompetencies','sicProfiles','organisations','memberPrivate','companyDocs'];
-const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers','workerProjectAccess','sicSessions'];
+const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers','workerProjectAccess','sicSessions','locations','layouts','layoutVersions','locGeoms','spatialZones','zoneGeoms'];
 const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
 function blankProject(name){
   const p={id:uid(), settings:structuredClone(BLANK.settings), manhours:{}, mandays:{}};
@@ -727,7 +729,8 @@ const NAV=[
  {group:'Operations', items:[['work','Work Activities','work']]},
  {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic'],
                           ['training','Training','train'],['certexp','Cert Expiry','cert']]},
- {group:'Site',    items:[['contacts','Contacts','contact'],['equipment','Equipment','equip'],
+ {group:'Site',    items:[['layout','Site Layouts','folder'],['locations','Locations','folder'],
+                          ['contacts','Contacts','contact'],['equipment','Equipment','equip'],
                           ['documents','Documents','doc'],['actions','Actions','act']]},
  {group:'Safety',  items:[['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
                           ['checklists','Checklists','check'],['rasys','RA / SWP','ra'],
@@ -1041,6 +1044,7 @@ function route(){
     if(key==='audit') return renderAudit();
     /* organisations falls through to the generic module below */
   }
+  if(key==='layout')   return sub?renderLayoutEditor(sub):renderLayouts();
   if(key==='matrix')   return renderMatrix();
   if(key==='finder')   return renderFinder();
   if(key==='dupes'){
@@ -1585,6 +1589,26 @@ const MODULES={
   line2:i=>esc([i.category,i.ref,i.rev?('Rev '+i.rev):''].filter(Boolean).join(' · ')),
   meta:i=>i.expiry?expChip(i.expiry):(i.date?'<span class="chip n">'+fmtD(i.date)+'</span>':''),
   empty:'Company-level controlled documents — WSH policy, corporate insurances, bizSAFE certs, licences. One register for the whole company instead of copies in every project.'},
+
+ locations:{ title:'Location', store:'locations',
+  fields:[
+   {k:'name',label:'Name',req:1},
+   {k:'code',label:'Code',half:1,ph:'e.g. Z-B'},
+   {k:'locationType',label:'Type',type:'select',half:1,opts:function(){ return LOC_TYPES; }},
+   {k:'parentId',label:'Parent location',type:'select',
+    opts:function(){ return [['','— none (top level) —']].concat(db.locations.map(function(l){ return [l.id, locBreadcrumb(l.id)]; })); }},
+   {k:'aliases',label:'Aliases / old names (searchable)',ph:'e.g. B2, old zone 4'},
+   {k:'status',label:'Status',type:'select',half:1,opts:['ACTIVE','ARCHIVED']},
+   {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
+  beforeSave:function(obj){
+    if(!obj.status) obj.status='ACTIVE';
+    if(obj.parentId===obj.id) obj.parentId='';
+  },
+  sort:function(a,b){ return locBreadcrumb(a.id).localeCompare(locBreadcrumb(b.id)); },
+  line1:function(i){ return esc(i.name); },
+  line2:function(i){ return esc([locBreadcrumb(i.id),i.locationType].filter(Boolean).join(' · ')); },
+  meta:function(i){ return (i.code?'<span class="chip n">'+esc(i.code)+'</span>':'')+(i.status==='ARCHIVED'?'<span class="chip b">ARCHIVED</span>':''); },
+  empty:'Logical locations — the stable tree (Project → Zone → Subzone → Asset) that drawings, records and future PTW/observations reference. Draw them on a Site Layout, or add them here.'},
 
  organisations:{ title:'Organisation', store:'organisations',
   fields:[
@@ -2733,6 +2757,19 @@ setInterval(updCheck, 10*60e3);
 /* ---- OneDrive filing: daily auto-backup + worker document mirror ----
    Both are best-effort and silent when the Safety folder is not connected or
    permission is not yet granted this session (no prompts without a gesture). */
+/* expiry alerting: toast when NEW items hit critical (expired / ≤7d) since the
+   last look on this device; weekly digest files to OneDrive with the backup */
+function expiryNotify(){
+  try{
+    const crit=certRows(isHQ()?'company':'site').filter(r=>r.days<=7);
+    if(!crit.length) return;
+    const h=hashStr(crit.map(r=>r.link+'|'+r.expiry).sort().join(';'));
+    if(localStorage.getItem('kkl-exp-seen')===h) return;
+    localStorage.setItem('kkl-exp-seen',h);
+    const ex=crit.filter(r=>r.days<0).length, so=crit.length-ex;
+    toast((ex?ex+' cert(s) EXPIRED':'')+(ex&&so?' · ':'')+(so?so+' expiring ≤7 days':'')+' — see Cert Expiry', ex>0);
+  }catch(e){}
+}
 let ABK_BUSY=false;
 async function autoBackup(force){
   if(ABK_BUSY||!fsSupported()) return;
@@ -2748,6 +2785,22 @@ async function autoBackup(force){
     await w.close();
     localStorage.setItem('kkl-auto-backup', String(Date.now()));
     toast('Daily backup filed: Backups \\ auto-backup-'+today()+'.json');
+    /* weekly expiry digest for HQ filing */
+    const lastDg=+localStorage.getItem('kkl-exp-digest')||0;
+    if(Date.now()-lastDg>6.5*86400e3){
+      const rows=certRows('company').filter(r=>r.days<=30);
+      if(rows.length){
+        const body='<h2>Certificate & Pass Expiry Alerts — '+esc(today())+'</h2>'+
+          '<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px">'+
+          '<tr style="background:#eee"><th>Days</th><th style="text-align:left">Who / what</th><th style="text-align:left">Item</th><th>Expiry</th></tr>'+
+          rows.map(r=>'<tr'+(r.days<0?' style="color:#c5221f"':'')+'><td style="text-align:center">'+r.days+'</td><td>'+esc(r.owner)+'</td><td>'+esc(r.cat+' · '+r.name)+'</td><td>'+esc(fmtD(r.expiry))+'</td></tr>').join('')+'</table>';
+        const ed=await dirRoot.getDirectoryHandle('Expiry Alerts',{create:true});
+        const ef=await ed.getFileHandle('expiry-alerts-'+today()+'.html',{create:true});
+        const ew=await ef.createWritable();
+        await ew.write(new Blob([reportDocHtml('Expiry Alerts', body)],{type:'text/html'})); await ew.close();
+        localStorage.setItem('kkl-exp-digest', String(Date.now()));
+      }
+    }
   }catch(e){ console.warn('auto-backup failed',e); }
   finally{ ABK_BUSY=false; }
 }
@@ -4167,6 +4220,19 @@ function renderSic(){
     '</div>'+
     '<h2 class="sect">Project access</h2>'+
     '<div class="card"><b>'+accN+'</b> worker(s) SIC-complete on this project · '+db.workerProjectAccess.filter(a=>a.accessStatus==='BLOCKED').length+' blocked</div>'+
+    (function(){ /* subcontractor submissions awaiting review */
+      const subs=db.workerProjectAccess.filter(a=>a.sicStatus==='SUBMITTED');
+      if(!subs.length) return '';
+      return '<h2 class="sect">Subcontractor submissions ('+subs.length+')</h2>'+subs.map(a=>{
+        const m=db.members.find(x=>x.id===a.memberId);
+        const ok=m?sicCheckMember(m,prof).every(c=>c.ok):false;
+        return '<div class="card" style="margin-bottom:8px"><b>'+esc(a.memberName||'')+'</b> <span class="hint">'+esc(a.company||'')+
+          ' · submitted '+esc(fmtD(a.submittedAt||''))+'</span> '+(ok?'<span class="chip g">DOCS OK</span>':'<span class="chip w">DOCS INCOMPLETE</span>')+
+          '<div class="btnrow" style="margin-top:8px">'+
+          (m?'<button class="btn ghost" onclick="location.hash=\'#/passport/'+m.id+'\'">Passport</button>':'')+
+          '<button class="btn danger" data-sicrej="'+a.id+'" style="margin-left:auto">Reject</button></div></div>'; }).join('')+
+        '<p class="hint">Approve by including them in a New SIC session — completing the session grants project access.</p>';
+    })()+
     '<h2 class="sect">Sessions</h2>'+
     (sess.length?sess.map(s=>'<div class="lrow" onclick="location.hash=\'#/sic/'+s.id+'\'">'+
       '<div><div class="l1">'+esc(fmtD(s.date))+' — '+(s.workers||[]).length+' worker(s)</div>'+
@@ -4175,6 +4241,13 @@ function renderSic(){
      :'<div class="empty">No SIC sessions yet.<br>Create one to run readiness checks and record induction.</div>');
   document.getElementById('sicProf').onchange=e=>{ db.settings.sicProfileId=e.target.value; save(); };
   document.getElementById('sicNewBtn').onclick=()=>{ SICX={sel:{}}; renderSicNew(); };
+  app.querySelectorAll('[data-sicrej]').forEach(b=>b.onclick=()=>{
+    const a=db.workerProjectAccess.find(x=>x.id===b.dataset.sicrej); if(!a) return;
+    const why=prompt('Reason for rejection (the subcontractor sees this):'); if(!why||!why.trim()) return;
+    a.sicStatus='REJECTED'; a.reviewComment=why.trim(); a.reviewedBy=raWho(); a.reviewedAt=today();
+    audit('sic-submission-rejected','workerProjectAccess',a.id,null,{memberId:a.memberId},why.trim());
+    save(); renderSic();
+  });
   const bf=document.getElementById('sicBackfill');
   if(bf) bf.onclick=()=>{
     if(!confirm('Create SIC-complete project access for every worker with a legacy SIC date? Use only if their SIC was for THIS project.')) return;
@@ -4191,9 +4264,10 @@ function renderSicNew(){
   if(!SICX){ location.hash='#/sic'; return; }
   const prof=sicProfile();
   const q=(SICX.q||'').toLowerCase();
-  const list=db.members.filter(m=>m.status!=='INACTIVE')
+  const subQ=id=>{ const a=memberAccess(id); return a&&a.sicStatus==='SUBMITTED'?0:1; };
+  const list=db.members.filter(m=>m.status!=='INACTIVE'&&!m.mergedInto)
     .filter(m=>!q||JSON.stringify(m).toLowerCase().includes(q))
-    .sort((a,b)=>(a.company||'').localeCompare(b.company||'')||(a.name||'').localeCompare(b.name||''));
+    .sort((a,b)=>subQ(a.id)-subQ(b.id)||(a.company||'').localeCompare(b.company||'')||(a.name||'').localeCompare(b.name||''));
   const selN=Object.values(SICX.sel).filter(Boolean).length;
   app.innerHTML=header('New SIC session', true)+
     '<div class="card"><label style="margin-top:0">Select workers · profile: '+esc(prof.name)+'</label>'+
@@ -4203,7 +4277,8 @@ function renderSicNew(){
       '<button class="btn ghost" id="sicNone">Clear</button></div></div>'+
     '<div style="max-height:46vh;overflow-y:auto;margin-top:10px" id="sicList">'+
     list.slice(0,400).map(m=>'<label class="pick" style="display:flex;margin-bottom:6px"><input type="checkbox" data-m="'+m.id+'"'+(SICX.sel[m.id]?' checked':'')+'>'+
-      '<span>'+esc(memberLabel(m))+' <span class="hint">'+esc([m.company,m.trade].filter(Boolean).join(' · '))+'</span></span></label>').join('')+
+      '<span>'+esc(memberLabel(m))+(subQ(m.id)===0?' <span class="chip w">SUBMITTED</span>':'')+
+      ' <span class="hint">'+esc([m.company,m.trade].filter(Boolean).join(' · '))+'</span></span></label>').join('')+
     (list.length>400?'<div class="hint">Showing first 400 — refine the search.</div>':'')+'</div>'+
     '<div class="btnrow" style="margin-top:12px"><button class="btn" id="sicCheck" style="flex:1"'+(selN?'':' disabled')+'>Check readiness ('+selN+')</button></div>';
   document.getElementById('sicQ').oninput=e=>{ SICX.q=e.target.value; renderSicNew(); };
@@ -4224,6 +4299,7 @@ function renderSicReadiness(memberIds){
   const rows=ms.map(m=>({m, checks:sicCheckMember(m,prof)}));
   const ready=rows.filter(r=>r.checks.every(c=>c.ok));
   const attn=rows.filter(r=>!r.checks.every(c=>c.ok));
+  const isSub=SB.profile&&SB.profile.role==='subcon';
   app.innerHTML=header('SIC readiness', true)+
     '<div class="tiles">'+
       '<div class="stile"><div class="v">'+rows.length+'</div><div class="l">Selected</div></div>'+
@@ -4235,11 +4311,34 @@ function renderSicReadiness(memberIds){
         (c.fix?' <a href="'+c.fix+'">Fix</a>':'')+'</div>').join('')+'</div>').join(''):'')+
     (ready.length?'<h2 class="sect">Ready ('+ready.length+')</h2>'+
       '<div class="card">'+ready.map(r=>esc(memberLabel(r.m))).join(' · ')+'</div>':'')+
+    (isSub?'<h2 class="sect">Submission status</h2>'+
+      (db.workerProjectAccess.length?db.workerProjectAccess.map(a=>'<div class="lrow" style="cursor:default"><div><div class="l1">'+esc(a.memberName||'')+'</div>'+
+        (a.sicStatus==='REJECTED'&&a.reviewComment?'<div class="l2">Main con: '+esc(a.reviewComment)+'</div>':'')+'</div>'+
+        '<div class="lmeta">'+(a.sicStatus==='COMPLETE'?'<span class="chip g">SIC COMPLETE</span>'
+          :a.sicStatus==='REJECTED'?'<span class="chip b">REJECTED</span>'
+          :a.sicStatus==='SUBMITTED'?'<span class="chip w">SUBMITTED</span>':'')+'</div></div>').join('')
+       :'<div class="empty">Nothing submitted yet.</div>'):'')+
     '<div class="btnrow" style="margin-top:12px">'+
       (SICX?'<button class="btn" id="sicConduct" style="flex:1"'+(rows.length?'':' disabled')+'>Conduct SIC ('+rows.length+')</button>':'')+
+      (isSub?'<button class="btn" id="sicSubmit" style="flex:1"'+(ready.length?'':' disabled')+'>Submit '+ready.length+' READY for SIC</button>':'')+
       '<button class="btn ghost" id="sicPack" style="flex:1">Generate SIC pack</button></div>';
   const cd=document.getElementById('sicConduct');
   if(cd) cd.onclick=()=>renderSicConduct(rows);
+  const sbm=document.getElementById('sicSubmit');
+  if(sbm) sbm.onclick=()=>{
+    let n=0;
+    ready.forEach(r=>{
+      let acc=memberAccess(r.m.id);
+      if(acc&&(acc.sicStatus==='COMPLETE'||acc.sicStatus==='SUBMITTED')) return;
+      if(!acc){ acc={id:'wpa-'+r.m.id, memberId:r.m.id}; db.workerProjectAccess.push(acc); }
+      Object.assign(acc,{memberName:r.m.name||'', company:r.m.company||'', sicStatus:'SUBMITTED',
+        submittedAt:today(), reviewComment:''});
+      n++;
+    });
+    save();
+    alert(n?n+' worker(s) submitted — the main contractor reviews and schedules the induction.':'Everyone READY is already submitted or inducted.');
+    renderSicReadiness(null);
+  };
   document.getElementById('sicPack').onclick=()=>sicPack(rows, prof);
 }
 function renderSicConduct(rows){
@@ -4639,6 +4738,368 @@ function renderAudit(){
     (rows.length>AUD.n?'<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="audMore" style="flex:1">Show more</button></div>':'');
   document.getElementById('audQ').oninput=e=>{ AUD.q=e.target.value; renderAudit(); };
   const am=document.getElementById('audMore'); if(am) am.onclick=()=>{ AUD.n+=200; renderAudit(); };
+}
+
+/* ============ SPATIAL LOCATION ENGINE — Phase 1-2 ============
+   Logical Locations (stable records, tree) are separate from geometry
+   (versioned per layout). A layout is a representation: a geographic map
+   (WGS84/OSM) or an uploaded site-plan image in its own pixel space.
+   Geometry is GeoJSON in the layout's native coordinates, never destroyed.
+   CAD (DXF), georeferencing/SVY21 and module integration are later phases. */
+const LOC_TYPES=['PROJECT_AREA','ZONE','SUBZONE','LEVEL','ROOM','ROAD','CHAINAGE','WORKFRONT','ASSET','STRUCTURE','DRAIN','MANHOLE','OTHER'];
+const ZONE_TYPES=['WORK_ZONE','EXCLUSION_ZONE','LIFTING_ZONE','EXCAVATION_ZONE','HOT_WORK_ZONE','CONFINED_SPACE_ZONE','PEDESTRIAN_ZONE','VEHICLE_ZONE','HAUL_ROUTE','STORAGE_ZONE','EMERGENCY_ZONE','RESTRICTED_ZONE','OTHER'];
+
+/* ---- core location services ---- */
+function locById(id){ return db.locations.find(l=>l.id===id); }
+function locChildren(id){ return db.locations.filter(l=>l.parentId===id&&l.status!=='ARCHIVED'); }
+function locDepth(id){ let d=0,l=locById(id); while(l&&l.parentId&&d<12){ d++; l=locById(l.parentId); } return d; }
+function locBreadcrumb(id){
+  const parts=[]; let l=locById(id), guard=0;
+  while(l&&guard++<12){ parts.unshift(l.name||l.code||'?'); l=l.parentId?locById(l.parentId):null; }
+  return parts.join(' → ');
+}
+function searchLocations(q){
+  q=String(q||'').trim().toLowerCase();
+  if(!q) return [];
+  const score=l=>{
+    const name=(l.name||'').toLowerCase(), code=(l.code||'').toLowerCase();
+    const alias=(l.aliases||'').toLowerCase(), crumb=locBreadcrumb(l.id).toLowerCase();
+    if(name===q||code===q) return 0;
+    if(name.startsWith(q)||code.startsWith(q)) return 1;
+    if(name.includes(q)||code.includes(q)||alias.includes(q)) return 2;
+    if(crumb.includes(q)) return 3;
+    return -1;
+  };
+  return db.locations.filter(l=>l.status!=='ARCHIVED')
+    .map(l=>({l,s:score(l)})).filter(x=>x.s>=0)
+    .sort((a,b)=>a.s-b.s||(a.l.name||'').localeCompare(b.l.name||''))
+    .map(x=>x.l).slice(0,12);
+}
+function layoutCurVer(layout){ return db.layoutVersions.find(v=>v.id===layout.currentVerId); }
+function getCurrentLocationGeometry(locId, layoutVerId){
+  return db.locGeoms.filter(g=>g.locationId===locId&&g.layoutVerId===layoutVerId&&g.status!=='SUPERSEDED')
+    .sort((a,b)=>(b.at||'').localeCompare(a.at||''))[0]||null;
+}
+function getLocationGeometryAtTime(locId, layoutVerId, isoDate){
+  return db.locGeoms.filter(g=>g.locationId===locId&&g.layoutVerId===layoutVerId
+      &&(g.validFrom||'')<=isoDate&&(!g.validUntil||g.validUntil>=isoDate))
+    .sort((a,b)=>(b.validFrom||'').localeCompare(a.validFrom||''))[0]||null;
+}
+
+/* ---- OpenLayers lazy loader (CDN, only when a spatial page opens) ---- */
+let OLP=null;
+function loadOL(){
+  if(window.ol) return Promise.resolve();
+  if(OLP) return OLP;
+  if(!document.getElementById('olcss')){
+    const l=document.createElement('link'); l.id='olcss'; l.rel='stylesheet';
+    l.href='https://cdn.jsdelivr.net/npm/ol@9.2.4/ol.css'; document.head.appendChild(l);
+  }
+  OLP=new Promise((res,rej)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/ol@9.2.4/dist/ol.js';
+    s.onload=()=>res(); s.onerror=()=>{ OLP=null; rej(new Error('Could not load the map library — check the connection.')); };
+    document.head.appendChild(s);
+  });
+  return OLP;
+}
+
+/* ---- layouts list + creation ---- */
+function renderLayouts(){
+  const ls=db.layouts;
+  app.innerHTML=header('Site Layouts', true)+
+    '<div class="card"><label style="margin-top:0">Add a layout</label>'+
+    '<p class="hint">A layout is a drawing surface for Locations: draw zones on a geographic map, or upload a site plan image (JPG/PNG — export a PDF page as an image first) and draw over it in its own local coordinates. DXF CAD import arrives in the next phase.</p>'+
+    '<div class="btnrow"><button class="btn ghost" id="lyMap" style="flex:1">+ Geographic map</button>'+
+    '<button class="btn ghost" id="lyImg" style="flex:1">+ Upload site plan</button></div>'+
+    '<input type="file" id="lyFile" accept="image/*" hidden></div>'+
+    (ls.length?ls.map(l=>{
+      const v=layoutCurVer(l);
+      const n=db.locGeoms.filter(g=>v&&g.layoutVerId===v.id&&g.status!=='SUPERSEDED').length;
+      return '<div class="lrow" onclick="location.hash=\'#/layout/'+l.id+'\'">'+
+      '<div class="lmain"><div class="lt">'+esc(l.name)+'</div>'+
+      '<div class="ls">'+esc(l.layoutType)+' · '+esc(l.spaceType)+' · '+n+' location shape(s)</div></div>'+
+      '<div class="lmeta"><span class="chip n">'+(v?('v'+v.ver):'no version')+'</span></div></div>'; }).join('')
+     :'<div class="empty">No layouts yet.<br>Start with a geographic map, or upload the site layout plan.</div>');
+  document.getElementById('lyMap').onclick=()=>{
+    const name=prompt('Layout name:','Site map'); if(!name) return;
+    const lay={id:uid(), name:name.trim(), layoutType:'MAP', spaceType:'WGS84', currentVerId:''};
+    const ver={id:uid(), layoutId:lay.id, ver:1, status:'CURRENT', uploadedAt:today(), uploadedBy:raWho()};
+    lay.currentVerId=ver.id;
+    db.layouts.push(lay); db.layoutVersions.push(ver);
+    audit('layout-created','layout',lay.id,null,{type:'MAP'});
+    save(); location.hash='#/layout/'+lay.id;
+  };
+  const lf=document.getElementById('lyFile');
+  document.getElementById('lyImg').onclick=()=>lf.click();
+  lf.onchange=()=>{
+    const f=lf.files[0]; if(!f) return;
+    const name=prompt('Layout name:', f.name.replace(/\.[^.]+$/,''))||f.name;
+    const img=new Image();
+    img.onload=()=>{
+      const max=2200, sc=Math.min(1, max/Math.max(img.width,img.height));
+      const c=document.createElement('canvas');
+      c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(img.src);
+      const dataUrl=c.toDataURL('image/jpeg',0.72);
+      if(dataUrl.length>900000){ alert('That plan compresses to over ~900KB — please crop it or use a lower-resolution export.'); return; }
+      const lay={id:uid(), name:String(name).trim(), layoutType:'IMAGE', spaceType:'LOCAL_IMAGE', currentVerId:''};
+      const ver={id:uid(), layoutId:lay.id, ver:1, status:'CURRENT', image:dataUrl,
+        imageW:c.width, imageH:c.height, fileMeta:{name:f.name, size:f.size},
+        uploadedAt:today(), uploadedBy:raWho()};
+      lay.currentVerId=ver.id;
+      db.layouts.push(lay); db.layoutVersions.push(ver);
+      audit('layout-created','layout',lay.id,null,{type:'IMAGE', file:f.name});
+      save(); location.hash='#/layout/'+lay.id;
+    };
+    img.onerror=()=>alert('Could not read that image.');
+    img.src=URL.createObjectURL(f);
+  };
+}
+
+/* ---- the spatial editor (two-way selection is the core contract) ---- */
+let SPX=null; /* editor state for the open layout */
+async function renderLayoutEditor(layoutId){
+  const lay=db.layouts.find(l=>l.id===layoutId);
+  if(!lay){ location.hash='#/layout'; return; }
+  const ver=layoutCurVer(lay);
+  if(!ver){ location.hash='#/layout'; return; }
+  app.innerHTML=header(lay.name, true)+'<div class="empty">Loading map engine&hellip;</div>';
+  try{ await loadOL(); }
+  catch(e){ app.innerHTML=header(lay.name, true)+'<div class="empty">'+esc(e.message)+'</div>'; return; }
+  const isImg=lay.layoutType==='IMAGE';
+  app.innerHTML=header(lay.name, true,
+      '<button class="iconbtn" title="Fit all" id="spFit">'+ic('home')+'</button>')+
+    '<div class="card" style="padding:10px">'+
+      '<input id="spQ" placeholder="Search location — name, code, alias&hellip;" autocomplete="off">'+
+      '<div id="spQr" style="display:none"></div>'+
+      '<div class="btnrow" style="margin-top:8px;flex-wrap:wrap" id="spTools">'+
+        '<button class="btn ghost sp-t on" data-tool="select">Select</button>'+
+        (canRA()?'<button class="btn ghost sp-t" data-tool="poly">Draw area</button>'+
+        '<button class="btn ghost sp-t" data-tool="rect">Rectangle</button>'+
+        '<button class="btn ghost sp-t" data-tool="line">Line</button>'+
+        '<button class="btn ghost sp-t" data-tool="edit">Edit shape</button>'+
+        '<button class="btn danger sp-t" data-tool="del" style="margin-left:auto">Delete shape</button>':'')+
+      '</div></div>'+
+    '<div id="spMap" style="height:58vh;min-height:320px;border:1px solid var(--line);border-radius:6px;background:#eef1f3"></div>'+
+    '<div id="spPanel"></div>';
+  const fmt=new ol.format.GeoJSON();
+  let proj, viewOpts, baseLayers=[];
+  if(isImg){
+    const extent=[0,0,ver.imageW||1000,ver.imageH||700];
+    proj=new ol.proj.Projection({code:'LOCAL-'+ver.id, units:'pixels', extent});
+    baseLayers=[new ol.layer.Image({source:new ol.source.ImageStatic({url:ver.image, projection:proj, imageExtent:extent})})];
+    viewOpts={projection:proj, center:ol.extent.getCenter(extent), zoom:1, maxZoom:7};
+  }else{
+    baseLayers=[new ol.layer.Tile({source:new ol.source.OSM()})];
+    viewOpts={center:ol.proj.fromLonLat([103.82,1.352]), zoom:11, maxZoom:21}; /* Singapore */
+  }
+  const featStyle=sel=>f=>{
+    const zone=f.get('zoneId');
+    return new ol.style.Style({
+      stroke:new ol.style.Stroke({color:zone?'#b76e00':(sel?'#8f0d07':'#e11b12'), width:sel?4:2.5,
+        lineDash:zone?[8,6]:undefined}),
+      fill:new ol.style.Fill({color:sel?'rgba(225,27,18,.18)':'rgba(225,27,18,.06)'}),
+      text:new ol.style.Text({text:f.get('label')||'', font:'600 12px system-ui',
+        fill:new ol.style.Fill({color:'#8f0d07'}), stroke:new ol.style.Stroke({color:'#fff',width:3}), overflow:true})
+    });
+  };
+  const src=new ol.source.Vector();
+  const vec=new ol.layer.Vector({source:src, style:featStyle(false)});
+  const map=new ol.Map({target:'spMap', layers:baseLayers.concat([vec]),
+    view:new ol.View(viewOpts), controls:ol.control.defaults.defaults({attribution:!isImg})});
+  SPX={map, src, lay, ver, fmt, sel:null, drawInt:null, modInt:null, snapInt:null};
+  const dataProj=isImg?proj:'EPSG:3857';
+  const geoOpts=isImg?{dataProjection:proj, featureProjection:proj}
+                     :{dataProjection:'EPSG:4326', featureProjection:'EPSG:3857'};
+  function loadFeatures(){
+    src.clear();
+    db.locGeoms.filter(g=>g.layoutVerId===ver.id&&g.status!=='SUPERSEDED').forEach(g=>{
+      try{
+        const f=fmt.readFeature({type:'Feature', geometry:g.geometry}, geoOpts);
+        const l=locById(g.locationId);
+        f.set('locationId', g.locationId); f.set('geomId', g.id);
+        f.set('label', l?(l.code||l.name||''):'');
+        src.addFeature(f);
+      }catch(e){ console.warn('bad geometry', g.id, e); }
+    });
+    db.zoneGeoms.filter(g=>g.layoutVerId===ver.id&&g.status!=='SUPERSEDED').forEach(g=>{
+      const z=db.spatialZones.find(x=>x.id===g.zoneId);
+      if(z&&z.validUntil&&z.validUntil<today()) return; /* expired overlays hidden */
+      try{
+        const f=fmt.readFeature({type:'Feature', geometry:g.geometry}, geoOpts);
+        f.set('zoneId', g.zoneId); f.set('geomId', g.id);
+        f.set('label', z?(z.code||z.name||''):'');
+        src.addFeature(f);
+      }catch(e){}
+    });
+  }
+  loadFeatures();
+  if(src.getFeatures().length){ map.getView().fit(src.getExtent(),{padding:[40,40,40,40],maxZoom:isImg?5:18}); }
+  document.getElementById('spFit').onclick=()=>{
+    if(src.getFeatures().length) map.getView().fit(src.getExtent(),{padding:[40,40,40,40]});
+    else if(isImg) map.getView().fit(proj.getExtent());
+  };
+  /* --- selection: map -> record --- */
+  function selectLocation(locId, fromMap){
+    SPX.sel=locId;
+    src.getFeatures().forEach(f=>f.setStyle(f.get('locationId')===locId?featStyle(true)(f):null));
+    renderSpPanel(locId);
+    if(!fromMap){ /* text -> map: zoom + highlight */
+      const f=src.getFeatures().find(x=>x.get('locationId')===locId);
+      if(f) map.getView().fit(f.getGeometry().getExtent(),{padding:[60,60,60,60],maxZoom:isImg?5:19,duration:300});
+    }
+  }
+  window.spSelectLocation=id=>selectLocation(id,false);
+  map.on('singleclick',e=>{
+    if(SPX.tool&&SPX.tool!=='select') return;
+    const hits=[]; map.forEachFeatureAtPixel(e.pixel,f=>{ hits.push(f); }, {hitTolerance:8});
+    const locs=hits.filter(f=>f.get('locationId'));
+    if(!locs.length){ renderSpPanel(null); return; }
+    /* prefer the deepest physical location; offer a chooser only for genuinely
+       unrelated overlaps */
+    locs.sort((a,b)=>locDepth(b.get('locationId'))-locDepth(a.get('locationId')));
+    const top=locs[0].get('locationId');
+    const unrelated=locs.filter(f=>{
+      let l=locById(top);
+      while(l){ if(l.id===f.get('locationId')) return false; l=l.parentId?locById(l.parentId):null; }
+      return true;
+    });
+    if(unrelated.length) renderSpChooser([top].concat(unrelated.map(f=>f.get('locationId'))));
+    else selectLocation(top,true);
+    /* active overlays at the click point are shown in the panel */
+    SPX.overlays=hits.filter(f=>f.get('zoneId')).map(f=>f.get('zoneId'));
+  });
+  /* --- tools --- */
+  function clearTools(){
+    ['drawInt','modInt','snapInt'].forEach(k=>{ if(SPX[k]){ map.removeInteraction(SPX[k]); SPX[k]=null; } });
+  }
+  function setTool(t){
+    SPX.tool=t; clearTools();
+    document.querySelectorAll('.sp-t').forEach(b=>b.classList.toggle('on',b.dataset.tool===t));
+    if(t==='poly'||t==='rect'||t==='line'){
+      const d=new ol.interaction.Draw({source:src,
+        type:t==='line'?'LineString':t==='rect'?'Circle':'Polygon',
+        geometryFunction:t==='rect'?ol.interaction.Draw.createBox():undefined});
+      d.on('drawend',ev=>{ setTimeout(()=>spNewLocationForm(ev.feature),10); });
+      SPX.drawInt=d; map.addInteraction(d);
+      SPX.snapInt=new ol.interaction.Snap({source:src}); map.addInteraction(SPX.snapInt);
+    }
+    if(t==='edit'){
+      SPX.modInt=new ol.interaction.Modify({source:src});
+      SPX.modInt.on('modifyend',ev=>{
+        ev.features.forEach(f=>{
+          const gid=f.get('geomId'); if(!gid) return;
+          const g=db.locGeoms.find(x=>x.id===gid)||db.zoneGeoms.find(x=>x.id===gid);
+          if(g){ g.geometry=JSON.parse(fmt.writeGeometry(f.getGeometry(), geoOpts));
+            audit('geometry-edited', g.locationId?'locGeom':'zoneGeom', gid, null, null); save(); }
+        });
+      });
+      map.addInteraction(SPX.modInt);
+      SPX.snapInt=new ol.interaction.Snap({source:src}); map.addInteraction(SPX.snapInt);
+    }
+    if(t==='del'){
+      if(!SPX.sel){ alert('Select a location shape first, then Delete shape.'); setTool('select'); return; }
+      const g=getCurrentLocationGeometry(SPX.sel, ver.id);
+      const l=locById(SPX.sel);
+      if(g&&confirm('Remove the drawn shape for "'+(l?l.name:'?')+'" on this layout? The Location record itself stays.')){
+        g.status='SUPERSEDED'; g.validUntil=today();
+        audit('geometry-removed','locGeom',g.id,null,{locationId:SPX.sel});
+        save(); loadFeatures(); renderSpPanel(null);
+      }
+      setTool('select');
+    }
+  }
+  document.querySelectorAll('.sp-t').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
+  SPX.tool='select';
+  /* --- fast create form after drawing --- */
+  function spNewLocationForm(feature){
+    const panel=document.getElementById('spPanel');
+    panel.innerHTML='<div class="card"><label style="margin-top:0">New location from drawing</label>'+
+      '<div class="fgrid">'+
+      '<div class="fld half"><label>Name *</label><input id="nlName" placeholder="e.g. Zone B"></div>'+
+      '<div class="fld half"><label>Code</label><input id="nlCode" placeholder="e.g. Z-B"></div>'+
+      '<div class="fld half"><label>Type</label><select id="nlType">'+LOC_TYPES.map(t=>'<option'+(t==='ZONE'?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'+
+      '<div class="fld half"><label>Parent</label><select id="nlParent"><option value="">— none (top level) —</option>'+
+        db.locations.filter(l=>l.status!=='ARCHIVED').map(l=>'<option value="'+l.id+'">'+esc(locBreadcrumb(l.id))+'</option>').join('')+'</select></div>'+
+      '</div><div class="btnrow"><button class="btn" id="nlSave" style="flex:1">Save location</button>'+
+      '<button class="btn ghost" id="nlCancel">Discard</button></div></div>';
+    panel.scrollIntoView({behavior:'smooth'});
+    document.getElementById('nlCancel').onclick=()=>{ src.removeFeature(feature); panel.innerHTML=''; };
+    document.getElementById('nlSave').onclick=()=>{
+      const name=document.getElementById('nlName').value.trim();
+      if(!name){ alert('Give the location a name.'); return; }
+      const loc={id:uid(), name, code:document.getElementById('nlCode').value.trim(),
+        locationType:document.getElementById('nlType').value,
+        parentId:document.getElementById('nlParent').value||'', aliases:'', status:'ACTIVE', createdAt:today()};
+      const geom={id:uid(), locationId:loc.id, layoutVerId:ver.id,
+        geometry:JSON.parse(fmt.writeGeometry(feature.getGeometry(), geoOpts)),
+        sourceType:'MANUAL', status:'CURRENT', validFrom:today(), at:new Date().toISOString(), by:raWho()};
+      db.locations.push(loc); db.locGeoms.push(geom);
+      feature.set('locationId',loc.id); feature.set('geomId',geom.id); feature.set('label',loc.code||loc.name);
+      audit('location-created','location',loc.id,null,{name, layout:lay.id});
+      save(); setTool('select'); selectLocation(loc.id,true);
+    };
+  }
+  /* --- panel + chooser + search --- */
+  function renderSpChooser(ids){
+    document.getElementById('spPanel').innerHTML='<div class="card"><label style="margin-top:0">Which location?</label>'+
+      ids.map(id=>'<div class="lrow" onclick="spSelectLocation(\''+id+'\')"><div><div class="l1">'+esc(locById(id)?locById(id).name:'?')+'</div>'+
+      '<div class="l2">'+esc(locBreadcrumb(id))+'</div></div></div>').join('')+'</div>';
+  }
+  function renderSpPanel(locId){
+    const panel=document.getElementById('spPanel');
+    if(!locId){ panel.innerHTML='<p class="hint" style="margin-top:10px">Tap a shape to select its location'+(canRA()?', or use a draw tool to add one':'')+'.</p>'; return; }
+    const l=locById(locId); if(!l){ panel.innerHTML=''; return; }
+    const kids=locChildren(locId);
+    const overlays=(SPX.overlays||[]).map(zid=>db.spatialZones.find(z=>z.id===zid)).filter(Boolean);
+    panel.innerHTML='<div class="card"><label style="margin-top:0">'+esc(l.name)+' <span class="chip n">'+esc(l.locationType||'')+'</span></label>'+
+      '<div class="hint">'+esc(locBreadcrumb(locId))+(l.code?' · code '+esc(l.code):'')+'</div>'+
+      (kids.length?'<div style="margin-top:8px">'+kids.map(k=>'<span class="chip n" style="cursor:pointer" onclick="spSelectLocation(\''+k.id+'\')">'+esc(k.name)+'</span> ').join('')+'</div>':'')+
+      (overlays.length?'<div style="margin-top:8px"><b style="font-size:12px">ACTIVE OVERLAYS</b><br>'+
+        overlays.map(z=>'<span class="chip w">'+esc(z.name||z.zoneType)+'</span> ').join('')+'</div>':'')+
+      '<p class="hint" style="margin-top:8px">Linked records (activities, permits, observations at this location) connect in the integration phase.</p>'+
+      '<div class="btnrow">'+(canRA()?'<button class="btn ghost" onclick="location.hash=\'#/locations/'+l.id+'\'">Edit location</button>':'')+'</div></div>';
+  }
+  renderSpPanel(null);
+  const qEl=document.getElementById('spQ'), qr=document.getElementById('spQr');
+  qEl.oninput=()=>{
+    const hits=searchLocations(qEl.value);
+    qr.style.display=hits.length?'':'none';
+    qr.innerHTML=hits.map(l=>'<div class="lrow" onclick="spSelectLocation(\''+l.id+'\');document.getElementById(\'spQr\').style.display=\'none\'">'+
+      '<div><div class="l1">'+esc(l.name)+(l.code?' <span class="chip n">'+esc(l.code)+'</span>':'')+'</div>'+
+      '<div class="l2">'+esc(locBreadcrumb(l.id))+'</div></div></div>').join('');
+  };
+}
+
+/* ---- reusable LocationPicker (text mode; map mode = the editor itself) ----
+   Used by operational modules in the integration phase; available now for
+   any form that stores locationId. */
+function locationPickerHtml(pfx, selectedId){
+  const sel=selectedId?locById(selectedId):null;
+  return '<div class="fld"><label>Location</label>'+
+    '<input id="'+pfx+'-q" autocomplete="off" placeholder="Search zone / location&hellip;" value="'+esc(sel?sel.name:'')+'">'+
+    '<input type="hidden" id="'+pfx+'-id" value="'+esc(selectedId||'')+'">'+
+    '<div id="'+pfx+'-r" style="display:none"></div>'+
+    '<div class="hint" id="'+pfx+'-crumb">'+(sel?esc(locBreadcrumb(sel.id)):'')+'</div></div>';
+}
+function bindLocationPicker(pfx, onChange){
+  const q=document.getElementById(pfx+'-q'), r=document.getElementById(pfx+'-r'),
+        idEl=document.getElementById(pfx+'-id'), crumb=document.getElementById(pfx+'-crumb');
+  q.oninput=()=>{
+    idEl.value='';
+    const hits=searchLocations(q.value);
+    r.style.display=hits.length?'':'none';
+    r.innerHTML=hits.map(l=>'<div class="lrow" data-pick="'+l.id+'"><div><div class="l1">'+esc(l.name)+'</div>'+
+      '<div class="l2">'+esc(locBreadcrumb(l.id))+'</div></div></div>').join('');
+    r.querySelectorAll('[data-pick]').forEach(row=>row.onclick=()=>{
+      const l=locById(row.dataset.pick);
+      idEl.value=l.id; q.value=l.name; crumb.textContent=locBreadcrumb(l.id);
+      r.style.display='none';
+      if(onChange) onChange(l.id);
+    });
+  };
 }
 
 /* ============ cloud sync (Supabase, offline-first) ============
@@ -5078,6 +5539,7 @@ initShell();
     wfMigrate(); route(); syncInit();
   }
   setTimeout(()=>autoBackup(), 4000);   /* daily OneDrive backup, silent if folder not connected */
+  setTimeout(()=>expiryNotify(), 6500); /* after the initial pull has usually landed */
 })();
 </script>
 </body>

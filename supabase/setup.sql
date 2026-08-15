@@ -223,7 +223,8 @@ create policy rec_read on public.records
       /* subcon: unchanged scope, plus the project pin when assigned */
       or ( public.my_role() = 'subcon'
            and (public.my_project() is null or project_id = public.my_project() or project_id = '_company')
-           and (store in ('_project','_meta','sicProfiles','competencyTypes','organisations')
+           and (store in ('_project','_meta','sicProfiles','competencyTypes','organisations',
+                          'locations','layouts','layoutVersions','locGeoms','spatialZones','zoneGeoms')
                 or (store = 'workerProjectAccess'
                     and lower(coalesce(data->>'company','')) = lower(coalesce(public.my_subcon(),'')))
                 or public.subcon_scope(store, data)) )
@@ -253,12 +254,18 @@ create policy rec_staff_update on public.records
   )
   with check (org_id = public.my_org());
 
+-- subcon may also SUBMIT their own workers for SIC review: they can create /
+-- resubmit workerProjectAccess rows for their company, but only ever in the
+-- 'SUBMITTED' state — COMPLETE / access decisions stay with main-con staff.
 drop policy if exists rec_subcon_insert on public.records;
 create policy rec_subcon_insert on public.records
   for insert with check (
     org_id = public.my_org() and public.my_role() = 'subcon'
     and (public.my_project() is null or project_id = public.my_project() or project_id = '_company')
-    and public.subcon_scope(store, data)
+    and ( public.subcon_scope(store, data)
+          or (store = 'workerProjectAccess'
+              and lower(coalesce(data->>'company','')) = lower(coalesce(public.my_subcon(),''))
+              and coalesce(data->>'sicStatus','') = 'SUBMITTED') )
   );
 
 drop policy if exists rec_subcon_update on public.records;
@@ -266,8 +273,14 @@ create policy rec_subcon_update on public.records
   for update using (
     org_id = public.my_org() and public.my_role() = 'subcon'
     and (public.my_project() is null or project_id = public.my_project() or project_id = '_company')
-    and public.subcon_scope(store, data)
+    and ( public.subcon_scope(store, data)
+          or (store = 'workerProjectAccess'
+              and lower(coalesce(data->>'company','')) = lower(coalesce(public.my_subcon(),''))) )
   )
   with check (
-    org_id = public.my_org() and public.subcon_scope(store, data)
+    org_id = public.my_org()
+    and ( public.subcon_scope(store, data)
+          or (store = 'workerProjectAccess'
+              and lower(coalesce(data->>'company','')) = lower(coalesce(public.my_subcon(),''))
+              and coalesce(data->>'sicStatus','') = 'SUBMITTED') )
   );
