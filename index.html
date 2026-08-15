@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-16-0320">
+<meta name="build" content="2026-08-16-0800">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1e2933" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#10161b" media="(prefers-color-scheme: dark)">
-<title>SKYTOPIA Site Safety</title>
+<title>KKL CMS</title>
 <style>
   /* SKYTOPIA Site Safety — Procore-inspired UI (CORE palette: orange-60 action, blue-65 links, gray h200) */
   :root{
@@ -341,7 +341,7 @@
 <body>
 <div class="appbar">
   <button class="iconbtn burger" id="navBtn" aria-label="Menu"></button>
-  <a class="brand" href="#/"><img class="blogo" id="brandLogo" alt="KKL"><span class="bword">SKYTOPIA</span></a>
+  <a class="brand" href="#/"><img class="blogo" id="brandLogo" alt="KKL"><span class="bword">KKL CMS</span></a>
   <span class="bdiv"></span>
   <button class="projsel" id="projSel" title="Project settings"><span id="projName">Site Safety</span></button>
   <div class="spacer" style="flex:1"></div>
@@ -459,7 +459,7 @@ function reportDocHtml(title, bodyHtml){
     '.rtitle{font-size:17px;font-weight:750;letter-spacing:.02em}.rsub{font-size:12px;color:#68757d;margin-left:auto;text-align:right}'+
     '@media print{body{margin:0;max-width:none}}'+
     '</style></head><body>'+
-    '<div class="rephead"><img src="'+KKL_LOGO+'" alt="KKL" style="height:32px"><div class="rtitle">'+esc(root.company.name||s.company||'SKYTOPIA Site Safety')+'</div>'+
+    '<div class="rephead"><img src="'+KKL_LOGO+'" alt="KKL" style="height:32px"><div class="rtitle">'+esc(root.company.name||s.company||'KKL CMS')+'</div>'+
     '<div class="rsub">'+esc([s.project,s.company].filter(Boolean).join(' — '))+'<br>Generated '+esc(today())+'</div></div>'+
     bodyHtml+'</body></html>';
 }
@@ -731,8 +731,7 @@ function goBack(){ if(history.length>1) history.back(); else location.hash='#/';
 /* ============ app shell (Procore-style top bar + tool sidebar) ============ */
 const NAV=[
  {group:'Operations', items:[['work','Work Activities','work']]},
- {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic'],
-                          ['training','Training','train'],['certexp','Cert Expiry','cert']]},
+ {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic']]},
  {group:'Site',    items:[['layout','Site Layouts','folder'],['locations','Locations','folder'],
                           ['contacts','Contacts','contact'],['equipment','Equipment','equip'],
                           ['documents','Documents','doc'],['actions','Actions','act']]},
@@ -879,9 +878,6 @@ function renderHome(){
       tile('members','Workers','members')+
       tile('matrix','Competency Matrix','cert',sicMiss||'')+
       tile('sic','SIC / Induction','sic')+
-      tile('workerCompetencies','Competencies','cert')+
-      tile('training','Training','train')+
-      tile('certexp','Cert Expiry','cert',nb||'')+
     '</div>'+
     '<h2 class="sect">Site</h2>'+
     '<div class="grid">'+
@@ -4035,7 +4031,7 @@ function tbxPersist(final){
 async function renderCheckin(projId, tbmId, token){
   GATED=false; document.body.classList.add('gated'); /* clean, chrome-less page */
   app.innerHTML='<div class="login"><div class="lg-card" id="ciCard">'+
-    '<div class="lg-brand"><span class="bmark">S</span><div><div class="lg-t">TOOLBOX CHECK-IN</div><div class="lg-s">Loading…</div></div></div></div></div>';
+    '<div class="lg-brand"><img src="'+KKL_LOGO+'" alt="KKL" style="height:34px;background:#fff;border-radius:4px;padding:2px 5px"><div><div class="lg-t">TOOLBOX CHECK-IN</div><div class="lg-s">Loading…</div></div></div></div></div>';
   const cfg=sbCfg();
   const call=async body=>{
     const r=await fetch(cfg.url+'/functions/v1/tbm-checkin',{method:'POST',
@@ -4051,7 +4047,7 @@ async function renderCheckin(projId, tbmId, token){
   catch(e){ card.innerHTML='<div class="lg-t">Check-in unavailable</div><p class="hint">'+esc(e.message||e)+'</p>'; return; }
   const q=info.question;
   const mems=info.members||[];
-  card.innerHTML='<div class="lg-brand"><span class="bmark">S</span><div><div class="lg-t">TOOLBOX CHECK-IN</div><div class="lg-s">'+esc(info.project||'')+' · '+esc(info.date||'')+'</div></div></div>'+
+  card.innerHTML='<div class="lg-brand"><img src="'+KKL_LOGO+'" alt="KKL" style="height:34px;background:#fff;border-radius:4px;padding:2px 5px"><div><div class="lg-t">TOOLBOX CHECK-IN</div><div class="lg-s">'+esc(info.project||'')+' · '+esc(info.date||'')+'</div></div></div>'+
     '<label style="margin-top:2px">Worker ID no.</label>'+
     '<input id="ciWid" list="ciWids" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CEHYG01">'+
     '<datalist id="ciWids">'+mems.filter(m=>m.wid).map(m=>'<option value="'+esc(m.wid)+'">'+esc(m.name)+'</option>').join('')+'</datalist>'+
@@ -4497,6 +4493,8 @@ function renderMatrix(){
     '<select id="mxWa" style="flex:1"><option value="">Eligibility: general</option>'+
       db.workActivities.filter(w=>w.status!=='Completed').map(w=>'<option value="'+w.id+'"'+(MTX.waId===w.id?' selected':'')+'>For: '+esc(w.title||w.type||'activity')+'</option>').join('')+'</select>'+
     '<button class="btn ghost" id="mxRecords">Records</button>'+
+    '<button class="btn ghost" onclick="location.hash=\'#/training\'">Training</button>'+
+    '<button class="btn ghost" onclick="location.hash=\'#/certexp\'">Cert Expiry</button>'+
     '<button class="btn ghost" id="mxFinder">Find workers</button></div></div>'+
     '<div style="overflow-x:auto;margin-top:10px"><table class="mxt"><tr><th style="text-align:left">Worker</th><th>SIC</th>'+
     cols.map(t=>'<th>'+esc(t.code)+'</th>').join('')+'<th>Status</th></tr>'+
@@ -5496,13 +5494,13 @@ function renderLanding(){
   GATED=true; document.body.classList.add('gated');
   app.innerHTML='<div class="login"><div class="lg-card">'+
     '<div class="lg-brand"><img src="'+KKL_LOGO+'" alt="KKL" style="height:42px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px 8px">'+
-    '<div><div class="lg-t">SKYTOPIA</div><div class="lg-s">Site Safety</div></div></div>'+
+    '<div><div class="lg-t">KKL CMS</div><div class="lg-s">Construction Management System</div></div></div>'+
     '<p class="hint" style="margin:6px 0 14px">Sign in to your team workspace.</p>'+
     '<label style="margin-top:0">Email</label><input id="lgEmail" type="email" autocomplete="username" inputmode="email">'+
     '<label>Password</label><input id="lgPass" type="password" autocomplete="current-password">'+
     '<div class="lg-err" id="lgErr"></div>'+
     '<div class="btnrow"><button class="btn" id="lgGo" style="flex:1">Sign in</button></div>'+
-    '<button class="minor" id="lgLocal" style="margin-top:14px">Work offline on this device only</button>'+
+
     '<p class="hint" style="margin-top:12px">Invited by email? Open the link in that email first — it lets you set your password.</p>'+
   '</div></div>';
   const err=m=>{ const e=document.getElementById('lgErr'); e.textContent=m; e.style.display='block'; };
@@ -5525,9 +5523,8 @@ function renderLanding(){
   };
   document.getElementById('lgGo').onclick=go;
   document.getElementById('lgPass').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
-  document.getElementById('lgLocal').onclick=()=>{
-    localStorage.setItem('kkl-local-ok','1'); unGate(); wfMigrate(); route(); syncInit();
-  };
+  /* offline-only mode removed from the UI (team workspace is the norm);
+     the kkl-local-ok flag still works for development/testing */
 }
 function unGate(){ GATED=false; document.body.classList.remove('gated'); }
 
