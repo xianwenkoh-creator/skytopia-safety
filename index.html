@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-17-0900">
+<meta name="build" content="2026-08-17-1030">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1040,6 +1040,7 @@ function renderEdit(key, id){
   const del=document.getElementById('delBtn');
   if(del) del.onclick=()=>{
     if(confirm('Delete this record? This cannot be undone.')){
+      audit('record-deleted', mod.store, id, {label:String(item.name||item.title||item.activity||item.desc||item.date||'').slice(0,80)}, null);
       db[mod.store]=db[mod.store].filter(x=>x.id!==id); save();
       EV.emit('record:deleted',{store:mod.store, id});
       location.hash='#/'+key;
@@ -1113,6 +1114,10 @@ function route(){
   if(key==='sic')      return sub?renderSicSession(sub):renderSic();
   if(key==='sicready') return renderSicReadiness(null);
   if(key==='memberPrivate'&&!canHR()){ app.innerHTML=header('Private (HR)', true)+'<div class="empty">HR-restricted records.</div>'; return; }
+  if(key==='memberPrivate'&&sub&&SB.profile){
+    window.PVSEEN=window.PVSEEN||new Set();
+    if(!PVSEEN.has(sub)){ PVSEEN.add(sub); audit('private-viewed','memberPrivate',sub,null,null); save(); }
+  }
   if(key==='certexp')  return renderCertExp();
   if(key==='stats')    return renderStats();
   if(key==='report')   return renderReport();
@@ -2551,6 +2556,9 @@ function renderSettings(){
         '<button class="btn ghost" id="sbLink" style="display:none">Copy connect link</button>'+
         '<button class="btn danger" id="sbOut" style="display:none">Sign out</button>'+
       '</div>'+
+      '<div id="mfaWrap" style="display:none"><label>Two-factor authentication (TOTP)</label>'+
+        '<div class="hint" id="mfaBox">Checking&hellip;</div>'+
+        '<div class="btnrow" style="margin-top:8px"><button id="mfaBtn" class="btn ghost" style="display:none"></button></div></div>'+
     '</div>'+
     '<div class="card"><label style="margin-top:0">SKYTOPIA Safety folder</label>'+
       '<p class="hint">Connect your <b>Skytopia \\ Safety</b> folder (OneDrive) so reports, CSV exports and backups save straight into it — each report type goes to its own subfolder (Inspections, Observations, Monthly Reports, &hellip;). Works in Chrome / Edge.</p>'+
@@ -4334,7 +4342,7 @@ function compTypeByCode(code){ return db.competencyTypes.find(t=>(t.code||'').to
 function compTypeKws(t){ return (t&&t.kws&&t.kws.length)?t.kws:(t?[String(t.name||'').toLowerCase()]:[]); }
 function memberComps(mid){ return db.workerCompetencies.filter(c=>c.memberId===mid); }
 function memberLabel(m){ return (m.wid?m.wid+' — ':'')+(m.name||''); }
-function canHR(){ return !SB.profile || ['admin','wsho','hr'].includes(SB.profile.role); }
+function canHR(){ return !SB.profile || ['admin','hr'].includes(SB.profile.role); }
 function wfGuessType(certName){
   const n=String(certName||'').toLowerCase();
   const t=db.competencyTypes.find(x=>(x.kws||[]).some(k=>n.includes(k)));
@@ -5673,6 +5681,78 @@ function renderDiary(){
 function isoLocal(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
 function prevDate(d){ const dt=new Date(d+'T00:00'); dt.setDate(dt.getDate()-1); return isoLocal(dt); }
 
+
+/* ---- optional TOTP two-factor authentication (Supabase MFA) ---- */
+async function mfaRefresh(){
+  const wrap=document.getElementById('mfaWrap'), box=document.getElementById('mfaBox'), btn=document.getElementById('mfaBtn');
+  if(!wrap||!SB.client||!SB.profile) return;
+  wrap.style.display='';
+  try{
+    const {data,error}=await SB.client.auth.mfa.listFactors();
+    if(error) throw error;
+    const f=((data&&data.totp)||[]).find(x=>x.status==='verified');
+    box.textContent=f?'Enabled — a 6-digit authenticator code is required at sign-in on any device.'
+                     :'Not enabled. Adds a 6-digit code from an authenticator app (Google Authenticator, Authy) at sign-in.';
+    btn.style.display=''; btn.textContent=f?'Disable 2FA':'Enable 2FA';
+    btn.className=f?'btn danger':'btn ghost';
+    btn.onclick=f?()=>mfaDisable(f.id):mfaEnroll;
+  }catch(e){ box.textContent='2FA not available: '+(e.message||e); }
+}
+async function mfaEnroll(){
+  try{
+    const {data,error}=await SB.client.auth.mfa.enroll({factorType:'totp'});
+    if(error) throw error;
+    const fid=data.id, uri=data.totp.uri;
+    await loadQrLib();
+    const box=document.getElementById('mfaBox');
+    box.innerHTML='<div style="background:#fff;padding:10px;display:inline-block;border-radius:6px" id="mfaQr"></div>'+
+      '<div class="hint" style="margin:8px 0">Scan with your authenticator app, then enter the 6-digit code:</div>'+
+      '<div class="btnrow"><input id="mfaCode" inputmode="numeric" maxlength="6" placeholder="000000" style="max-width:140px">'+
+      '<button class="btn" id="mfaVerify">Verify</button></div>';
+    new QRCode(document.getElementById('mfaQr'),{text:uri,width:150,height:150,correctLevel:QRCode.CorrectLevel.M});
+    document.getElementById('mfaVerify').onclick=async()=>{
+      const code=(document.getElementById('mfaCode').value||'').trim();
+      if(code.length!==6) return;
+      const ch=await SB.client.auth.mfa.challenge({factorId:fid});
+      if(ch.error){ alert(ch.error.message); return; }
+      const vr=await SB.client.auth.mfa.verify({factorId:fid, challengeId:ch.data.id, code});
+      if(vr.error){ alert('Wrong code — try again.'); return; }
+      audit('mfa-enabled','profile',SB.profile.id,null,null); save();
+      toast('Two-factor authentication enabled');
+      mfaRefresh();
+    };
+  }catch(e){ alert('Could not start 2FA: '+(e.message||e)); }
+}
+async function mfaDisable(fid){
+  if(!confirm('Disable two-factor authentication for your account?')) return;
+  const {error}=await SB.client.auth.mfa.unenroll({factorId:fid});
+  if(error){ alert(error.message); return; }
+  audit('mfa-disabled','profile',SB.profile.id,null,null); save();
+  toast('2FA disabled');
+  mfaRefresh();
+}
+async function mfaGate(){
+  try{
+    const {data:aal}=await SB.client.auth.mfa.getAuthenticatorAssuranceLevel();
+    if(!aal||aal.nextLevel!=='aal2'||aal.nextLevel===aal.currentLevel) return;
+    const {data:fs}=await SB.client.auth.mfa.listFactors();
+    const f=((fs&&fs.totp)||[]).find(x=>x.status==='verified');
+    if(!f) return;
+    for(;;){
+      const code=prompt('Two-factor authentication — enter the 6-digit code from your authenticator app:');
+      if(code===null){ try{ await SB.client.auth.signOut(); }catch(e){} throw new Error('2FA code required to sign in.'); }
+      const ch=await SB.client.auth.mfa.challenge({factorId:f.id});
+      if(ch.error){ alert(ch.error.message); continue; }
+      const vr=await SB.client.auth.mfa.verify({factorId:f.id, challengeId:ch.data.id, code:code.trim()});
+      if(!vr.error) return;
+      alert('Wrong code — try again.');
+    }
+  }catch(e){
+    if(String(e&&e.message).includes('2FA')) throw e;
+    /* MFA API unavailable -> fail open on the gate, factor list was empty */
+  }
+}
+
 /* ============ cloud sync (Supabase, offline-first) ============
    Local storage stays the source of truth on-device; changes diff-push to a
    `records` table (JSONB rows keyed org/project/store/id) and pull back
@@ -6050,11 +6130,18 @@ function sbBindSettings(){
   out.style.display='';
   out.textContent='Sign out';
   out.onclick=async()=>{
-    if(!confirm('Sign out of cloud sync on this device? Local data stays.')) return;
+    if(!confirm('Sign out on this device? Unsynced changes are pushed first, then ALL local data is wiped from this device (it re-syncs on next sign-in).')) return;
+    try{ await pushNow(); }catch(e){
+      if(!confirm('Could not push the latest changes (offline?). Sign out and WIPE anyway? Unpushed edits will be lost.')) return;
+    }
     try{ await SB.client.auth.signOut(); }catch(e){}
-    localStorage.removeItem('kkl-local-ok');
+    /* device hygiene: a signed-out phone holds nothing */
+    [KEY2, KEY, SB.hashKey, SB.syncKey, 'kkl-local-ok', 'kkl-auto-backup', 'kkl-exp-seen', 'kkl-exp-digest']
+      .forEach(k=>localStorage.removeItem(k));
+    Object.keys(localStorage).filter(k=>k.startsWith('kkl-mem-')).forEach(k=>localStorage.removeItem(k));
     location.hash='#/'; location.reload();   /* back to the sign-in landing */
   };
+  mfaRefresh();
 }
 
 /* ============ sign-in landing gate ============ */
@@ -6083,6 +6170,7 @@ function renderLanding(){
       if(!SB.client) SB.client=window.supabase.createClient(cfg.url,cfg.anon);
       const {error}=await SB.client.auth.signInWithPassword({email, password:pw});
       if(error) throw error;
+      await mfaGate();      /* enrolled TOTP factor -> require the 6-digit code */
       unGate(); route();
       await sbAfterLogin();
     }catch(e){

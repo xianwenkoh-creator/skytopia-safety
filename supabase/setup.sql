@@ -204,9 +204,11 @@ create policy rec_read on public.records
   for select using (
     org_id = public.my_org()
     and (
-      /* HQ users keep the per-role visibility, across all projects */
+      /* HQ users keep the per-role visibility, across all projects.
+         memberPrivate is admin + hr ONLY (hardening, Aug 2026). */
       ( public.my_hq() and (
-            public.my_role() in ('admin','wsho')
+            public.my_role() = 'admin'
+            or (public.my_role() = 'wsho' and store <> 'memberPrivate')
             or (public.my_role() = 'hr' and store not in
                 ('ra','raLibrary','raMasters','raMasterVersions','legacyDocs','raAdoptions','raProjectVersions','reviewTriggers'))
             or (public.my_role() = 'viewer' and store not in
@@ -257,6 +259,63 @@ create policy rec_staff_update on public.records
 -- subcon may also SUBMIT their own workers for SIC review: they can create /
 -- resubmit workerProjectAccess rows for their company, but only ever in the
 -- 'SUBMITTED' state — COMPLETE / access decisions stay with main-con staff.
+-- ============================================================
+-- HARDENING (Aug 2026): tamper-proof audit + HR-data narrowing
+-- ============================================================
+-- 1) auditEvents is append-only at the DATABASE level: no role may UPDATE it
+--    (tombstoning included). Staff keep INSERT; hr gains INSERT so their own
+--    actions can log.
+drop policy if exists rec_staff_update on public.records;
+create policy rec_staff_update on public.records
+  for update using (
+    org_id = public.my_org()
+    and store <> 'auditEvents'
+    and ( (public.my_role() in ('admin','wsho') and public.my_hq())
+          or (public.my_role() = 'wsho' and not public.my_hq()
+              and (public.my_project() is null or project_id = public.my_project() or project_id = '_company')
+              and (project_id <> '_company'
+                   or store in ('members','equipment','training','competencyTypes','workerCompetencies'))) )
+  )
+  with check (org_id = public.my_org());
+
+drop policy if exists rec_hr_insert on public.records;
+create policy rec_hr_insert on public.records
+  for insert with check (
+    org_id = public.my_org() and public.my_role() = 'hr'
+    and store in ('members','memberPrivate','workerCompetencies','training','organisations','auditEvents')
+  );
+
+-- 2) memberPrivate readable by admin + hr ONLY (WSHO removed): enforced by a
+--    dedicated exclusion inside rec_read's wsho branch via my_hq check below.
+--    (rec_read handles this: see amended policy.)
+
+-- 3) server-side audit: sensitive-store writes and any tombstone are logged by
+--    the DATABASE with a server timestamp and the authenticated user — exists
+--    even if the client writes no audit event of its own.
+create or replace function public.records_server_audit()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare aid text; act text;
+begin
+  if new.store = 'auditEvents' then return new; end if;
+  act := case
+    when TG_OP = 'UPDATE' and new.deleted and not old.deleted then 'deleted'
+    when new.store in ('memberPrivate','workerProjectAccess') then lower(TG_OP)
+    else null end;
+  if act is null then return new; end if;
+  aid := 'aud-' || substr(md5(new.id || clock_timestamp()::text), 1, 14);
+  insert into public.records(org_id, id, project_id, store, data)
+  values (new.org_id, aid, '_company', 'auditEvents',
+    jsonb_build_object('id', aid, 'at', to_char(now() at time zone 'utc','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+      'who', coalesce(auth.uid()::text, 'service'),
+      'action', 'server:' || act, 'entity', new.store, 'entityId', new.id,
+      'serverStamped', true));
+  return new;
+end $$;
+drop trigger if exists records_server_audit on public.records;
+create trigger records_server_audit
+  before insert or update on public.records
+  for each row execute function public.records_server_audit();
+
 drop policy if exists rec_subcon_insert on public.records;
 create policy rec_subcon_insert on public.records
   for insert with check (
