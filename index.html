@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-16-0100">
+<meta name="build" content="2026-08-16-0140">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -726,7 +726,7 @@ function goBack(){ if(history.length>1) history.back(); else location.hash='#/';
 const NAV=[
  {group:'Operations', items:[['work','Work Activities','work']]},
  {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic'],
-                          ['workerCompetencies','Competencies','cert'],['training','Training','train'],['certexp','Cert Expiry','cert']]},
+                          ['training','Training','train'],['certexp','Cert Expiry','cert']]},
  {group:'Site',    items:[['contacts','Contacts','contact'],['equipment','Equipment','equip'],
                           ['documents','Documents','doc'],['actions','Actions','act']]},
  {group:'Safety',  items:[['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
@@ -909,6 +909,7 @@ const LSCOPE={};
 function renderList(key){
   const mod=MODULES[key];
   let items=[...db[mod.store]];
+  if(mod.baseFilter) items=items.filter(mod.baseFilter);
   items.sort(mod.sort || ((a,b)=>(b.date||'').localeCompare(a.date||'')));
   const scoped=!!mod.siteFilter;
   const scope=scoped?(LSCOPE[key]||'site'):'company';
@@ -1041,6 +1042,11 @@ function route(){
     /* organisations falls through to the generic module below */
   }
   if(key==='matrix')   return renderMatrix();
+  if(key==='finder')   return renderFinder();
+  if(key==='dupes'){
+    if(!isHQ()){ app.innerHTML=header('Duplicate Review', true)+'<div class="empty">HQ users only.</div>'; return; }
+    return renderDupes();
+  }
   if(key==='passport'&&sub) return renderPassport(sub);
   if(key==='sic')      return sub?renderSicSession(sub):renderSic();
   if(key==='sicready') return renderSicReadiness(null);
@@ -1226,11 +1232,13 @@ const MODULES={
     if(bar){ const b=document.createElement('button'); b.type='button'; b.className='btn ghost';
       b.textContent='Passport'; b.onclick=()=>location.hash='#/passport/'+item.id; bar.appendChild(b); }
   },
+  baseFilter:m=>!m.mergedInto,
   siteFilter:items=>{ const ids=projectMemberIds(); return items.filter(m=>ids.has(m.id)); },
   sort:(a,b)=>(a.name||'').localeCompare(b.name||''),
   listHeader:items=>items.length?'<div style="margin:0 0 10px">'+
     '<button class="btn ghost" onclick="exportSicCsv()">SIC register export</button>'+
-    '<span class="hint" style="margin-left:8px">'+items.filter(m=>!m.sicDate).length+' without an SIC date</span></div>':'',
+    (isHQ()?'<button class="btn ghost" style="margin-left:6px" onclick="location.hash=\'#/dupes\'">Duplicates'+(dupPairs().length?' ('+dupPairs().length+')':'')+'</button>':'')+
+    '</div>':'',
   line1:i=>esc(i.name),
   line2:i=>esc([i.wid,i.company,i.trade].filter(Boolean).join(' · ')),
   meta:i=>{ const ds=[i.wpExpiry,...memberAllCerts(i).map(c=>c.expiry)].filter(Boolean).map(daysTo).filter(d=>d!==null);
@@ -1484,6 +1492,28 @@ const MODULES={
   beforeSave:function(obj){
     if(obj.memberId){ const m=db.members.find(x=>x.id===obj.memberId);
       if(m){ if(!obj.name) obj.name=m.name; obj.company=m.company||''; } }
+    /* training generates/renews the competency (workforce brief §15):
+       course maps to a competency type -> the worker's credential record */
+    if(obj.memberId&&obj.course){
+      const t=wfGuessType(obj.course);
+      if(t&&t.code!=='OTH'){
+        const m=db.members.find(x=>x.id===obj.memberId);
+        let comp=db.workerCompetencies.find(c=>c.memberId===obj.memberId&&c.typeCode===t.code);
+        if(!comp){
+          comp={id:'wc-t-'+obj.id, memberId:obj.memberId, memberName:m?m.name:obj.name,
+            company:m?m.company||'':'', typeCode:t.code, typeName:t.name};
+          db.workerCompetencies.push(comp);
+          audit('competency-from-training','workerCompetency',comp.id,null,{typeCode:t.code, trainingId:obj.id});
+        }
+        if(!comp.expiry||(obj.expiry&&obj.expiry>comp.expiry)){
+          comp.certNo=comp.certNo||obj.certNo||''; comp.issuer=comp.issuer||obj.provider||'';
+          comp.issued=obj.date||comp.issued||''; comp.expiry=obj.expiry||comp.expiry||'';
+          comp.verification='VERIFIED'; comp.verifiedBy=raWho(); comp.verifiedAt=today();
+          comp.source='training:'+obj.id;
+          audit('competency-renewed-from-training','workerCompetency',comp.id,null,{trainingId:obj.id, expiry:comp.expiry});
+        }
+      }
+    }
   },
   siteFilter:items=>{ const ids=projectMemberIds();
     return items.filter(t=>{ const m=trainingMemberOf(t); return m&&ids.has(m.id); }); },
@@ -1720,16 +1750,32 @@ const MODULES={
                  x.sourceEntity==='raAdoption'?'#/rasys/'+x.sourceEntityId:
                  x.sourceEntity==='observation'?'#/observations/'+x.sourceEntityId:
                  x.sourceEntity==='incident'?'#/incidents/'+x.sourceEntityId:null;
+      const canOvr=x.status==='BLOCK'&&!NON_OVERRIDABLE.includes(x.ruleCode)&&canRA();
       return '<div class="lrow" '+(link?'onclick="location.hash=\''+link+'\'"':'style="cursor:default"')+'>'+
         '<div class="lmain"><div class="lt" style="color:var(--ink);white-space:normal">'+esc(x.title)+' <span class="chip n">'+esc(x.ruleCode)+'</span></div>'+
         '<div class="ls" style="white-space:normal">'+esc(x.reason)+'</div></div>'+
-        '<div class="lmeta"><span class="chip '+c+'">'+x.status+'</span></div></div>';
+        '<div class="lmeta"><span class="chip '+c+'">'+x.status+'</span>'+
+        (canOvr?'<br><button class="btn ghost" style="min-height:30px;padding:3px 8px;font-size:12px" data-ovr="'+esc(x.ruleCode)+'" onclick="event.stopPropagation()">Override</button>':'')+
+        '</div></div>';
     }).join('');
     const card=document.createElement('div'); card.className='card';
     card.innerHTML='<label style="margin-top:0">Work readiness '+chip+'</label>'+
-      '<p class="hint">Deterministic compliance gates — recomputed automatically when certs, plant, RAs, briefings, observations or incidents change. AI is never used for these.</p>'+rows;
+      '<p class="hint">Deterministic compliance gates — recomputed automatically when certs, plant, RAs, briefings, observations or incidents change. AI is never used for these. Overrides are audited, time-limited, and blocked for statutory rules.</p>'+rows;
     const form=app.querySelector('.card');
     form.parentNode.insertBefore(card, form);
+    card.querySelectorAll('[data-ovr]').forEach(b=>b.onclick=e=>{
+      e.stopPropagation();
+      const reason=prompt('Override "'+b.dataset.ovr+'" — reason (required, will be audited):');
+      if(!reason||!reason.trim()) return;
+      const days=parseInt(prompt('Valid for how many days? (1–14)','1'),10);
+      const dur=isNaN(days)?1:Math.min(14,Math.max(1,days));
+      const exp=new Date(Date.now()+dur*864e5).toISOString().slice(0,10);
+      item.overrides=(item.overrides||[]).concat([{ruleCode:b.dataset.ovr, reason:reason.trim(),
+        by:raWho(), at:today(), expiry:exp}]);
+      audit('eligibility-override','workActivity',item.id,null,{ruleCode:b.dataset.ovr, expiry:exp},reason.trim());
+      recalcWA(item); save(); EV.emit('record:changed',{store:'workActivities',id:item.id});
+      route();
+    });
   },
   sort:(a,b)=>(a.status==='Active'?0:1)-(b.status==='Active'?0:1)||(b.startDate||'').localeCompare(a.startDate||''),
   line1:i=>esc(i.title),
@@ -2390,6 +2436,8 @@ function RR(ruleCode,status,title,reason,sourceEntity,sourceEntityId){
 }
 /* activities that must not start without a permit */
 const PTW_REQUIRED=['Hot Works','Confined Space','Work at Height','Lifting Operations','Excavation & Trenching'];
+/* statutory gates that management may NEVER override */
+const NON_OVERRIDABLE=['MEM-WP-EXPIRED','EQP-AE-OVERDUE','EQP-CERT-EXPIRED','WA-RA-EXPIRED'];
 /* activity/role → competency keywords that must appear in a live cert/course */
 const REQ_CERT={
   'Lifting Operations':{role:{'Lifting Supervisor':['lifting supervisor'],'Rigger / Signalman':['rigger','signalman']}},
@@ -2538,6 +2586,17 @@ function checkWorkActivityReadiness(workActivityId){
   });
   db.incidents.filter(i=>i.waId===wa.id&&i.status!=='Closed').forEach(i=>
     res.push(RR('WA-INC-OPEN','BLOCK','Open incident',(i.type||'Incident')+' on '+fmtD(i.date)+' is not closed.','incident',i.id)));
+  /* authorised overrides: downgrade a BLOCK to WARN, audited, time-limited.
+     Statutory rules can never be overridden. */
+  (wa.overrides||[]).forEach(o=>{
+    if(o.expiry&&(daysTo(o.expiry)??0)<0) return;
+    res.forEach(r=>{
+      if(r.status==='BLOCK'&&r.ruleCode===o.ruleCode&&!NON_OVERRIDABLE.includes(r.ruleCode)){
+        r.status='WARN'; r.title+=' — OVERRIDDEN'; r.overridden=true;
+        r.reason+=' · Override by '+o.by+(o.expiry?' until '+fmtD(o.expiry):'')+': '+o.reason;
+      }
+    });
+  });
   const status=res.some(r=>r.status==='BLOCK')?'BLOCKED':res.some(r=>r.status==='WARN')?'READY_WITH_WARNINGS':'READY';
   if(!res.length) res.push(RR('WA-OK','PASS','Ready','All deterministic checks passed.','workActivity',wa.id));
   return {status,results:res};
@@ -4256,7 +4315,12 @@ function sicPack(rows, prof){
       '<tr style="background:#eee"><th style="text-align:left">Requirement</th><th>Status</th><th style="text-align:left">Notes</th></tr>'+
       r.checks.map(c=>'<tr><td>'+esc(c.label)+'</td><td style="text-align:center">'+(c.ok?(c.warn?'&#9888;':'&#10003;'):'&#10007;')+'</td><td>'+esc(c.why||(c.warn?'Unverified':''))+'</td></tr>').join('')+'</table>'+
       '<table border="0" style="width:100%;font-size:12px;margin-top:6px"><tr>'+
-      memberAllCerts(r.m).filter(c=>c.name).slice(0,8).map(c=>'<td>'+esc(c.name)+(c.expiry?' (exp '+esc(fmtD(c.expiry))+')':'')+'</td>').join('')+'</tr></table></div>';
+      memberAllCerts(r.m).filter(c=>c.name).slice(0,8).map(c=>'<td>'+esc(c.name)+(c.expiry?' (exp '+esc(fmtD(c.expiry))+')':'')+'</td>').join('')+'</tr></table>'+
+      (function(){ const imgs=memberComps(r.m.id).flatMap(c=>(c.photos||[]).slice(0,1).map(p=>({p,t:c.typeName||c.typeCode||'Cert'})));
+        return imgs.length?'<div style="margin-top:8px">'+imgs.slice(0,4).map(x=>
+          '<div style="display:inline-block;width:47%;margin:1%;vertical-align:top"><img src="'+x.p+'" style="width:100%;border:1px solid #999">'+
+          '<div style="font-size:10px;text-align:center">'+esc(x.t)+'</div></div>').join('')+'</div>':''; })()+
+      '</div>';
   });
   saveOrDownload('SIC Packs','SIC-pack-'+fileStamp(proj)+'-'+today()+'.html', reportDocHtml('SIC Submission Pack', b), 'text/html');
 }
@@ -4280,13 +4344,13 @@ function renderMatrix(){
     return '<td class="mx ok">&#10003;</td>';
   };
   const q=MTX.q.toLowerCase();
-  let ms=db.members.filter(m=>!q||JSON.stringify(m).toLowerCase().includes(q));
+  let ms=db.members.filter(m=>!m.mergedInto).filter(m=>!q||JSON.stringify(m).toLowerCase().includes(q));
   if(siteIds&&!q) ms=ms.filter(m=>siteIds.has(m.id));
   if(MTX.co) ms=ms.filter(m=>(m.company||'')===MTX.co);
   const rows=ms.map(m=>{
     const acc=memberAccess(m.id);
     const sic=acc&&acc.sicStatus==='COMPLETE'?(acc.sicExpiry&&(daysTo(acc.sicExpiry)??0)<0?'EXPIRED':'OK'):(m.sicDate?'LEGACY':'NONE');
-    const el=checkMemberEligibility(m.id,null);
+    const el=checkMemberEligibility(m.id,MTX.waId||null);
     const worst=el.some(r=>r.status==='BLOCK')?'BLOCKED':el.some(r=>r.status==='WARN')?'WARN':'READY';
     const exp=memberAllCerts(m).map(c=>c.expiry?daysTo(c.expiry):null).filter(d=>d!==null);
     if(m.wpExpiry) exp.push(daysTo(m.wpExpiry));
@@ -4294,6 +4358,7 @@ function renderMatrix(){
     return {m,sic,worst,minExp};
   }).filter(r=>{
     if(MTX.show==='SIC') return r.sic!=='OK';
+    if(MTX.show==='ELIGWA') return r.worst!=='BLOCKED';
     if(MTX.show==='BLOCKED') return r.worst==='BLOCKED';
     if(MTX.show==='E7') return r.minExp!==null&&r.minExp<=7;
     if(MTX.show==='E30') return r.minExp!==null&&r.minExp<=30;
@@ -4323,8 +4388,13 @@ function renderMatrix(){
     '<select id="mxCo" style="flex:1"><option value="">All companies</option>'+
       [...new Set(db.members.map(m=>m.company).filter(Boolean))].map(c=>'<option'+(MTX.co===c?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select>'+
     '<select id="mxShow" style="flex:1">'+
-      [['ALL','Show all'],['SIC','SIC incomplete'],['BLOCKED','Blocked'],['EXP','Expired'],['E7','Expiring ≤7d'],['E30','Expiring ≤30d'],['E60','Expiring ≤60d'],['E90','Expiring ≤90d']]
-      .map(o=>'<option value="'+o[0]+'"'+(MTX.show===o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></div></div>'+
+      [['ALL','Show all'],['SIC','SIC incomplete'],['BLOCKED','Blocked'],['ELIGWA','Eligible (not blocked)'],['EXP','Expired'],['E7','Expiring ≤7d'],['E30','Expiring ≤30d'],['E60','Expiring ≤60d'],['E90','Expiring ≤90d']]
+      .map(o=>'<option value="'+o[0]+'"'+(MTX.show===o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></div>'+
+    '<div class="btnrow" style="margin-top:8px">'+
+    '<select id="mxWa" style="flex:1"><option value="">Eligibility: general</option>'+
+      db.workActivities.filter(w=>w.status!=='Completed').map(w=>'<option value="'+w.id+'"'+(MTX.waId===w.id?' selected':'')+'>For: '+esc(w.title||w.type||'activity')+'</option>').join('')+'</select>'+
+    '<button class="btn ghost" id="mxRecords">Records</button>'+
+    '<button class="btn ghost" id="mxFinder">Find workers</button></div></div>'+
     '<div style="overflow-x:auto;margin-top:10px"><table class="mxt"><tr><th style="text-align:left">Worker</th><th>SIC</th>'+
     cols.map(t=>'<th>'+esc(t.code)+'</th>').join('')+'<th>Status</th></tr>'+
     shown.map(r=>'<tr onclick="location.hash=\'#/passport/'+r.m.id+'\'"><td style="text-align:left;white-space:nowrap">'+esc(memberLabel(r.m))+
@@ -4338,6 +4408,9 @@ function renderMatrix(){
   const ms1=document.getElementById('mxSite'), ms2=document.getElementById('mxAllScope');
   if(ms1) ms1.onclick=()=>{ MTX.scope='site'; renderMatrix(); };
   if(ms2) ms2.onclick=()=>{ MTX.scope='company'; renderMatrix(); };
+  document.getElementById('mxWa').onchange=e=>{ MTX.waId=e.target.value||null; renderMatrix(); };
+  document.getElementById('mxRecords').onclick=()=>location.hash='#/workerCompetencies';
+  document.getElementById('mxFinder').onclick=()=>location.hash='#/finder';
   document.getElementById('mxQ').oninput=e=>{ MTX.q=e.target.value; MTX.all=false; renderMatrix(); };
   document.getElementById('mxCo').onchange=e=>{ MTX.co=e.target.value; renderMatrix(); };
   document.getElementById('mxShow').onchange=e=>{ MTX.show=e.target.value; renderMatrix(); };
@@ -4407,6 +4480,101 @@ function renderPassport(mid){
     }
     location.hash='#/memberPrivate/pv-'+mid;
   };
+}
+
+/* ---- deployment finder: who can I send? (workforce brief §27) ---- */
+let FIN={type:'',sic:true};
+function renderFinder(){
+  const types=db.competencyTypes.filter(t=>t.code!=='OTH');
+  const busy=new Set();
+  db.workActivities.filter(w=>w.status==='Active').forEach(w=>(w.crew||[]).forEach(c=>busy.add(c.memberId)));
+  const t=compTypeByCode(FIN.type);
+  const cands=!t?[]:db.members.filter(m=>m.status!=='INACTIVE'&&!m.mergedInto).map(m=>{
+    const v=hasLiveCertV(m,compTypeKws(t));
+    if(!v.has) return null;
+    const el=checkMemberEligibility(m.id,null);
+    if(el.some(r=>r.status==='BLOCK')) return null;
+    const acc=memberAccess(m.id);
+    const sicOk=!!(acc&&acc.sicStatus==='COMPLETE');
+    if(FIN.sic&&!sicOk) return null;
+    return {m, verified:v.verified, sicOk, avail:!busy.has(m.id), warns:el.filter(r=>r.status==='WARN').length};
+  }).filter(Boolean).sort((a,b)=>(b.avail-a.avail)||(b.sicOk-a.sicOk)||(b.verified-a.verified)||(a.warns-b.warns));
+  app.innerHTML=header('Find Workers', true)+
+    '<div class="card"><label style="margin-top:0">I need workers who are&hellip;</label>'+
+    '<div class="fgrid"><div class="fld half"><label>Competency</label><select id="fnType"><option value="">— choose —</option>'+
+      types.map(x=>'<option value="'+x.code+'"'+(FIN.type===x.code?' selected':'')+'>'+esc(x.name)+'</option>').join('')+'</select></div>'+
+    '<div class="fld half"><label>Project SIC</label><select id="fnSic"><option value="1"'+(FIN.sic?' selected':'')+'>Must be SIC-complete here</option>'+
+      '<option value=""'+(FIN.sic?'':' selected')+'>Any (SIC pending OK)</option></select></div></div>'+
+    '<p class="hint">Deterministic: active worker, live competency, no blocking rule. Ranked available &rarr; inducted &rarr; verified. Workers already in an Active activity are marked.</p></div>'+
+    (FIN.type?(cands.length?'<h2 class="sect">Candidates ('+cands.length+')</h2>'+cands.map(c=>
+      '<div class="lrow" onclick="location.hash=\'#/passport/'+c.m.id+'\'">'+
+      '<div class="lmain"><div class="lt">'+esc(memberLabel(c.m))+'</div>'+
+      '<div class="ls">'+esc([c.m.company,c.m.trade].filter(Boolean).join(' · '))+'</div></div>'+
+      '<div class="lmeta">'+(c.avail?'<span class="chip g">AVAILABLE</span>':'<span class="chip w">ON ACTIVITY</span>')+
+      (c.sicOk?'<span class="chip g">SIC</span>':'<span class="chip n">NO SIC</span>')+
+      (c.verified?'':'<span class="chip w">UNVERIFIED</span>')+'</div></div>').join('')
+     :'<div class="empty">No eligible workers found for this requirement.</div>'):'');
+  document.getElementById('fnType').onchange=e=>{ FIN.type=e.target.value; renderFinder(); };
+  document.getElementById('fnSic').onchange=e=>{ FIN.sic=!!e.target.value; renderFinder(); };
+}
+
+/* ---- duplicate worker review (workforce brief §32): never auto-merge ---- */
+function dupPairs(){
+  const pairs=[], seen=new Set();
+  const add=(a,b,why,conf)=>{ const k=[a.id,b.id].sort().join('~');
+    if(seen.has(k)) return; seen.add(k); pairs.push({a,b,why,conf,key:k}); };
+  const ms=db.members.filter(m=>!m.mergedInto);
+  const group=(fn,why,conf)=>{ const map={};
+    ms.forEach(m=>{ const v=fn(m); if(v) (map[v]=map[v]||[]).push(m); });
+    Object.values(map).filter(g=>g.length>1).forEach(g=>{
+      for(let i=0;i<g.length-1;i++) add(g[i],g[i+1],why,conf); }); };
+  group(m=>(m.wid||'').trim().toUpperCase()||null,'Same Worker ID','High');
+  group(m=>{ const v=(m.idno||'').replace(/[^A-Za-z0-9]/g,''); return v.length>=5?v.toUpperCase():null; },'Same NRIC/FIN','High');
+  group(m=>{ const n=(m.name||'').trim().toLowerCase(); return n?n+'|'+(m.company||'').trim().toLowerCase():null; },'Same name + company','Medium');
+  const dismissed=new Set(db.auditEvents.filter(a=>a.action==='dup-dismissed').map(a=>a.entityId));
+  return pairs.filter(p=>!dismissed.has(p.key));
+}
+function mergeWorkers(keepId, dropId){
+  const keep=db.members.find(m=>m.id===keepId), drop=db.members.find(m=>m.id===dropId);
+  if(!keep||!drop) return;
+  root.projects.forEach(p=>{
+    (p.workerProjectAccess||[]).forEach(a=>{ if(a.memberId===dropId){ a.memberId=keepId; a.memberName=keep.name||''; } });
+    (p.workActivities||[]).forEach(w=>(w.crew||[]).forEach(c=>{ if(c.memberId===dropId) c.memberId=keepId; }));
+    (p.tbm||[]).forEach(t=>{ (t.checkins||[]).forEach(c=>{ if(c.memberId===dropId) c.memberId=keepId; });
+      if(Array.isArray(t.attendees)) t.attendees=t.attendees.map(id=>id===dropId?keepId:id); });
+    (p.sicSessions||[]).forEach(s=>(s.workers||[]).forEach(w=>{ if(w.memberId===dropId) w.memberId=keepId; }));
+  });
+  db.workerCompetencies.forEach(c=>{ if(c.memberId===dropId){ c.memberId=keepId; c.memberName=keep.name||''; } });
+  db.training.forEach(t=>{ if(t.memberId===dropId) t.memberId=keepId; });
+  db.equipment.forEach(e=>{ if(e.operatorMemberId===dropId) e.operatorMemberId=keepId; });
+  ['wid','idno','phone','wpExpiry','passType','designation','trade','company'].forEach(k=>{ if(!keep[k]&&drop[k]) keep[k]=drop[k]; });
+  drop.mergedInto=keepId; drop.status='INACTIVE';
+  drop.remarks=((drop.remarks||'')+' Merged into '+(keep.name||keepId)+' on '+today()+'.').trim();
+  audit('worker-merged','member',dropId,null,{into:keepId});
+  save(); EV.emit('record:changed',{store:'members',id:keepId});
+}
+function renderDupes(){
+  const pairs=dupPairs();
+  app.innerHTML=header('Duplicate Review', true)+
+    '<div class="card"><p class="hint" style="margin:0">Possible duplicate workers, matched on Worker ID, identifier fragments, or name+company. '+
+    'Merging keeps ONE record and re-points every reference (crew, check-ins, competencies, SIC, training, operator links) — the other record is retired, never deleted. Nothing merges automatically.</p></div>'+
+    (pairs.length?pairs.map((p,i)=>{
+      const side=m=>'<b>'+esc(memberLabel(m))+'</b><div class="hint">'+esc([m.company,m.trade,m.idno,m.phone].filter(Boolean).join(' · '))+
+        ' · '+memberComps(m.id).length+' cert(s)</div>';
+      return '<div class="card" style="margin-bottom:10px"><span class="chip '+(p.conf==='High'?'w':'n')+'">'+p.conf+'</span> '+esc(p.why)+
+        '<div style="margin:8px 0">'+side(p.a)+'<div class="hint" style="margin:4px 0">vs</div>'+side(p.b)+'</div>'+
+        '<div class="btnrow"><button class="btn ghost" data-ma="'+i+'" style="flex:1">Keep first</button>'+
+        '<button class="btn ghost" data-mb="'+i+'" style="flex:1">Keep second</button>'+
+        '<button class="btn ghost" data-ks="'+i+'">Not duplicates</button></div></div>'; }).join('')
+     :'<div class="empty">No possible duplicates found. New candidates appear here automatically as workers are added.</div>');
+  const P=pairs;
+  app.querySelectorAll('[data-ma]').forEach(b=>b.onclick=()=>{ const p=P[+b.dataset.ma];
+    if(confirm('Merge "'+(p.b.name||'')+'" into "'+(p.a.name||'')+'"? All history moves to the kept record.')){ mergeWorkers(p.a.id,p.b.id); renderDupes(); } });
+  app.querySelectorAll('[data-mb]').forEach(b=>b.onclick=()=>{ const p=P[+b.dataset.mb];
+    if(confirm('Merge "'+(p.a.name||'')+'" into "'+(p.b.name||'')+'"? All history moves to the kept record.')){ mergeWorkers(p.b.id,p.a.id); renderDupes(); } });
+  app.querySelectorAll('[data-ks]').forEach(b=>b.onclick=()=>{ const p=P[+b.dataset.ks];
+    audit('dup-dismissed','memberPair',p.key,null,null,'Confirmed as different people');
+    save(); renderDupes(); });
 }
 
 /* ---- Company (HQ) level pages ---- */
