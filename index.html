@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-19-1900">
+<meta name="build" content="2026-08-19-2200">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -589,15 +589,73 @@ async function saveToSafety(cat, name, text, mime){
     const dir=await root.getDirectoryHandle(cat,{create:true});
     const fh=await dir.getFileHandle(name,{create:true});
     const w=await fh.createWritable();
-    const bom=(mime||'').includes('csv')?'﻿':'';
-    await w.write(new Blob([bom+text],{type:mime||'text/plain'}));
+    if(text instanceof Blob){ await w.write(text); }
+    else{
+      const bom=(mime||'').includes('csv')?'﻿':'';
+      await w.write(new Blob([bom+text],{type:mime||'text/plain'}));
+    }
     await w.close();
     toast('Saved: '+root.name+' \\ '+cat+' \\ '+name);
     autoBackup();                      /* permission is fresh — good moment for the daily backup */
     return true;
   }catch(e){ console.warn('folder save failed',e); toast('Folder save failed — downloading instead', true); return false; }
 }
+function downloadBlob(name, blob){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+}
+/* html2pdf.js (jsPDF + html2canvas) loaded on demand, once */
+let H2P=null;
+function loadH2P(){
+  if(window.html2pdf) return Promise.resolve(true);
+  if(H2P) return H2P;
+  H2P=new Promise(res=>{
+    const t=setTimeout(()=>res(false),15000);
+    const sc=document.createElement('script');
+    sc.src='https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js';
+    sc.onload=()=>{ clearTimeout(t); res(true); };
+    sc.onerror=()=>{ clearTimeout(t); H2P=null; res(false); };
+    document.head.appendChild(sc);
+  });
+  return H2P;
+}
+/* render a self-contained report HTML offscreen and convert to a PDF blob */
+async function htmlToPdfBlob(docHtml){
+  if(!await loadH2P()) return null;
+  const W=726; /* A4 210mm minus 9mm margins at 96dpi — html2pdf clips, never scales */
+  const fr=document.createElement('iframe');
+  fr.style.cssText='position:fixed;left:-10000px;top:0;width:'+W+'px;height:1200px;border:0;visibility:hidden';
+  document.body.appendChild(fr);
+  try{
+    fr.contentDocument.open(); fr.contentDocument.write(docHtml); fr.contentDocument.close();
+    const st=fr.contentDocument.createElement('style');
+    st.textContent='table{table-layout:fixed;width:100% !important;max-width:100%}td,th{overflow-wrap:anywhere}';
+    fr.contentDocument.head.appendChild(st);
+    await new Promise(r=>setTimeout(r,250)); /* let images decode */
+    const el=fr.contentDocument.body;
+    el.style.margin='0'; el.style.padding='0'; el.style.maxWidth=W+'px'; el.style.width=W+'px';
+    const blob=await window.html2pdf().set({
+      margin:[10,9,12,9],
+      image:{type:'jpeg',quality:0.92},
+      html2canvas:{scale:2,useCORS:false,logging:false,windowWidth:W,width:W},
+      jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+      pagebreak:{mode:['css','legacy']}
+    }).from(el).outputPdf('blob');
+    return blob;
+  }catch(e){ console.warn('pdf conversion failed',e); return null;
+  }finally{ fr.remove(); }
+}
 async function saveOrDownload(cat, name, text, mime){
+  if((mime||'').includes('html')){
+    toast('Generating PDF…');
+    const pdf=await htmlToPdfBlob(text);
+    if(pdf){
+      const pname=name.replace(/\.html?$/i,'')+'.pdf';
+      if(await saveToSafety(cat,pname,pdf,'application/pdf')) return;
+      downloadBlob(pname,pdf); return;
+    }
+    toast('PDF engine unavailable — saving HTML instead', true);
+  }
   if(await saveToSafety(cat,name,text,mime)) return;
   if((mime||'').includes('csv')) downloadText(name,text,mime); else downloadRaw(name,text,mime);
 }
@@ -619,13 +677,15 @@ function reportDocHtml(title, bodyHtml){
     '.hfill{height:100%;background:#e11b12;min-width:2px}'+
     '.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:3px;background:#f0f6fe;color:#006ddf;margin-left:3px}'+
     '.hint{font-size:12px;color:#68757d}.noprint{display:none}label{display:none}input,select{display:none}'+
-    '.rephead{display:flex;align-items:center;gap:10px;border-bottom:3px solid #e11b12;padding-bottom:10px;margin-bottom:16px}'+
-    '.rmark{width:26px;height:26px;border-radius:4px;background:#e11b12;color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center}'+
-    '.rtitle{font-size:17px;font-weight:750;letter-spacing:.02em}.rsub{font-size:12px;color:#68757d;margin-left:auto;text-align:right}'+
+    '.rephead{width:100%;border-collapse:collapse;border-bottom:3px solid #e11b12;margin-bottom:16px}'+
+    '.rephead td{padding:0 0 10px;vertical-align:middle;border:0}'+
+    '.rtitle{font-size:17px;font-weight:750;letter-spacing:.02em;display:inline-block;vertical-align:middle;margin-left:10px}'+
+    '.rsub{font-size:12px;color:#68757d;text-align:right}'+
+    'table:not(.rephead){table-layout:fixed;width:100%;max-width:100%}td,th{overflow-wrap:anywhere}'+
     '@media print{body{margin:0;max-width:none}}'+
     '</style></head><body>'+
-    '<div class="rephead"><img src="'+KKL_LOGO+'" alt="KKL" style="height:32px"><div class="rtitle">'+esc(root.company.name||s.company||'KKL CMS')+'</div>'+
-    '<div class="rsub">'+esc([s.project,s.company].filter(Boolean).join(' — '))+'<br>Generated '+esc(today())+'</div></div>'+
+    '<table class="rephead"><tr><td style="white-space:nowrap"><img src="'+KKL_LOGO+'" alt="KKL" style="height:32px;vertical-align:middle"><span class="rtitle">'+esc(root.company.name||s.company||'KKL CMS')+'</span></td>'+
+    '<td class="rsub">'+esc([s.project,s.company].filter(Boolean).join(' — '))+'<br>Generated '+esc(today())+'</td></tr></table>'+
     bodyHtml+'</body></html>';
 }
 function fileStamp(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,' ').trim().slice(0,60); }
