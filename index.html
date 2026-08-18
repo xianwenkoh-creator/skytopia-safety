@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-19-2200">
+<meta name="build" content="2026-08-19-2300">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1611,11 +1611,10 @@ const MODULES={
     const cks=t.checkins||[]; if(!cks.length) return '';
     const hh=at=>{ try{ return new Date(at).toTimeString().slice(0,5); }catch(e){ return ''; } };
     return '<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Worker check-ins ('+cks.length+' &middot; ID-validated)</div>'+
-      '<table class="dtable" style="margin:4px 0"><tr><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th><th style="text-align:left">Company</th><th>Time</th><th>Check question</th><th>GPS</th></tr>'+
+      '<table class="dtable" style="margin:4px 0"><tr><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th><th style="text-align:left">Company</th><th>Time</th><th>Check question</th></tr>'+
       cks.map(c=>'<tr><td style="text-align:left">'+esc(c.wid||'')+'</td><td style="text-align:left">'+esc(c.name||'')+'</td>'+
         '<td style="text-align:left">'+esc(c.company||'')+'</td><td>'+esc(hh(c.at))+'</td>'+
-        '<td>'+(c.answer===undefined||c.answer===null?'&mdash;':(c.correct?'&#10003; correct':'&#10007; wrong'))+'</td>'+
-        '<td>'+(c.geo&&c.geo.lat?(c.geo.lat.toFixed(4)+', '+c.geo.lng.toFixed(4)):'&mdash;')+'</td></tr>').join('')+'</table>'+
+        '<td>'+(c.answer===undefined||c.answer===null?'&mdash;':(c.correct?'&#10003; correct':'&#10007; wrong'))+'</td></tr>').join('')+'</table>'+
       (t.briefing?'<div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-top:8px">Briefing delivered</div><div style="font-size:14.5px;white-space:pre-line">'+esc(t.briefing)+'</div>':'')+
       '</div>';
   },
@@ -4502,7 +4501,6 @@ function tbxPersist(final){
 }
 /* public worker check-in page (opened from the QR code; no login) */
 async function renderCheckin(projId, tbmId, token){
-  geoCapture();
   GATED=false; document.body.classList.add('gated'); /* clean, chrome-less page */
   app.innerHTML='<div class="login"><div class="lg-card" id="ciCard">'+
     '<div class="lg-brand"><img src="'+KKL_LOGO+'" alt="KKL" style="height:34px;background:#fff;border-radius:4px;padding:2px 5px"><div><div class="lg-t">TOOLBOX CHECK-IN</div><div class="lg-s">Loading…</div></div></div></div></div>';
@@ -4557,7 +4555,7 @@ async function renderCheckin(projId, tbmId, token){
     const name=m.name;
     const btn=document.getElementById('ciGo'); btn.disabled=true; btn.textContent='Checking in…';
     try{
-      const res=await call({action:'submit', name, memberId:m.id, wid:m.wid||'', geo:geoStamp(),
+      const res=await call({action:'submit', name, memberId:m.id, wid:m.wid||'',
         company:document.getElementById('ciCo').value.trim(), qIdx:q?info.qIdx:null, answer:ans});
       card.innerHTML='<div class="lg-brand"><span class="bmark" style="background:'+(res.correct===false?'#e0a030':'#2fbf4f')+'">✓</span>'+
         '<div><div class="lg-t">Checked in</div><div class="lg-s">'+esc(name)+'</div></div></div>'+
