@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-19-1600">
+<meta name="build" content="2026-08-19-1800">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1547,6 +1547,18 @@ const MODULES={
    {k:'attendees',label:'Attendance',type:'members'},
    {k:'others',label:'Other attendees (one per line)',type:'textarea',rows:2},
    {k:'remarks',label:'Remarks / feedback from workers',type:'textarea',rows:2}],
+  printExtra:function(t){
+    const cks=t.checkins||[]; if(!cks.length) return '';
+    const hh=at=>{ try{ return new Date(at).toTimeString().slice(0,5); }catch(e){ return ''; } };
+    return '<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Worker check-ins ('+cks.length+' &middot; ID-validated)</div>'+
+      '<table class="dtable" style="margin:4px 0"><tr><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th><th style="text-align:left">Company</th><th>Time</th><th>Check question</th><th>GPS</th></tr>'+
+      cks.map(c=>'<tr><td style="text-align:left">'+esc(c.wid||'')+'</td><td style="text-align:left">'+esc(c.name||'')+'</td>'+
+        '<td style="text-align:left">'+esc(c.company||'')+'</td><td>'+esc(hh(c.at))+'</td>'+
+        '<td>'+(c.answer===undefined||c.answer===null?'&mdash;':(c.correct?'&#10003; correct':'&#10007; wrong'))+'</td>'+
+        '<td>'+(c.geo&&c.geo.lat?(c.geo.lat.toFixed(4)+', '+c.geo.lng.toFixed(4)):'&mdash;')+'</td></tr>').join('')+'</table>'+
+      (t.briefing?'<div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-top:8px">Briefing delivered</div><div style="font-size:14.5px;white-space:pre-line">'+esc(t.briefing)+'</div>':'')+
+      '</div>';
+  },
   line1:i=>esc((i.topics||'').split('\n')[0].slice(0,70)),
   line2:i=>fmtD(i.date)+(i.time?' '+esc(i.time):'')+(i.conductor?' · '+esc(i.conductor):''),
   meta:i=>{ const n=(i.attendees||[]).length+((i.others||'').split('\n').filter(x=>x.trim()).length);
@@ -2275,6 +2287,7 @@ function renderRecordPrint(key, id){
       (proj?'<div class="repmeta" style="margin-bottom:10px">'+proj+'</div>':'')+
       '<div class="repmeta" style="margin-bottom:12px">Record ID: <b>'+esc(item.id)+'</b> &nbsp;·&nbsp; Generated: <b>'+fmtD(today())+'</b></div>'+
       rows+
+      (mod.printExtra?mod.printExtra(item):'')+
       '<div style="display:flex;gap:24px;margin-top:26px">'+
         '<div style="flex:1;border-top:1px solid var(--line2);padding-top:5px;font-size:12px;color:var(--sub)">Prepared by / date</div>'+
         '<div style="flex:1;border-top:1px solid var(--line2);padding-top:5px;font-size:12px;color:var(--sub)">Verified by / date</div>'+
