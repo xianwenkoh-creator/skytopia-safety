@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-19-1400">
+<meta name="build" content="2026-08-19-1600">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -553,7 +553,7 @@ function downloadRaw(name, text, mime){
    Reports & exports save straight into the connected Safety folder
    (OneDrive\Skytopia\Safety), each type into its own subfolder.        */
 const DIRMAP={contacts:'Registers',members:'Registers',equipment:'Registers',documents:'Registers',certexp:'Registers',
-  tbm:'<path d="M3.5 10v4.5h3l7 4V6l-7 4z"/><path d="M17 9.5a4.2 4.2 0 0 1 0 5.5"/><path d="M19.7 7.5a8 8 0 0 1 0 9.5"/>',inspections:'Inspections',observations:'Observations',checklists:'Checklists',ra:'RA-SWP',training:'Training',
+  tbm:'Toolbox Meetings',inspections:'Inspections',observations:'Observations',checklists:'Checklists',ra:'RA-SWP',training:'Training',
   meetings:'Meetings',incidents:'Incidents',defects:'Quality Defects',report:'Monthly Reports',backup:'Backups',work:'Registers'};
 function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open('kkl-cms-fs',1);
   r.onupgradeneeded=()=>r.result.createObjectStore('kv');
