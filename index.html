@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-18-2130">
+<meta name="build" content="2026-08-18-2210">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -4883,7 +4883,7 @@ function renderMatrix(){
     '<button class="btn ghost" onclick="location.hash=\'#/certexp\'">Cert Expiry</button>'+
     '<button class="btn ghost" id="mxFinder">Find workers</button></div></div>'+
     '<div style="overflow-x:auto;margin-top:10px"><table class="mxt"><tr><th style="text-align:left">Worker</th><th>SIC</th>'+
-    cols.map(t=>'<th>'+esc(t.code)+'</th>').join('')+'<th>Status</th></tr>'+
+    cols.map(t=>'<th title="'+esc(t.name)+'" style="cursor:help" onclick="toast(this.title)">'+esc(t.code)+'</th>').join('')+'<th>Status</th></tr>'+
     shown.map(r=>'<tr onclick="location.hash=\'#/passport/'+r.m.id+'\'"><td style="text-align:left;white-space:nowrap">'+esc(memberLabel(r.m))+
       '<div class="hint">'+esc(r.m.company||'')+'</div></td>'+
       '<td class="mx'+(r.sic==='OK'?' ok':r.sic==='NONE'?'':' warn')+'">'+(r.sic==='OK'?'&#10003;':r.sic==='LEGACY'?'L':r.sic==='EXPIRED'?'&#10007;':'—')+'</td>'+
