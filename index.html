@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-19-0800">
+<meta name="build" content="2026-08-19-1100">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1021,8 +1021,11 @@ function renderHome(){
   const yr=new Date().getFullYear();
   const incYtd=db.incidents.filter(r=>r.date&&+r.date.slice(0,4)===yr).length;
   const eqIn=db.equipment.filter(e=>!e.status||e.status==='In service').length;
-  const activeN=db.members.filter(m=>m.status!=='INACTIVE').length;
-  const sicMiss=db.members.filter(m=>{ if(m.status==='INACTIVE') return false;
+  /* site scope: workers inducted / crewed / checked-in HERE, not the whole company */
+  const _siteIds=projectMemberIds();
+  const _siteMs=[..._siteIds].map(id=>db.members.find(m=>m.id===id)).filter(Boolean).filter(m=>!m.mergedInto);
+  const activeN=_siteMs.filter(m=>m.status!=='INACTIVE').length;
+  const sicMiss=_siteMs.filter(m=>{ if(m.status==='INACTIVE') return false;
     const a=memberAccess(m.id); return !(a&&a.sicStatus==='COMPLETE'); }).length;
   const waBlocked=db.workActivities.filter(w=>(w.readiness||{}).status==='BLOCKED'&&w.status!=='Completed').length;
   const ov=(href,v,l,cls)=>'<a class="stile" href="#/'+href+'"><div class="v'+(cls&&v?' '+cls:'')+'">'+v+'</div><div class="l">'+l+'</div></a>';
@@ -1035,7 +1038,7 @@ function renderHome(){
       ov('actions',ob.overdue,'Overdue actions','b')+
       ov('certexp',nb,'Certs due &le;30d','b')+
       ov('matrix',sicMiss,'SIC incomplete','w')+
-      ov('members',activeN,'Active workers')+
+      ov('members',activeN,'Workers on site')+
       ov('equipment',eqIn,'Equipment in service')+
       ov('incidents',incYtd,'Incidents '+yr)+
       ov('work',waBlocked,'Blocked activities','b')+
@@ -1203,7 +1206,8 @@ function renderEdit(key, id){
 function route(){
   if(typeof GATED!=='undefined' && GATED) return; /* sign-in landing owns the screen */
   const p=location.hash.replace(/^#\/?/,'').split('/').filter(Boolean);
-  window.scrollTo(0,0);
+  if(window._keepScroll){ window._keepScroll=false; }
+  else window.scrollTo(0,0);
   curEdit=null;
   if(/^#access_token=|^#error/.test(location.hash)){ /* Supabase invite/recovery link landing */
     app.innerHTML='<div class="empty" style="margin-top:60px">Completing sign-in&hellip;</div>';
@@ -6432,9 +6436,15 @@ function renderControlCentre(){
       '</div>'+
     '</div>';
 }
+let _lastDesk=window.innerWidth>=1200;
 window.addEventListener('resize',()=>{
   clearTimeout(window._ccRz);
-  window._ccRz=setTimeout(()=>{ if((location.hash==='#/'||location.hash==='')&&!GATED) route(); },300);
+  window._ccRz=setTimeout(()=>{
+    const nowDesk=window.innerWidth>=1200;
+    if(nowDesk===_lastDesk) return;      /* phone URL-bar resizes must NOT re-render */
+    _lastDesk=nowDesk;
+    if((location.hash==='#/'||location.hash==='')&&!GATED) route();
+  },300);
 });
 
 
@@ -6849,7 +6859,12 @@ async function pullNow(){
     if(!root.projects.some(p=>p.id===root.cur)) root.cur=root.projects[0].id;
     localStorage.setItem(KEY2, JSON.stringify(root));
     EV.emit('sync:applied',{});
-    if(!curEdit) route(); /* don't clobber a form mid-edit */
+    if(!curEdit){
+      const y=window.scrollY;            /* background refresh must not yank the page */
+      window._keepScroll=true;
+      route();
+      window.scrollTo(0,y);
+    }
   }
 }
 function pushResetLocal(){ localStorage.removeItem(SB.hashKey); localStorage.removeItem(SB.syncKey); }
