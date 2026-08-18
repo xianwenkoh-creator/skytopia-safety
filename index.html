@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-18-0900">
+<meta name="build" content="2026-08-18-1945">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -6170,19 +6170,48 @@ function applyRemote(r, pushed){
 async function pullNow(){
   if(!SB.client||!SB.profile) return;
   const last=localStorage.getItem(SB.syncKey)||'1970-01-01T00:00:00Z';
+  /* gte + overlap, NOT gt: bulk writes share one updated_at, and a gt cursor
+     silently skips the rest of an equal-timestamp group at a page boundary
+     (lost ~100 imported workers). Re-applying overlap rows is idempotent. */
   let from=last, changed=false, guard=0;
-  while(guard++<40){
+  const pushed=JSON.parse(localStorage.getItem(SB.hashKey)||'{}');
+  const applyPage=data=>{
+    data.forEach(r=>{ try{ if(applyRemote(r,pushed)) changed=true; }catch(e){ console.warn('apply',r.store,r.id,e); } });
+  };
+  while(guard++<60){
     const {data,error}=await SB.client.from('records')
       .select('id,project_id,store,data,deleted,updated_at')
-      .gt('updated_at',from).order('updated_at',{ascending:true}).limit(500);
+      .gte('updated_at',from)
+      .order('updated_at',{ascending:true}).order('id',{ascending:true})
+      .limit(500);
     if(error) throw error;
     if(!data||!data.length) break;
-    const pushed=JSON.parse(localStorage.getItem(SB.hashKey)||'{}');
-    data.forEach(r=>{ try{ if(applyRemote(r,pushed)) changed=true; }catch(e){ console.warn('apply',r.store,r.id,e); } });
-    localStorage.setItem(SB.hashKey, JSON.stringify(pushed));
-    from=data[data.length-1].updated_at;
-    if(data.length<500) break;
+    applyPage(data);
+    const newFrom=data[data.length-1].updated_at;
+    if(data.length<500){ from=newFrom; break; }
+    if(newFrom===from){
+      /* a single timestamp spans beyond one page: drain it by offset, then step past */
+      let off=500;
+      for(let g2=0; g2<40; g2++){
+        const {data:more,error:e2}=await SB.client.from('records')
+          .select('id,project_id,store,data,deleted,updated_at')
+          .eq('updated_at',from).order('id',{ascending:true}).range(off,off+499);
+        if(e2) throw e2;
+        if(!more||!more.length) break;
+        applyPage(more);
+        if(more.length<500) break;
+        off+=500;
+      }
+      const {data:next}=await SB.client.from('records')
+        .select('updated_at').gt('updated_at',from)
+        .order('updated_at',{ascending:true}).limit(1);
+      if(!next||!next.length){ break; }
+      from=next[0].updated_at;
+    }else{
+      from=newFrom;
+    }
   }
+  localStorage.setItem(SB.hashKey, JSON.stringify(pushed));
   if(from!==last) localStorage.setItem(SB.syncKey, from);
   if(changed){
     if(!root.projects.some(p=>p.id===root.cur)) root.cur=root.projects[0].id;
