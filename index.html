@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-18-2359">
+<meta name="build" content="2026-08-19-0800">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -5623,6 +5623,31 @@ function renderLmraCheck(){
     '<div class="fld half"><label>Carried out by *</label><input id="lmBy" value="'+esc(LMX.by)+'" list="dl-lmby">'+
       '<datalist id="dl-lmby">'+db.members.map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist></div>'+
     '</div></div>'+
+    (function(){ /* replay what was briefed this morning for THIS activity */
+      if(!LMX.waId) return '';
+      const wa=db.workActivities.find(w=>w.id===LMX.waId);
+      if(!wa) return '';
+      const tb=db.tbm.find(t=>t.date===today()&&t.waId===wa.id)
+             ||db.tbm.find(t=>t.date===today());
+      const pins=(typeof waPinnedRaItems==='function')?waPinnedRaItems(wa).slice(0,3):[];
+      let h='<div class="card" style="border-left:4px solid var(--charcoal,#243140)">'+
+        '<label style="margin-top:0">Briefed this morning — recap for this task</label>';
+      if(tb){
+        h+='<div style="font-weight:650">'+esc(tb.topic||[].concat(tb.topics||[]).join(', ')||'Toolbox briefing')+'</div>'+
+           '<div class="hint">'+esc([tb.conductor,tb.time].filter(Boolean).join(' · '))+'</div>'+
+           (tb.briefing?'<div style="font-size:13px;margin-top:6px;white-space:pre-line">'+
+             esc(String(tb.briefing).split('\n').slice(0,5).join('\n'))+'</div>':'');
+      }else{
+        h+='<div class="hint" style="color:var(--warn-ink)">No toolbox briefing recorded today for this activity — brief the crew before starting.</div>';
+      }
+      if(pins.length){
+        h+='<div style="margin-top:10px"><b style="font-size:12px">FROM THE APPROVED RA:</b>'+
+          pins.map(x=>'<div style="font-size:13px;margin-top:5px">\u26a0 '+esc(x.item.hazard||'')+
+            ((x.item.controls||[]).length?'<div class="hint">\u2192 '+esc((x.item.controls||[]).concat(x.item.addControls||[]).slice(0,3).join('; '))+'</div>':'')+
+          '</div>').join('')+'</div>';
+      }
+      return h+'</div>';
+    })()+
     '<h2 class="sect">Take 2 minutes — check before you start</h2>'+
     LMRA_QS.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px">'+
       '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
