@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-19-1800">
+<meta name="build" content="2026-08-19-1900">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -2274,6 +2274,8 @@ function renderRecordPrint(key, id){
     }
     if(f.type==='textarea') return esc(v).replace(/\n/g,'<br>');
     if(f.type==='date') return fmtD(v);
+    if(f.type==='select'&&typeof f.opts==='function'){ /* resolve [id,label] pairs to the label */
+      const hit=(f.opts()||[]).find(o=>Array.isArray(o)&&o[0]===v); if(hit) return esc(hit[1]); }
     return esc(v);
   };
   const rows=mod.fields.map(f=>{ const v=val(f); if(!v) return '';
