@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-18-1945">
+<meta name="build" content="2026-08-18-2130">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1261,7 +1261,7 @@ const TRADES=['General Worker','Excavator Operator','Crane Operator','Lifting Su
 const EQUIPTYPES=['Excavator','Mobile Crane','Crawler Crane','Lorry Crane','Lorry / Tipper','Dump Truck','Roller / Compactor','Piling Rig','Generator','Air Compressor','Welding Set','Power Tool','Lifting Gear','MEWP / Boom Lift','Forklift','Others'];
 const DOCCATS=['WSH Policy / Safety Plan','RA / SWP','Permit / Licence','Insurance','Method Statement','Emergency Response Plan','Drawing','Circular / Notice','MOM Correspondence','Inspection Report','Others'];
 const INCTYPES=['Near Miss','First Aid Case','Medical Treatment / MC','Lost Time Injury','Dangerous Occurrence','Property Damage','Fatality'];
-const COURSES=['Apply WSH in Construction Sites (CSOC)','Work at Height Course for Workers','Work at Height Course for Supervisors','Perform Work in Confined Space Operation','Lifting Supervisor Safety Course','Rigger & Signalman Course','Scaffold Erector Course','Supervise Safe Lifting Operations','Occupational First Aid Course (OFAC)','Building Construction Supervisors Safety Course (BCSS)','WSH Officer Course','Forklift Operator Course','MEWP Operator Course'];
+const COURSES=['WSQ Apply WSH in Construction Sites (AWSHCS / CSOC)','CSOC Recertification','Perform Work at Height (PWAH)','Supervise Work at Height (SWAH)','Manage Work at Height (MWAH)','Perform Work in Confined Space Operation (PWCSO)','Supervise Work in Confined Space Operation','Confined Space Safety Assessor (CSSA)','Perform Rigger and Signalman Tasks (PRST)','Supervise Safe Lifting Operations (SSLO)','Perform Metal Scaffold Erection (PMSE)','Supervise Metal Scaffold Erection (SMSE)','Perform Rigging of Suspended Scaffold (Gondola)','Perform Formwork Activities','Supervise WSH for Formwork Construction (SWSHFC)','WSQ Operate Forklift','Hydraulic Excavator Operation (As Lifting Machine)','WSQ Operate Lorry Crane','WSQ Operate Boom Lift','WSQ Operate Scissor Lift','Basic Traffic Control Course (BTCC)','Traffic Control Supervisor Course (BTSC)','Fire Watchman Course (Hot Work)','Occupational First Aid Course (OFAC)','OFAC Refresher','WSH Management in Construction Industry (WSHMCI / ex-BCSS)','Manage WSH in Construction Sites (PM, ex-CSCPM)','WSH Coordinator Course','WSH Officer Course','Workshop to Enhance Safety of Crane Operation (WESCO)','WSQ Perform Welding'];
 const SEV135=['1','2','3','4','5'];
 const OPENCLOSED=['Open','Closed'];
 const SEVHDB=['Minor','Major','Critical'];
@@ -1735,6 +1735,12 @@ const MODULES={
     if(m){ obj.memberName=m.name||''; obj.company=m.company||''; }
     const t=compTypeByCode(obj.typeCode);
     if(t&&!obj.typeName) obj.typeName=t.name;
+    /* regulated validity: suggest expiry from issue date when none entered
+       (CSOC 2y, crane reg 2y, forklift 3y, OFAC 2y, LEW 5y, ...) */
+    if(t&&t.validYears&&obj.issued&&!obj.expiry){
+      const d=new Date(obj.issued+'T00:00'); d.setFullYear(d.getFullYear()+t.validYears);
+      obj.expiry=isoLocal(d);
+    }
     if(!obj.verification) obj.verification='UNVERIFIED';
     const prev=db.workerCompetencies.find(x=>x.id===obj.id);
     if(obj.verification==='VERIFIED'&&(!prev||prev.verification!=='VERIFIED')){
@@ -4446,19 +4452,52 @@ async function renderCheckin(projId, tbmId, token){
    view and the competency matrix. Legacy cert rows are wrapped once into
    workerCompetencies (originals untouched); training gains a proper memberId. */
 const COMP_SEED=[
- {code:'CSOC',name:'CSOC / WSH in Construction',cat:'Safety',kws:['csoc','wsh in construction','safety orientation'],core:1},
- {code:'WAH', name:'Work at Height',cat:'Safety',kws:['work at height','wah'],core:1},
- {code:'CS',  name:'Confined Space',cat:'Safety',kws:['confined space'],core:1},
- {code:'RIG', name:'Rigger',cat:'Lifting',kws:['rigger'],core:1},
- {code:'SIG', name:'Signalman',cat:'Lifting',kws:['signalman'],core:1},
- {code:'LS',  name:'Lifting Supervisor',cat:'Lifting',kws:['lifting supervisor'],core:1},
- {code:'EXC', name:'Excavator Operator',cat:'Plant',kws:['excavator'],core:1},
- {code:'CRA', name:'Crane Operator',cat:'Plant',kws:['crane operator','mobile crane','crawler crane'],core:1},
- {code:'FLB', name:'Forklift Operator',cat:'Plant',kws:['forklift']},
- {code:'MEWP',name:'MEWP / Boom Lift Operator',cat:'Plant',kws:['mewp','boom lift']},
- {code:'SCAF',name:'Scaffold Erector',cat:'Safety',kws:['scaffold']},
- {code:'FA',  name:'First Aider',cat:'Safety',kws:['first aid']},
- {code:'BCSS',name:'BCSS / Supervisor Safety',cat:'Safety',kws:['bcss','supervisors safety']},
+ /* mandatory WSH orientation tier */
+ {code:'PMC', name:'Manage WSH in Construction (PM, ex-CSCPM)',cat:'Safety',kws:['manage workplace safety','cscpm','construction safety course for project']},
+ {code:'BCSS',name:'Construction Supervisor Safety (WSHMCI, ex-BCSS/SCW)',cat:'Safety',kws:['wshmci','supervise construction work','bcss','supervisors safety','construction industry']},
+ {code:'CSOC',name:'CSOC / WSQ Apply WSH in Construction Sites',cat:'Safety',kws:['csoc','awshcs','apply workplace safety','apply wsh','safety orientation','wsh in construction'],core:1,validYears:2},
+ /* work at height */
+ {code:'WAHM',name:'Manage Work at Height (Manager/Assessor)',cat:'Safety',kws:['manage work at height','mwah']},
+ {code:'WAHS',name:'Supervise Work at Height',cat:'Safety',kws:['supervise work at height','swah','wah supervisor']},
+ {code:'WAH', name:'Work at Height (Perform, PWAH)',cat:'Safety',kws:['work at height','wah','pwah'],core:1},
+ /* confined space */
+ {code:'CSSA',name:'Confined Space Safety Assessor',cat:'Safety',kws:['confined space safety assessor','assess confined space','cssa']},
+ {code:'CSS', name:'Supervise Confined Space Operation',cat:'Safety',kws:['supervise work in confined space','swcso']},
+ {code:'CS',  name:'Confined Space (Perform, PWCSO)',cat:'Safety',kws:['confined space','pwcso','manhole'],core:1},
+ /* lifting */
+ {code:'LS',  name:'Lifting Supervisor (SSLO)',cat:'Lifting',kws:['lifting supervisor','sslo','supervise safe lifting'],core:1},
+ {code:'RIG', name:'Rigger (PRST)',cat:'Lifting',kws:['rigger','prst','rigger and signalman'],core:1},
+ {code:'SIG', name:'Signalman (PRST)',cat:'Lifting',kws:['signalman'],core:1},
+ {code:'CRA', name:'Crane Operator (MOM-registered)',cat:'Plant',kws:['crane operator','mobile crane','crawler crane','tower crane'],core:1,validYears:2},
+ {code:'LCO', name:'Lorry Crane Operator (WSQ)',cat:'Plant',kws:['lorry crane','lcoc'],validYears:5},
+ /* scaffold & formwork */
+ {code:'SCFS',name:'Scaffold Supervisor (SMSE)',cat:'Safety',kws:['supervise metal scaffold','scaffold supervisor','smse']},
+ {code:'GOND',name:'Suspended Scaffold / Gondola (Rigging)',cat:'Safety',kws:['suspended scaffold','gondola']},
+ {code:'SCAF',name:'Metal Scaffold Erector (PMSE)',cat:'Safety',kws:['scaffold','pmse']},
+ {code:'FWS', name:'Formwork Supervisor (SWSHFC, ex-FSCS)',cat:'Safety',kws:['formwork supervisor','supervise wsh for formwork','fscs','swshfc','formwork construction']},
+ {code:'FW',  name:'Formwork Worker (Perform Formwork Activities)',cat:'Safety',kws:['formwork']},
+ /* plant */
+ {code:'EXC', name:'Excavator Operator (incl. as-lifting-machine)',cat:'Plant',kws:['excavator'],core:1},
+ {code:'FLB', name:'Forklift Operator (WSQ)',cat:'Plant',kws:['forklift'],validYears:3},
+ {code:'MEWP',name:'MEWP Operator (Boom/Scissor/VPP)',cat:'Plant',kws:['mewp','boom lift','scissor lift','vertical personnel']},
+ /* LTA road works */
+ {code:'TCS', name:'Traffic Control Supervisor (BTSC/TCSC)',cat:'LTA',kws:['traffic control supervisor','traffic supervisor','btsc','tcsc']},
+ {code:'TC',  name:'Traffic Controller (BTCC)',cat:'LTA',kws:['traffic control','btcc','flagman','traffic controller']},
+ /* trades & licences */
+ {code:'WELD',name:'Welder (WSQ Perform Welding / qual test)',cat:'Trade',kws:['weld']},
+ {code:'FWM', name:'Fire Watchman (Hot Work)',cat:'Safety',kws:['fire watch','hot work attendant'],validYears:4},
+ {code:'LEW', name:'Licensed Electrical Worker (EMA)',cat:'Licence',kws:['licensed electrical','lew','electrician licence','electrical worker'],validYears:5},
+ {code:'ECO', name:'Environmental Control Officer (SCS)',cat:'Licence',kws:['environmental control']},
+ {code:'DL3', name:'Driving Licence Class 3 (light vehicles)',cat:'Licence',kws:['class 3']},
+ {code:'DL4', name:'Driving Licence Class 4 (heavy goods)',cat:'Licence',kws:['class 4']},
+ {code:'DL5', name:'Driving Licence Class 5 (heavy special)',cat:'Licence',kws:['class 5']},
+ /* BCA workforce schemes */
+ {code:'CT',  name:'CoreTrade (Tradesman / Foreman)',cat:'BCA',kws:['coretrade']},
+ {code:'MS',  name:'Multi-Skilling Scheme',cat:'BCA',kws:['multi-skill','multi skill']},
+ {code:'SEK', name:'SEC(K) Trade Test',cat:'BCA',kws:['sec(k)','skills evaluation']},
+ /* first aid + misc */
+ {code:'FA',  name:'Occupational First Aider (OFAC)',cat:'Safety',kws:['first aid','ofac'],validYears:2},
+ {code:'WSHC',name:'WSH Coordinator (registered)',cat:'Safety',kws:['wsh coordinator']},
  {code:'OTH', name:'Other',cat:'Other',kws:[]}
 ];
 function compTypeByCode(code){ return db.competencyTypes.find(t=>(t.code||'').toLowerCase()===String(code||'').toLowerCase()); }
@@ -4477,10 +4516,12 @@ function memberAccess(mid){ return db.workerProjectAccess.find(a=>a.memberId===m
    name matches exactly one member, wrap legacy cert rows into competencies */
 function wfMigrate(){
   let changed=false;
-  if(!db.competencyTypes.length){
-    COMP_SEED.forEach(t=>db.competencyTypes.push(Object.assign({id:'ct-'+t.code.toLowerCase()},t)));
-    changed=true;
-  }
+  COMP_SEED.forEach(t=>{                       /* additive: new seed types reach existing orgs */
+    if(!db.competencyTypes.some(x=>x.code===t.code)){
+      db.competencyTypes.push(Object.assign({id:'ct-'+t.code.toLowerCase()},t));
+      changed=true;
+    }
+  });
   db.training.forEach(t=>{
     if(t.memberId) return;
     const nm=(t.name||'').trim().toLowerCase(); if(!nm) return;
