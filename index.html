@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-19-1100">
+<meta name="build" content="2026-08-19-1400">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -743,7 +743,13 @@ const ICONS={
   work:'<path d="M7.5 21V5.5M4.5 21h6"/><path d="M3 5.5h18M19.5 5.5V8M3 5.5V8"/><path d="M14.5 5.5v4.5"/><path d="M13 10h3v3h-3z"/><path d="M7.5 5.5L10.5 3"/>',
   home:'<path d="M4 11.5L12 4.5l8 7"/><path d="M6 10v9.5h12V10"/><path d="M10 19.5v-5h4v5"/>',
   folder:'<path d="M3.5 6l5.5-2 6 2 5.5-2v14l-5.5 2-6-2-5.5 2z"/><path d="M9 4v14M15 6v14"/>',
-  sic:'<circle cx="9.5" cy="8.5" r="3.2"/><path d="M4 20c.5-3.3 2.6-5 5.5-5 1.2 0 2.2.3 3 .8"/><path d="M14 17.5l2.2 2.2 4.3-4.5"/>'
+  sic:'<circle cx="9.5" cy="8.5" r="3.2"/><path d="M4 20c.5-3.3 2.6-5 5.5-5 1.2 0 2.2.3 3 .8"/><path d="M14 17.5l2.2 2.2 4.3-4.5"/>',
+  lmra:'<circle cx="12" cy="13.5" r="7"/><path d="M10 3h4M12 3v3.5"/><path d="M9.3 13.5l2 2 3.6-3.7"/>',
+  diary:'<path d="M6 4h11.5a1 1 0 0 1 1 1v14.5H8A2.5 2.5 0 0 1 5.5 17V5a1 1 0 0 1 1-1z"/><path d="M8 19.5A2.5 2.5 0 0 1 5.5 17"/><path d="M9 8.5h6M9 12h6"/>',
+  box:'<path d="M3.5 8L12 4l8.5 4v8L12 20l-8.5-4z"/><path d="M3.5 8L12 12l8.5-4M12 12v8"/>',
+  pin:'<path d="M12 21c-4.3-3.7-6.5-7-6.5-10a6.5 6.5 0 0 1 13 0c0 3-2.2 6.3-6.5 10z"/><circle cx="12" cy="10.8" r="2.3"/>',
+  recur:'<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20.5 2.5v4.2h-4.2"/><path d="M9 12.3l2.1 2.1 4-4.1"/>',
+  visitor:'<rect x="6" y="7" width="12" height="13" rx="1.5"/><path d="M10 7V5a2 2 0 0 1 4 0v2"/><circle cx="12" cy="12" r="2"/><path d="M8.5 17.7c.6-1.6 1.9-2.4 3.5-2.4s2.9.8 3.5 2.4"/>'
 };
 const ic = n => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">'+(ICONS[n]||'')+'</svg>';
 
@@ -901,11 +907,11 @@ function goBack(){ if(history.length>1) history.back(); else location.hash='#/';
 const NAV=[
  {group:'Operations', items:[['work','Work Activities','work']]},
  {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic']]},
- {group:'Site',    items:[['diary','Site Diary','doc'],['materialRequests','Material Requests','doc'],
-                          ['layout','Site Layouts','folder'],['locations','Locations','folder'],
+ {group:'Site',    items:[['diary','Site Diary','diary'],['materialRequests','Material Requests','box'],
+                          ['layout','Site Layouts','folder'],['locations','Locations','pin'],
                           ['contacts','Contacts','contact'],['equipment','Equipment','equip'],
-                          ['documents','Documents','doc'],['actions','Actions','act'],['recurringChecks','Recurring Inspections','insp'],['visitors','Visitors','contact']]},
- {group:'Safety',  items:[['lmra','LMRA','check'],['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
+                          ['documents','Documents','doc'],['actions','Actions','act'],['recurringChecks','Recurring Inspections','recur'],['visitors','Visitors','visitor']]},
+ {group:'Safety',  items:[['lmra','LMRA','lmra'],['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
                           ['checklists','Checklists','check'],['rasys','RA / SWP','ra'],
                           ['meetings','Meetings','meet'],['incidents','Incidents','incid']]},
  {group:'Quality', items:[['defects','Defects','defect']]},
@@ -1028,6 +1034,8 @@ function renderHome(){
   const sicMiss=_siteMs.filter(m=>{ if(m.status==='INACTIVE') return false;
     const a=memberAccess(m.id); return !(a&&a.sicStatus==='COMPLETE'); }).length;
   const waBlocked=db.workActivities.filter(w=>(w.readiness||{}).status==='BLOCKED'&&w.status!=='Completed').length;
+  const lmraStop=db.lmra.filter(l=>l.safe==='STOP'&&l.resolved!=='Resolved').length;
+  const recOver=db.recurringChecks.filter(r=>{ const d=recNextDue(r); return d&&d<today(); }).length;
   const ov=(href,v,l,cls)=>'<a class="stile" href="#/'+href+'"><div class="v'+(cls&&v?' '+cls:'')+'">'+v+'</div><div class="l">'+l+'</div></a>';
   app.innerHTML =
     '<header class="top"><h1>'+esc(s.project||'Project Home')+'</h1><div class="spacer"></div>'+
@@ -1047,8 +1055,11 @@ function renderHome(){
     '<h2 class="sect">Operations</h2>'+
     '<div class="grid">'+
       tile('work','Work Activities','work',waBlocked||'')+
-      tile('diary','Site Diary','doc')+
       tile('toolbox','Toolbox Meeting','tbm')+
+      tile('lmra','LMRA','lmra',lmraStop||'')+
+      tile('diary','Site Diary','diary')+
+      tile('materialRequests','Materials','box')+
+      tile('visitors','Visitors','visitor')+
     '</div>'+
     '<h2 class="sect">Workforce</h2>'+
     '<div class="grid">'+
@@ -1058,9 +1069,12 @@ function renderHome(){
     '</div>'+
     '<h2 class="sect">Site</h2>'+
     '<div class="grid">'+
-      tile('contacts','Contacts','contact')+
       tile('equipment','Equipment','equip')+
+      tile('recurringChecks','Recurring Inspections','recur',recOver||'')+
+      tile('layout','Site Layouts','folder')+
+      tile('locations','Locations','pin')+
       tile('documents','Documents','doc')+
+      tile('contacts','Contacts','contact')+
       tile('actions','Actions','act',ob.overdue||'')+
     '</div>'+
     '<h2 class="sect">Safety</h2>'+
