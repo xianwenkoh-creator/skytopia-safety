@@ -80,9 +80,11 @@ Deno.serve(async (req) => {
       const qIdx = typeof b.qIdx === "number" && quiz[b.qIdx] ? b.qIdx : null;
       const answer = typeof b.answer === "number" ? b.answer : null;
       const correct = qIdx !== null && answer !== null ? quiz[qIdx].a === answer : null;
+      const geo = (b.geo && typeof b.geo.lat === "number" && typeof b.geo.lng === "number")
+        ? { lat: b.geo.lat, lng: b.geo.lng } : null;
       checkins.push({
         name, wid: mem.wid, memberId: mem.id, company: String(b.company || mem.company || "").slice(0, 80),
-        qIdx, answer, correct, at: new Date().toISOString(),
+        qIdx, answer, correct, geo, at: new Date().toISOString(),
       });
       const data = { ...row.data, checkins };
       const { error: upErr } = await admin.from("records").update({ data })

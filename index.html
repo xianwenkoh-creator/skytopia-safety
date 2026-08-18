@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-18-2240">
+<meta name="build" content="2026-08-18-2340">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -67,6 +67,25 @@
          background:var(--acc); color:#fff; font-size:14px; font-weight:800;}
   .bword{font-size:14.5px; font-weight:750; letter-spacing:.14em;}
   .blogo{height:26px; background:#fff; border-radius:4px; padding:2px 6px; display:block;}
+  #ctxPanel{position:fixed; top:48px; right:0; bottom:0; width:380px; max-width:94vw; background:var(--card);
+            border-left:1px solid var(--line); z-index:45; display:flex; flex-direction:column; box-shadow:var(--sh-l,0 16px 40px rgba(0,0,0,.2));}
+  .ctx-head{display:flex; align-items:center; gap:8px; padding:12px 16px; border-bottom:1px solid var(--line); font-size:15px;}
+  .ctx-body{flex:1; overflow-y:auto; padding:12px 16px 24px;}
+  .ctx-sect{font-size:10.5px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--sub); margin:16px 0 6px;}
+  #ctxScrim{position:fixed; inset:48px 0 0 0; z-index:44; background:rgba(15,22,27,.45);}
+  @media (min-width:1200px){ .content.ctx-open{margin-right:380px;} }
+  .cc-grid{display:grid; grid-template-columns:1fr; gap:0 22px; align-items:start;}
+  @media (min-width:1200px){ .cc-grid{grid-template-columns:1fr 370px;} }
+  .gsearch-wrap{position:relative; display:none; margin-left:10px;}
+  @media (min-width:940px){ .gsearch-wrap{display:block;} }
+  #gsearch{min-height:32px; height:32px; width:210px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.16);
+           color:#fff; border-radius:8px; padding:4px 12px; font-size:13px; box-shadow:none; transition:width .15s ease;}
+  #gsearch::placeholder{color:rgba(255,255,255,.55);}
+  #gsearch:focus{background:#fff; color:#1c252d; width:280px; outline:none; box-shadow:none;}
+  #gsearchDD{position:absolute; top:40px; left:0; width:360px; max-width:88vw; max-height:70vh; overflow:auto; background:var(--card);
+             border:1px solid var(--line); border-radius:12px; box-shadow:var(--sh-l,0 16px 40px rgba(0,0,0,.2)); display:none; z-index:70; padding:6px;}
+  #gsearchDD .lrow{margin-bottom:2px; box-shadow:none; border:none; cursor:pointer;}
+  #gsearchDD .lrow:hover{background:var(--bg); transform:none;}
   #updBar{position:fixed; left:12px; right:12px; bottom:14px; z-index:120; background:var(--acc); color:#fff;
           font:inherit; font-size:14px; font-weight:750; border:none; border-radius:8px; padding:13px;
           box-shadow:0 6px 20px rgba(0,0,0,.28); cursor:pointer;}
@@ -485,6 +504,7 @@
   <a class="brand" href="#/"><img class="blogo" id="brandLogo" alt="KKL"><span class="bword">KKL CMS</span></a>
   <span class="bdiv"></span>
   <button class="projsel" id="projSel" title="Project settings"><span id="projName">Site Safety</span></button>
+  <div class="gsearch-wrap"><input id="gsearch" placeholder="Search workers, plant, zones&hellip;" autocomplete="off"><div id="gsearchDD"></div></div>
   <div class="spacer" style="flex:1"></div>
   <button class="iconbtn" id="bellBtn" aria-label="Cert expiry alerts" style="position:relative"></button>
   <button class="iconbtn" id="gearBtn" aria-label="Settings"></button>
@@ -953,6 +973,7 @@ function syncShell(cur){
 }
 function initShell(){
   document.getElementById('brandLogo').src=KKL_LOGO;
+  bindGlobalSearch();
   document.getElementById('navBtn').innerHTML=ic('menu');
   document.getElementById('bellBtn').innerHTML=ic('bell')+'<span class="abadge" id="bellBadge" style="display:none"></span>';
   document.getElementById('gearBtn').innerHTML=ic('gear')+'<span class="syncdot off" id="syncDot"></span>';
@@ -970,6 +991,7 @@ function initShell(){
 }
 
 function renderHome(){
+  if(isDesktop()&&!(SB.profile&&SB.profile.role==='subcon')) return renderControlCentre();
   if(SB.profile&&SB.profile.role==='subcon'){
     const tile=(href,label,icon)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+'</span><span class="tl">'+label+'</span></a>';
     const myObs=db.observations.filter(o=>o.status!=='Closed').length;
@@ -1013,6 +1035,7 @@ function renderHome(){
       ov('equipment',eqIn,'Equipment in service')+
       ov('incidents',incYtd,'Incidents '+yr)+
       ov('work',waBlocked,'Blocked activities','b')+
+      (function(){ const sc=projectSafetyScore(); return ov('stats',sc.grade,'Safety score '+sc.score,(sc.grade<='B'?'g':sc.grade==='C'?'w':'b')); })()+
     '</div>'+
     '<h2 class="sect">Operations</h2>'+
     '<div class="grid">'+
@@ -1186,6 +1209,8 @@ function route(){
   if(p[0]==='team') return renderTeam();
   if(p[0]==='toolbox') return renderToolbox();
   if(p[0]==='checkin' && p[3]) return renderCheckin(p[1], p[2], decodeURIComponent(p[3]));
+  if(p[0]==='hazard' && p[2]) return renderHazardPublic(p[1], decodeURIComponent(p[2]));
+  if(p[0]==='hazardqr') return renderHazardPoster();
   if((p[0]==='rasys'||p[0]==='raver'||p[0]==='raworker') && SB.profile && SB.profile.role==='viewer'){
     app.innerHTML=header('RA / SWP', true)+'<div class="empty">RA / SWP is restricted.</div>'; return;
   }
@@ -4380,6 +4405,7 @@ function tbxPersist(final){
 }
 /* public worker check-in page (opened from the QR code; no login) */
 async function renderCheckin(projId, tbmId, token){
+  geoCapture();
   GATED=false; document.body.classList.add('gated'); /* clean, chrome-less page */
   app.innerHTML='<div class="login"><div class="lg-card" id="ciCard">'+
     '<div class="lg-brand"><img src="'+KKL_LOGO+'" alt="KKL" style="height:34px;background:#fff;border-radius:4px;padding:2px 5px"><div><div class="lg-t">TOOLBOX CHECK-IN</div><div class="lg-s">Loading…</div></div></div></div></div>';
@@ -4434,7 +4460,7 @@ async function renderCheckin(projId, tbmId, token){
     const name=m.name;
     const btn=document.getElementById('ciGo'); btn.disabled=true; btn.textContent='Checking in…';
     try{
-      const res=await call({action:'submit', name, memberId:m.id, wid:m.wid||'',
+      const res=await call({action:'submit', name, memberId:m.id, wid:m.wid||'', geo:geoStamp(),
         company:document.getElementById('ciCo').value.trim(), qIdx:q?info.qIdx:null, answer:ans});
       card.innerHTML='<div class="lg-brand"><span class="bmark" style="background:'+(res.correct===false?'#e0a030':'#2fbf4f')+'">✓</span>'+
         '<div><div class="lg-t">Checked in</div><div class="lg-s">'+esc(name)+'</div></div></div>'+
@@ -5581,6 +5607,7 @@ const LMRA_QS=[
 ];
 let LMX=null;
 function renderLmraCheck(){
+  geoCapture();
   if(!LMX) LMX={waId:'', by:'', ans:{}, hazard:'', action:''};
   const was=db.workActivities.filter(w=>w.status!=='Completed');
   const allAnswered=LMRA_QS.every((q,i)=>LMX.ans[i]);
@@ -5615,7 +5642,7 @@ function renderLmraCheck(){
     if(!LMX.by.trim()){ alert('Enter who carried out this LMRA.'); return; }
     const h=document.getElementById('lmHaz'), a=document.getElementById('lmAct');
     const rec={id:uid(), date:today(), time:new Date().toTimeString().slice(0,5),
-      waId:LMX.waId, by:LMX.by.trim(),
+      geo:geoStamp(), waId:LMX.waId, by:LMX.by.trim(),
       answers:LMRA_QS.map((q,i)=>({q, a:LMX.ans[i]||''})),
       hazard:h?h.value.trim():'', action:a?a.value.trim():'',
       safe, resolved:safe!=='STOP'?'Resolved':'Open'};
@@ -5916,6 +5943,541 @@ async function mfaGate(){
     /* MFA API unavailable -> fail open on the gate, factor list was empty */
   }
 }
+
+/* ============ REGULATORY + SCORE + STAMPS (build-everything pass 1) ============ */
+
+/* ---- ambient stamps: last known GPS fix + NEA weather, attached to records ---- */
+let GEO_LAST=null, WX_LAST=null;
+function geoCapture(){
+  if(!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    p=>{ GEO_LAST={lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6), at:Date.now()}; },
+    ()=>{}, {maximumAge:300000, timeout:8000, enableHighAccuracy:false});
+}
+function geoStamp(){ return (GEO_LAST&&Date.now()-GEO_LAST.at<10*60e3)?{lat:GEO_LAST.lat,lng:GEO_LAST.lng}:null; }
+function wxRefresh(){ tbxWeather().then(w=>{ if(w&&w.line) WX_LAST={line:w.line, at:Date.now()}; }).catch(()=>{}); }
+function wxStamp(){ return (WX_LAST&&Date.now()-WX_LAST.at<2*3600e3)?WX_LAST.line:''; }
+
+/* ---- MOM iReport: reportable classification + 10-day countdown + prep sheet ---- */
+const MOM_REPORTABLE_TYPES=['Fatality','Lost Time Injury','Medical Treatment / MC','Dangerous Occurrence'];
+function incidentMomDeadline(i){
+  if(i.momReportable!=='Yes'||i.momReported) return null;
+  const d=new Date((i.date||today())+'T00:00'); d.setDate(d.getDate()+10);
+  return isoLocal(d);
+}
+function incidentIReportSheet(i){
+  const co=root.company.name||db.settings.company||'';
+  const workers=(i.injuredIds||[]).map(id=>db.members.find(m=>m.id===id)).filter(Boolean);
+  const wRow=m=>'<tr><td>'+esc(memberLabel(m))+'</td><td>'+esc(m.idno||'')+'</td><td>'+esc(m.passType||'')+'</td>'+
+    '<td>'+esc(m.company||'')+'</td><td>'+esc(m.trade||'')+'</td><td>'+esc(m.phone||'')+'</td></tr>';
+  const dl=incidentMomDeadline(i);
+  const body='<h2>MOM iReport Preparation Sheet</h2>'+
+    '<p class="hint">Copy these details into the WSH Incident Reporting eService (MyMOM Portal, CorpPass login). '+
+    'Statutory deadline: within 10 days of first notice'+(dl?' — <b>due '+esc(fmtD(dl))+'</b>':'')+'. Keep this record at least 3 years.</p>'+
+    '<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px">'+
+    '<tr><th style="text-align:left;width:220px">Employer / occupier</th><td>'+esc(co)+'</td></tr>'+
+    '<tr><th style="text-align:left">Workplace / project</th><td>'+esc(db.settings.project||'')+(db.settings.siteRef?' ('+esc(db.settings.siteRef)+')':'')+'</td></tr>'+
+    '<tr><th style="text-align:left">Incident classification</th><td>'+esc(i.type||'')+'</td></tr>'+
+    '<tr><th style="text-align:left">Date / time of incident</th><td>'+esc(fmtD(i.date))+(i.time?' '+esc(i.time):'')+'</td></tr>'+
+    '<tr><th style="text-align:left">Location</th><td>'+esc(i.location||'')+(i.geo?' (GPS '+i.geo.lat+', '+i.geo.lng+')':'')+'</td></tr>'+
+    '<tr><th style="text-align:left">Weather at capture</th><td>'+esc(i.weather||'—')+'</td></tr>'+
+    '<tr><th style="text-align:left">Description</th><td>'+esc(i.desc||'').replace(/\n/g,'<br>')+'</td></tr>'+
+    '<tr><th style="text-align:left">Linked work activity</th><td>'+esc((db.workActivities.find(w=>w.id===i.waId)||{}).title||'—')+'</td></tr>'+
+    '<tr><th style="text-align:left">MC days (fill in)</th><td>'+esc(i.mcDays||'')+'</td></tr>'+
+    '<tr><th style="text-align:left">Hospital / clinic (fill in)</th><td>'+esc(i.hospital||'')+'</td></tr>'+
+    '</table>'+
+    '<h3>Injured / involved persons</h3>'+
+    (workers.length?'<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:13px">'+
+      '<tr style="background:#eee"><th>Worker</th><th>ID (masked)</th><th>Pass</th><th>Employer</th><th>Trade</th><th>Phone</th></tr>'+
+      workers.map(wRow).join('')+'</table><p class="hint">Full identifiers are HR-restricted — HR completes NRIC/FIN in the portal.</p>'
+     :'<p class="hint">No registered workers linked — link them on the incident record.</p>')+
+    '<p class="hint">After filing, record the iReport reference number and date on the incident so the countdown clears.</p>';
+  saveOrDownload('Incidents','iReport-prep-'+(i.date||today())+'-'+fileStamp(i.id)+'.html',
+    reportDocHtml('MOM iReport Preparation', body),'text/html');
+}
+
+/* ---- deterministic Project Safety Score (leading indicators, transparent) ---- */
+function projectSafetyScore(){
+  const parts=[]; const add=(label,pts,max,note)=>parts.push({label,pts:Math.round(pts),max,note});
+  const activeWAs=db.workActivities.filter(w=>w.status==='Active');
+  /* toolbox coverage of active work today */
+  const tbToday=activeWAs.filter(w=>db.tbm.some(t=>t.waId===w.id&&t.date===today())).length;
+  add('Toolbox coverage today', activeWAs.length?20*tbToday/activeWAs.length:20, 20,
+      activeWAs.length?tbToday+'/'+activeWAs.length+' active activities briefed':'no active activities');
+  /* LMRA practice */
+  const lmToday=activeWAs.filter(w=>db.lmra.some(l=>l.waId===w.id&&l.date===today())).length;
+  add('LMRA practice', activeWAs.length?15*lmToday/activeWAs.length:15, 15,
+      activeWAs.length?lmToday+'/'+activeWAs.length+' activities checked':'—');
+  /* blocked work */
+  const blocked=activeWAs.filter(w=>(w.readiness||{}).status==='BLOCKED').length;
+  add('No blocked work', Math.max(0,15-8*blocked), 15, blocked+' blocked activit'+(blocked===1?'y':'ies'));
+  /* action discipline */
+  const acts=allOpenActions(); const over=acts.filter(a=>a.days!==null&&a.days<0).length;
+  add('Action discipline', acts.length?Math.max(0,15*(1-over/Math.max(acts.length,1))-(over?2:0)):15, 15,
+      over+' overdue of '+acts.length+' open');
+  /* workforce compliance on site */
+  const ids=projectMemberIds();
+  const site=[...ids].map(id=>db.members.find(m=>m.id===id)).filter(Boolean).filter(m=>m.status!=='INACTIVE');
+  const expired=site.filter(m=>memberAllCerts(m).concat(m.wpExpiry?[{expiry:m.wpExpiry}]:[]).some(c=>{const d=c.expiry?daysTo(c.expiry):null; return d!==null&&d<0;})).length;
+  add('Workforce compliance', site.length?Math.max(0,15*(1-expired/site.length)):15, 15,
+      expired+'/'+(site.length||0)+' site workers with an expired cert/pass');
+  /* inspections cadence (7 days) */
+  const wk=new Date(); wk.setDate(wk.getDate()-7); const wkIso=isoLocal(wk);
+  const insp7=db.inspections.filter(x=>(x.date||'')>=wkIso).length+db.checklists.filter(x=>(x.date||'')>=wkIso).length;
+  add('Inspection cadence (7d)', Math.min(10, insp7*2.5), 10, insp7+' inspections/checks this week');
+  /* incident-free (30 days) */
+  const mo=new Date(); mo.setDate(mo.getDate()-30); const moIso=isoLocal(mo);
+  const inc30=db.incidents.filter(i=>(i.date||'')>=moIso).length;
+  add('Incident-free 30d', Math.max(0,10-5*inc30), 10, inc30+' incident(s) in 30 days');
+  const score=Math.round(parts.reduce((s,x)=>s+x.pts,0));
+  const grade=score>=85?'A':score>=70?'B':score>=55?'C':score>=40?'D':'E';
+  return {score, grade, parts};
+}
+
+/* ---- CheckSafe vetting reminder feeds Open Actions (see organisations fields) ---- */
+function checksafeDue(o){
+  if(o.type!=='subcon') return null;
+  if(!o.checksafeDate) return today();
+  const d=new Date(o.checksafeDate+'T00:00'); d.setMonth(d.getMonth()+6);
+  return isoLocal(d);
+}
+
+/* ---- anonymous hazard reporting (QR poster -> public page -> observation) ---- */
+function hazardToken(){
+  if(!db.settings.hazardToken){ db.settings.hazardToken=uid()+uid(); save(); }
+  return db.settings.hazardToken;
+}
+async function renderHazardPoster(){
+  const tok=hazardToken();
+  const url=location.origin+location.pathname+'#/hazard/'+root.cur+'/'+tok;
+  app.innerHTML=header('Hazard Reporting QR', true)+
+    '<div class="card" style="text-align:center"><label style="margin-top:0">SEE SOMETHING UNSAFE? SCAN &amp; TELL US.</label>'+
+    '<div id="hzQr" style="background:#fff;padding:14px;display:inline-block;border-radius:10px;margin:10px 0"></div>'+
+    '<p class="hint">Anyone can scan and report — no app, no login, no name required. Reports arrive as open observations marked "Anonymous (QR)". Print and post at gates, lift lobbies and rest areas.</p>'+
+    '<div class="btnrow"><button class="btn ghost" onclick="window.print()" style="flex:1">Print poster</button></div></div>';
+  try{ await loadQrLib(); new QRCode(document.getElementById('hzQr'),{text:url,width:190,height:190,correctLevel:QRCode.CorrectLevel.M}); }
+  catch(e){ toast(e.message,true); }
+}
+async function renderHazardPublic(projId, tok){
+  GATED=false; document.body.classList.add('gated');
+  app.innerHTML='<div class="login"><div class="lg-card" id="hzCard">'+
+    '<div class="lg-brand"><img src="'+KKL_LOGO+'" alt="" style="height:34px;background:#fff;border-radius:4px;padding:2px 5px">'+
+    '<div><div class="lg-t">REPORT A HAZARD</div><div class="lg-s">Anonymous — no login needed</div></div></div>'+
+    '<label>Where is it?</label><input id="hzArea" placeholder="e.g. Zone B, near gate 2">'+
+    '<label>What did you see? *</label><textarea id="hzDesc" rows="3" placeholder="Describe the unsafe condition or act"></textarea>'+
+    '<label>Photo (optional)</label><input type="file" id="hzPhoto" accept="image/*" capture="environment">'+
+    '<div class="lg-err" id="hzErr"></div>'+
+    '<div class="btnrow"><button class="btn" id="hzGo" style="flex:1">Send report</button></div>'+
+    '<p class="hint" style="margin-top:10px">Your report goes straight to the safety team. Thank you for speaking up.</p></div></div>';
+  const err=m=>{ const e=document.getElementById('hzErr'); e.textContent=m; e.style.display='block'; };
+  document.getElementById('hzGo').onclick=()=>{
+    const desc=document.getElementById('hzDesc').value.trim();
+    if(!desc){ err('Describe what you saw.'); return; }
+    const btn=document.getElementById('hzGo'); btn.disabled=true; btn.textContent='Sending…';
+    const send=async photo=>{
+      try{
+        const cfg=sbCfg();
+        const r=await fetch(cfg.url+'/functions/v1/hazard',{method:'POST',
+          headers:{'apikey':cfg.anon,'Authorization':'Bearer '+cfg.anon,'Content-Type':'application/json'},
+          body:JSON.stringify({projectId:projId, token:tok, desc,
+            area:document.getElementById('hzArea').value.trim(), photo:photo||null, geo:geoStamp()})});
+        const d=await r.json().catch(()=>({}));
+        if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status));
+        document.getElementById('hzCard').innerHTML='<div class="lg-t">Report sent ✓</div>'+
+          '<p class="hint" style="margin-top:8px">The safety team has been notified. You can close this page.</p>';
+      }catch(e){ err(e.message||'Could not send — try again.'); btn.disabled=false; btn.textContent='Send report'; }
+    };
+    const f=document.getElementById('hzPhoto').files[0];
+    if(f) compressImage(f, d=>send(d)); else send(null);
+  };
+  geoCapture();
+}
+
+/* ============ DESKTOP P1-2: ContextPanel, Attention, Search, Control Centre ============
+   Mobile = execute; desktop (>=1200px) = plan, review, approve, analyse.
+   Everything here is a VIEW over the existing engines — zero new business logic. */
+function isDesktop(){ return window.innerWidth>=1200; }
+
+/* ---- reusable right-side ContextPanel: openContext(type,id) / closeContext() ---- */
+const CTX={open:false, type:null, id:null};
+function closeContext(){
+  CTX.open=false;
+  const el=document.getElementById('ctxPanel'); if(el) el.remove();
+  const sc=document.getElementById('ctxScrim'); if(sc) sc.remove();
+  document.querySelector('.content').classList.remove('ctx-open');
+}
+function openContext(type, id){
+  closeContext();
+  CTX.open=true; CTX.type=type; CTX.id=id;
+  const el=document.createElement('aside');
+  el.id='ctxPanel'; el.setAttribute('role','complementary');
+  el.innerHTML='<div class="ctx-head"><b id="ctxTitle"></b>'+
+    '<button class="iconbtn" aria-label="Close panel" onclick="closeContext()" style="margin-left:auto">&times;</button></div>'+
+    '<div class="ctx-body" id="ctxBody"></div>';
+  document.body.appendChild(el);
+  if(!isDesktop()){
+    const sc=document.createElement('div'); sc.id='ctxScrim'; sc.onclick=closeContext;
+    document.body.appendChild(sc);
+  }else{
+    document.querySelector('.content').classList.add('ctx-open');
+  }
+  const R=CTX_RENDER[type];
+  const t=document.getElementById('ctxTitle'), b=document.getElementById('ctxBody');
+  if(!R){ t.textContent='Details'; b.innerHTML='<div class="empty">No context renderer.</div>'; return; }
+  try{ R(id, t, b); }catch(e){ b.innerHTML='<div class="empty">'+esc(e.message||e)+'</div>'; }
+  el.querySelector('.iconbtn').focus();
+}
+const ctxRow=(l1,l2,chip)=>'<div class="lrow" style="cursor:default"><div><div class="l1">'+l1+'</div>'+
+  (l2?'<div class="l2">'+l2+'</div>':'')+'</div>'+(chip?'<div class="lmeta">'+chip+'</div>':'')+'</div>';
+const ctxBtns=arr=>'<div class="btnrow" style="margin-top:12px;flex-wrap:wrap">'+
+  arr.map(a=>'<button class="btn ghost" style="flex:1;min-width:130px" onclick="closeContext();location.hash=\''+a[1]+'\'">'+esc(a[0])+'</button>').join('')+'</div>';
+const rrChip=st=>'<span class="chip '+(st==='PASS'?'g':st==='WARN'?'w':'b')+'">'+st+'</span>';
+
+const CTX_RENDER={
+  wa(id, t, b){
+    const wa=db.workActivities.find(w=>w.id===id); if(!wa) throw new Error('Activity not found');
+    t.textContent=wa.title||wa.type||'Work activity';
+    const r=checkWorkActivityReadiness(id);
+    const ORDER={BLOCK:0,WARN:1,PASS:2};
+    b.innerHTML='<div style="margin-bottom:10px"><span class="chip '+(r.status==='READY'?'g':r.status==='BLOCKED'?'b':'w')+'">'+
+        (r.status==='READY_WITH_WARNINGS'?'READY — WARNINGS':r.status)+'</span> '+
+        '<span class="chip n">'+esc(wa.type||'')+'</span>'+(wa.ptw?'<span class="chip n">PTW '+esc(wa.ptw)+'</span>':'')+'</div>'+
+      '<div class="hint">'+esc([wa.location, wa.subcon].filter(Boolean).join(' · '))+'</div>'+
+      '<h3 class="ctx-sect">Readiness</h3>'+
+      [...r.results].sort((a,x)=>ORDER[a.status]-ORDER[x.status]).slice(0,8).map(x=>
+        ctxRow(esc(x.title), esc(x.reason).slice(0,160), rrChip(x.status))).join('')+
+      '<h3 class="ctx-sect">Crew ('+(wa.crew||[]).length+')</h3>'+
+      (wa.crew||[]).slice(0,8).map(c=>{ const m=db.members.find(x=>x.id===c.memberId);
+        return '<div class="lrow" onclick="openContext(\'member\',\''+c.memberId+'\')"><div><div class="l1">'+esc(m?memberLabel(m):'?')+'</div>'+
+        '<div class="l2">'+esc(c.role||'')+'</div></div></div>'; }).join('')+
+      '<h3 class="ctx-sect">Plant ('+(wa.plant||[]).length+')</h3>'+
+      (wa.plant||[]).map(p=>{ const e=db.equipment.find(x=>x.id===p.equipmentId);
+        return '<div class="lrow" onclick="openContext(\'equipment\',\''+p.equipmentId+'\')"><div><div class="l1">'+
+        esc(e?[e.type,e.regNo].filter(Boolean).join(' '):'?')+'</div></div></div>'; }).join('')+
+      ctxBtns([['Open full page','#/work/'+id]]);
+  },
+  member(id, t, b){
+    const m=db.members.find(x=>x.id===id); if(!m) throw new Error('Worker not found');
+    t.textContent=m.name||'Worker';
+    const el=checkMemberEligibility(id, null);
+    const worst=el.some(r=>r.status==='BLOCK')?'BLOCKED':el.some(r=>r.status==='WARN')?'WARNINGS':'ELIGIBLE';
+    const acc=memberAccess(id);
+    const core=db.competencyTypes.filter(x=>x.core);
+    b.innerHTML='<div style="margin-bottom:8px"><span class="chip '+(worst==='ELIGIBLE'?'g':worst==='WARNINGS'?'w':'b')+'">'+worst+'</span>'+
+      (m.status==='INACTIVE'?'<span class="chip b">INACTIVE</span>':'')+'</div>'+
+      '<div class="hint">'+esc([m.wid,m.company,m.trade].filter(Boolean).join(' · '))+'</div>'+
+      ((m.photos&&m.photos[0])?'<img src="'+m.photos[0]+'" style="width:76px;border-radius:10px;margin-top:8px">':'')+
+      '<h3 class="ctx-sect">Status</h3>'+
+      ctxRow('Work pass', m.wpExpiry?('expiry '+esc(fmtD(m.wpExpiry))):'no expiry recorded',
+        m.wpExpiry?((daysTo(m.wpExpiry)??0)<0?'<span class="chip b">EXPIRED</span>':'<span class="chip g">VALID</span>'):'')+
+      ctxRow('Project SIC', acc&&acc.sicStatus==='COMPLETE'?('completed '+esc(fmtD(acc.sicDate||''))):'not inducted here',
+        acc&&acc.sicStatus==='COMPLETE'?'<span class="chip g">SIC</span>':'<span class="chip n">—</span>')+
+      '<h3 class="ctx-sect">Core competencies</h3>'+
+      '<div>'+core.map(ty=>{ const v=hasLiveCertV(m,compTypeKws(ty));
+        return '<span class="chip '+(v.has?(v.verified?'g':'w'):'n')+'" title="'+esc(ty.name)+'">'+esc(ty.code)+'</span> '; }).join('')+'</div>'+
+      el.filter(r=>r.status!=='PASS').slice(0,4).map(r=>ctxRow(esc(r.title), esc(r.reason).slice(0,140), rrChip(r.status))).join('')+
+      ctxBtns([['Full passport','#/passport/'+id],['Edit worker','#/members/'+id]]);
+  },
+  equipment(id, t, b){
+    const e=db.equipment.find(x=>x.id===id); if(!e) throw new Error('Equipment not found');
+    t.textContent=[e.type,e.regNo].filter(Boolean).join(' ');
+    const rr=checkEquipmentReadiness(id, null);
+    const worst=rr.some(r=>r.status==='BLOCK')?'BLOCKED':rr.some(r=>r.status==='WARN')?'WARNINGS':'READY';
+    const op=e.operatorMemberId?db.members.find(m=>m.id===e.operatorMemberId):null;
+    b.innerHTML='<div style="margin-bottom:8px"><span class="chip '+(worst==='READY'?'g':worst==='BLOCKED'?'b':'w')+'">'+worst+'</span>'+
+      '<span class="chip n">'+esc(e.status||'In service')+'</span></div>'+
+      '<div class="hint">'+esc([e.owner, op?('Operator: '+op.name):e.operator].filter(Boolean).join(' · '))+'</div>'+
+      '<h3 class="ctx-sect">Readiness</h3>'+
+      rr.filter(r=>r.status!=='PASS').map(r=>ctxRow(esc(r.title), esc(r.reason).slice(0,150), rrChip(r.status))).join('')+
+      (rr.every(r=>r.status==='PASS')?ctxRow('All checks pass','',rrChip('PASS')):'')+
+      ctxBtns([['Quick actions (QR page)','#/eq/'+id],['Open full record','#/equipment/'+id]]);
+  },
+  observation(id, t, b){
+    const o=db.observations.find(x=>x.id===id); if(!o) throw new Error('Observation not found');
+    t.textContent=o.category||'Observation';
+    b.innerHTML='<div style="margin-bottom:8px"><span class="chip '+(o.status==='Closed'?'g':'w')+'">'+esc(o.status||'Open')+'</span>'+
+      (o.severity?'<span class="chip n">sev '+esc(o.severity)+'</span>':'')+'</div>'+
+      '<div class="hint">'+esc([fmtD(o.date), o.location, o.subcon, o.initiator].filter(Boolean).join(' · '))+'</div>'+
+      '<p style="margin:10px 0">'+esc(o.desc||'').replace(/\n/g,'<br>')+'</p>'+
+      ((o.photos&&o.photos[0])?'<img src="'+o.photos[0]+'" style="max-width:100%;border-radius:10px">':'')+
+      (o.action?ctxRow('Corrective action', esc(o.action)+(o.due?' · due '+esc(fmtD(o.due)):''), ''):'')+
+      ctxBtns([['Open full page','#/observations/'+id]]);
+  },
+  incident(id, t, b){
+    const i=db.incidents.find(x=>x.id===id); if(!i) throw new Error('Incident not found');
+    t.textContent=i.type||'Incident';
+    const dl=incidentMomDeadline(i);
+    b.innerHTML='<div style="margin-bottom:8px"><span class="chip '+(i.status==='Closed'?'g':'b')+'">'+esc(i.status||'Open')+'</span>'+
+      (dl?'<span class="chip b">iReport due '+esc(fmtD(dl))+'</span>':'')+'</div>'+
+      '<div class="hint">'+esc([fmtD(i.date), i.time, i.location].filter(Boolean).join(' · '))+'</div>'+
+      '<p style="margin:10px 0">'+esc(i.desc||'').replace(/\n/g,'<br>')+'</p>'+
+      ctxBtns([['Open full page','#/incidents/'+id]]);
+  },
+  location(id, t, b){
+    const l=locById(id); if(!l) throw new Error('Location not found');
+    t.textContent=l.name;
+    b.innerHTML='<div class="hint">'+esc(locBreadcrumb(id))+(l.code?' · '+esc(l.code):'')+'</div>'+
+      '<h3 class="ctx-sect">Children</h3>'+
+      (locChildren(id).map(k=>'<div class="lrow" onclick="openContext(\'location\',\''+k.id+'\')"><div><div class="l1">'+esc(k.name)+'</div></div></div>').join('')||'<div class="hint">none</div>')+
+      ctxBtns([['Open layouts','#/layout'],['Edit location','#/locations/'+id]]);
+  }
+};
+
+/* ---- Attention service: one deterministic feed, deduped, severity-ranked ---- */
+function attentionItems(){
+  const out=[]; const seen=new Set();
+  const add=(sev,src,type,id,title,why,link)=>{
+    const k=src+'|'+id+'|'+title.slice(0,30);
+    if(seen.has(k)) return; seen.add(k);
+    out.push({sev,src,type,id,title,why,link});
+  };
+  db.workActivities.filter(w=>w.status==='Active').forEach(w=>{
+    const r=w.readiness||{};
+    if(r.status==='BLOCKED') add('CRITICAL','readiness','wa',w.id,(w.title||w.type||'Activity')+' is BLOCKED',
+      (r.results||[]).filter(x=>x.status==='BLOCK').map(x=>x.title).slice(0,2).join('; ')||'Blocking rule failed','#/work/'+w.id);
+  });
+  db.lmra.filter(l=>l.safe==='STOP'&&l.resolved!=='Resolved').forEach(l=>{
+    const w=db.workActivities.find(x=>x.id===l.waId);
+    add('CRITICAL','lmra','wa',l.waId,'STOP WORK — '+esc(w?(w.title||w.type):'activity'),
+      (l.hazard||'Raised at last-minute check')+' ('+esc(l.by||'')+')','#/lmra');
+  });
+  db.checklists.filter(c=>c.date===today()&&c.result==='Fail').forEach(c=>
+    add('CRITICAL','prestart','equipment',c.equipmentId||c.id,'Failed pre-start: '+(c.area||c.template||''),
+      'Logged today'+(c.inspector?' by '+c.inspector:''), c.equipmentId?'#/eq/'+c.equipmentId:'#/checklists/'+c.id));
+  db.incidents.filter(i=>i.status!=='Closed').forEach(i=>{
+    add('CRITICAL','incident','incident',i.id,(i.type||'Incident')+' open', fmtD(i.date)+(i.location?' · '+i.location:''), '#/incidents/'+i.id);
+    const dl=incidentMomDeadline(i);
+    if(dl) add((daysTo(dl)??9)<=3?'CRITICAL':'WARNING','ireport','incident',i.id,
+      'MOM iReport due '+fmtD(dl), 'File via MyMOM Portal, then record the reference', '#/incidents/'+i.id);
+  });
+  const over=allOpenActions().filter(a=>a.days!==null&&a.days<0);
+  if(over.length) add(over.length>5?'CRITICAL':'WARNING','actions','actions','all',
+    over.length+' corrective action(s) overdue','Oldest: '+esc(over[0].label).slice(0,60),'#/actions');
+  const subs=db.workerProjectAccess.filter(a=>a.sicStatus==='SUBMITTED');
+  if(subs.length) add('WARNING','sic','sic','subs',subs.length+' SIC submission(s) awaiting review',
+    subs.slice(0,3).map(a=>a.memberName).join(', '),'#/sic');
+  db.reviewTriggers.filter(r=>r.status!=='CLOSED'&&r.status!=='Closed').slice(0,5).forEach(r=>
+    add('WARNING','ra','ra',r.id,'RA review: '+(r.reason||r.type||'trigger'),(r.detail||'').slice(0,80),'#/rareviews'));
+  const ids=projectMemberIds();
+  const expOnSite=[...ids].map(x=>db.members.find(m=>m.id===x)).filter(Boolean)
+    .filter(m=>m.status!=='INACTIVE'&&memberAllCerts(m).concat(m.wpExpiry?[{expiry:m.wpExpiry}]:[])
+      .some(c=>{const d=c.expiry?daysTo(c.expiry):null; return d!==null&&d<0;}));
+  if(expOnSite.length) add('WARNING','certs','matrix','site',
+    expOnSite.length+' site worker(s) with an expired cert/pass', expOnSite.slice(0,3).map(m=>m.name).join(', '),'#/matrix');
+  db.materialRequests.filter(m=>m.status!=='Delivered'&&m.status!=='Rejected'&&m.neededBy&&(daysTo(m.neededBy)??1)<0)
+    .forEach(m=>add('WARNING','material','material',m.id,'Material late: '+(((m.items||[])[0]||{}).desc||'request'),
+      'Needed '+fmtD(m.neededBy)+' · '+(m.status||''),'#/materialRequests/'+m.id));
+  db.organisations.forEach(o=>{ const d=checksafeDue(o);
+    if(d&&(daysTo(d)??1)<=0) add('INFO','checksafe','org',o.id,'CheckSafe vetting due: '+o.name,
+      o.checksafeDate?('last checked '+fmtD(o.checksafeDate)):'never checked','#/organisations/'+o.id); });
+  const rank={CRITICAL:0,WARNING:1,INFO:2};
+  return out.sort((a,b2)=>rank[a.sev]-rank[b2.sev]);
+}
+function attentionCopyText(){
+  const items=attentionItems();
+  const s=projectSafetyScore();
+  return 'KKL CMS — attention snapshot, '+(db.settings.project||'')+', '+today()+'\n'+
+    'Safety score: '+s.score+'/100 ('+s.grade+')\n\n'+
+    (items.length?items.map((x,i)=>(i+1)+'. ['+x.sev+'] '+x.title+' — '+x.why).join('\n'):'No open attention items.')+
+    '\n\n(Structured export for AI review — every line derives from live records.)';
+}
+
+/* ---- global search (all data is local; instant) ---- */
+function globalSearch(q){
+  q=String(q||'').trim().toLowerCase();
+  if(q.length<2) return [];
+  const R=[]; const push=(type,id,l1,l2)=>R.push({type,id,l1,l2});
+  const has=v=>String(v||'').toLowerCase().includes(q);
+  db.members.filter(m=>!m.mergedInto&&(has(m.name)||has(m.wid))).slice(0,5)
+    .forEach(m=>push('member',m.id,memberLabel(m),[m.company,m.trade].filter(Boolean).join(' · ')));
+  db.equipment.filter(e=>has(e.regNo)||has(e.type)).slice(0,4)
+    .forEach(e=>push('equipment',e.id,[e.type,e.regNo].filter(Boolean).join(' '),e.owner||''));
+  db.locations.filter(l=>l.status!=='ARCHIVED'&&(has(l.name)||has(l.code)||has(l.aliases))).slice(0,4)
+    .forEach(l=>push('location',l.id,l.name,locBreadcrumb(l.id)));
+  db.workActivities.filter(w=>has(w.title)||has(w.type)||has(w.ptw)).slice(0,4)
+    .forEach(w=>push('wa',w.id,w.title||w.type,[(w.readiness||{}).status,w.location].filter(Boolean).join(' · ')));
+  db.observations.filter(o=>has(o.desc)||has(o.category)).slice(0,3)
+    .forEach(o=>push('observation',o.id,(o.category||'Observation'),fmtD(o.date)+' · '+(o.status||'')));
+  db.incidents.filter(i=>has(i.desc)||has(i.type)).slice(0,3)
+    .forEach(i=>push('incident',i.id,i.type||'Incident',fmtD(i.date)));
+  db.raAdoptions.filter(r=>has(r.title)).slice(0,3)
+    .forEach(r=>R.push({type:'link',id:'#/rasys/'+r.id,l1:r.title,l2:'RA/SWP '+(r.currentRev||'')}));
+  return R.slice(0,15);
+}
+function bindGlobalSearch(){
+  const g=document.getElementById('gsearch'), dd=document.getElementById('gsearchDD');
+  if(!g||g._bound) return; g._bound=true;
+  g.oninput=()=>{
+    const hits=globalSearch(g.value);
+    dd.style.display=hits.length?'':'none';
+    dd.innerHTML=hits.map((h,i)=>'<div class="lrow" data-gs="'+i+'"><div><div class="l1">'+esc(h.l1)+'</div>'+
+      '<div class="l2">'+esc(h.type==='link'?h.l2:(h.type+' · '+h.l2))+'</div></div></div>').join('');
+    dd.querySelectorAll('[data-gs]').forEach(row=>row.onclick=()=>{
+      const h=hits[+row.dataset.gs];
+      dd.style.display='none'; g.value='';
+      if(h.type==='link') location.hash=h.id; else openContext(h.type,h.id);
+    });
+  };
+  g.onkeydown=e=>{ if(e.key==='Escape'){ dd.style.display='none'; g.blur(); } };
+  document.addEventListener('click',e=>{ if(!e.target.closest('.gsearch-wrap')) dd.style.display='none'; });
+}
+
+/* ---- Desktop Control Centre (>=1200px home for staff) ---- */
+let CCF={filter:'ALL'};
+function renderControlCentre(){
+  const s=db.settings;
+  const items=attentionItems();
+  const score=projectSafetyScore();
+  const activeWAs=db.workActivities.filter(w=>w.status==='Active');
+  const notReady=activeWAs.filter(w=>(w.readiness||{}).status==='BLOCKED').length;
+  const permits=activeWAs.filter(w=>(w.ptw||'').trim()).length;
+  const ob=openActionCounts();
+  const nb=certBadgeCount();
+  const subs=db.workerProjectAccess.filter(a=>a.sicStatus==='SUBMITTED').length;
+  const eqIssues=db.equipment.filter(e=>equipOnSite(e)&&checkEquipmentReadiness(e.id,null).some(r=>r.status==='BLOCK')).length;
+  const role=(SB.profile||{}).role||'admin';
+  const card=(href,v,l,cls)=>'<a class="stile" href="'+href+'"><div class="v'+(cls&&v?' '+cls:'')+'">'+v+'</div><div class="l">'+l+'</div></a>';
+  const cards={
+    work:card('#/work',activeWAs.length,'Work today'),
+    notReady:card('#/work',notReady,'Not ready','b'),
+    permits:card('#/work',permits,'Permits recorded'),
+    over:card('#/actions',ob.overdue,'Overdue actions','b'),
+    inc:card('#/incidents',db.incidents.filter(i=>i.status!=='Closed').length,'Open incidents','b'),
+    sic:card('#/sic',subs,'SIC pending','w'),
+    certs:card('#/certexp',nb,'Certs due ≤30d','w'),
+    eq:card('#/equipment',eqIssues,'Equipment issues','w'),
+    score:'<a class="stile" href="#/" onclick="return false" title="'+esc(score.parts.map(p=>p.label+': '+p.pts+'/'+p.max).join('  |  '))+'">'+
+      '<div class="v '+(score.grade<='B'?'g':score.grade==='C'?'w':'b')+'">'+score.grade+'</div><div class="l">Safety score '+score.score+'</div></a>'
+  };
+  const order=role==='hr'?['sic','certs','work','over','inc','score']
+    :role==='viewer'?['score','notReady','inc','over','certs','sic']
+    :['work','notReady','score','over','inc','sic','certs','eq','permits'];
+  /* today's work rows */
+  const twRows=activeWAs
+    .filter(w=>CCF.filter==='ALL'||(CCF.filter==='NR'&&(w.readiness||{}).status==='BLOCKED')
+      ||(CCF.filter==='HR'&&PTW_REQUIRED.includes(w.type)))
+    .map(w=>{
+      const rd=(w.readiness||{}).status||'—';
+      const tb=db.tbm.some(t=>t.waId===w.id&&t.date===today());
+      const lm=db.lmra.some(l=>l.waId===w.id&&l.date===today());
+      return '<tr onclick="openContext(\'wa\',\''+w.id+'\')"><td style="text-align:left">'+esc(w.title||w.type||'')+'</td>'+
+        '<td style="text-align:left">'+esc(w.location||'')+'</td>'+
+        '<td>'+(w.crew||[]).length+'</td><td>'+(w.plant||[]).length+'</td>'+
+        '<td>'+(w.ptw?'<span class="chip g">✓</span>':(PTW_REQUIRED.includes(w.type)?'<span class="chip b">✗</span>':'—'))+'</td>'+
+        '<td>'+(tb?'<span class="chip g">✓</span>':'<span class="chip w">—</span>')+'</td>'+
+        '<td>'+(lm?'<span class="chip g">✓</span>':'<span class="chip n">—</span>')+'</td>'+
+        '<td><span class="chip '+(rd==='READY'?'g':rd==='BLOCKED'?'b':'w')+'">'+(rd==='READY_WITH_WARNINGS'?'WARN':rd)+'</span></td></tr>';
+    }).join('');
+  const sevChip=v=>v==='CRITICAL'?'<span class="chip b">CRITICAL</span>':v==='WARNING'?'<span class="chip w">ACTION</span>':'<span class="chip n">INFO</span>';
+  const lay=db.layouts[0];
+  app.innerHTML=
+    '<header class="top"><h1>'+esc(s.project||'Control Centre')+'</h1>'+
+    '<div class="spacer"></div><span class="hint">'+esc(fmtD(today()))+'</span></header>'+
+    '<div class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr))">'+order.map(k=>cards[k]).join('')+'</div>'+
+    '<div class="cc-grid">'+
+      '<div>'+
+        '<h2 class="sect">Today&rsquo;s work'+
+          ' <span style="letter-spacing:0;text-transform:none;font-weight:600">'+
+          '<button class="chip '+(CCF.filter==='ALL'?'g':'n')+'" onclick="CCF.filter=\'ALL\';renderControlCentre()" style="cursor:pointer;border:none">All</button> '+
+          '<button class="chip '+(CCF.filter==='NR'?'b':'n')+'" onclick="CCF.filter=\'NR\';renderControlCentre()" style="cursor:pointer;border:none">Not ready</button> '+
+          '<button class="chip '+(CCF.filter==='HR'?'w':'n')+'" onclick="CCF.filter=\'HR\';renderControlCentre()" style="cursor:pointer;border:none">High-risk</button></span></h2>'+
+        (twRows?'<div style="overflow-x:auto"><table class="mxt" style="width:100%"><tr>'+
+          '<th style="text-align:left">Activity</th><th style="text-align:left">Location</th><th>Crew</th><th>Plant</th><th>PTW</th><th>TBM</th><th>LMRA</th><th>Readiness</th></tr>'+
+          twRows+'</table></div>'
+         :'<div class="empty">No active work activities'+(CCF.filter!=='ALL'?' match this filter':'')+'.</div>')+
+        (lay?'<h2 class="sect">Site layout</h2><div class="card" style="cursor:pointer" onclick="location.hash=\'#/layout/'+lay.id+'\'">'+
+          (function(){ const v=layoutCurVer(lay); return v&&v.image?'<img src="'+v.image+'" style="width:100%;border-radius:10px;max-height:220px;object-fit:cover">':''; })()+
+          '<div class="hint" style="margin-top:8px">'+esc(lay.name)+' · '+db.locations.filter(l=>l.status!=='ARCHIVED').length+' locations · '+
+          db.spatialZones.filter(z=>!z.validUntil||z.validUntil>=today()).length+' active zones — open to view / draw</div></div>':'')+
+      '</div>'+
+      '<div>'+
+        '<h2 class="sect">Needs attention ('+items.length+')</h2>'+
+        (items.length?items.slice(0,14).map(x=>'<div class="lrow" onclick="'+
+            (CTX_RENDER[x.type]?'openContext(\''+x.type+'\',\''+x.id+'\')':'location.hash=\''+x.link+'\'')+'">'+
+          '<div><div class="l1">'+esc(x.title)+'</div><div class="l2">'+esc(x.why)+'</div></div>'+
+          '<div class="lmeta">'+sevChip(x.sev)+'</div></div>').join('')
+         :'<div class="empty" style="padding:24px">Nothing needs attention. ✓</div>')+
+        '<div class="btnrow" style="margin-top:10px">'+
+          '<button class="btn ghost" style="flex:1" onclick="navigator.clipboard.writeText(attentionCopyText()).then(()=>toast(\'Snapshot copied — paste into a Claude chat for AI review\'))">Copy for AI review</button>'+
+          '<button class="btn ghost" onclick="waShareDigest()">WhatsApp</button></div>'+
+      '</div>'+
+    '</div>';
+}
+window.addEventListener('resize',()=>{
+  clearTimeout(window._ccRz);
+  window._ccRz=setTimeout(()=>{ if((location.hash==='#/'||location.hash==='')&&!GATED) route(); },300);
+});
+
+
+/* ---- post-hoc module extensions: iReport fields, stamps, CheckSafe, poster ---- */
+(function(){
+  /* incidents: MOM reportability + prep sheet */
+  const im=MODULES.incidents;
+  if(!im.fields.some(f=>f.k==='momReportable')){
+    const i=im.fields.findIndex(f=>f.k==='type');
+    im.fields.splice(i+1,0,
+      {k:'momReportable',label:'MOM reportable (iReport)',type:'select',half:1,opts:['','Yes','No']},
+      {k:'mcDays',label:'MC / hospitalisation days',half:1},
+      {k:'hospital',label:'Hospital / clinic',half:1},
+      {k:'momReported',label:'iReport filed on',type:'date',half:1},
+      {k:'momRef',label:'iReport reference no.',half:1});
+  }
+  const obs=im.beforeSave;
+  im.beforeSave=function(obj){
+    if(obs) obs.call(im,obj);
+    if(!obj.momReportable) obj.momReportable=MOM_REPORTABLE_TYPES.includes(obj.type)?'Yes':'No';
+    if(!obj.geo){ const g=geoStamp(); if(g) obj.geo=g; }
+    if(!obj.weather){ const w=wxStamp(); if(w) obj.weather=w; }
+    if(obj.momReported&&!obj.momRef) toast('Record the iReport reference number too', true);
+  };
+  const oar=im.afterRender;
+  im.afterRender=function(item){
+    if(oar) oar.call(im,item);
+    if(!item||item.momReportable!=='Yes') return;
+    const bar=document.querySelector('#app .btnrow');
+    if(bar){ const b=document.createElement('button'); b.type='button'; b.className='btn ghost';
+      b.textContent='iReport prep sheet'; b.onclick=()=>incidentIReportSheet(item); bar.appendChild(b); }
+  };
+  const om=im.meta;
+  im.meta=function(i){
+    let out=om?om.call(im,i):'';
+    const dl=incidentMomDeadline(i);
+    if(dl){ const d=daysTo(dl);
+      out+='<span class="chip '+(d<=3?'b':'w')+'">iReport '+(d<0?'OVERDUE '+(-d)+'d':'due '+d+'d')+'</span>'; }
+    return out;
+  };
+  /* observations: ambient stamps + hazard QR poster entry */
+  const ob=MODULES.observations;
+  const obs2=ob.beforeSave;
+  ob.beforeSave=function(obj){ if(obs2) obs2.call(ob,obj);
+    if(!obj.geo){ const g=geoStamp(); if(g) obj.geo=g; }
+    if(!obj.weather){ const w=wxStamp(); if(w) obj.weather=w; } };
+  const olh=ob.listHeader;
+  ob.listHeader=function(items){
+    return (olh?olh.call(ob,items):'')+(canRA()?'<div style="margin:0 0 10px"><button class="btn ghost" onclick="location.hash=&quot;#/hazardqr&quot;">Anonymous hazard QR poster</button></div>':'');
+  };
+  /* geolocation permission asked only when a relevant form opens */
+  const _re=renderEdit;
+  renderEdit=function(key,id){ if(key==='observations'||key==='incidents') geoCapture(); return _re(key,id); };
+  /* organisations: bizSAFE + CheckSafe vetting log */
+  const org=MODULES.organisations;
+  if(!org.fields.some(f=>f.k==='bizsafe')){
+    const i=org.fields.findIndex(f=>f.k==='uen');
+    org.fields.splice(i+1,0,
+      {k:'bizsafe',label:'bizSAFE level',type:'select',half:1,opts:['','Level 1','Level 2','Level 3','Level 4','STAR']},
+      {k:'checksafeDate',label:'CheckSafe last vetted',type:'date',half:1},
+      {k:'checksafeResult',label:'CheckSafe result',type:'select',half:1,opts:['','Clear','BUS surveillance','Debarment risk','Other']},
+      {k:'checksafeBy',label:'Vetted by',half:1});
+  }
+  const ometa=org.meta;
+  org.meta=function(o){
+    let out=ometa?ometa.call(org,o):'';
+    if(o.bizsafe) out+='<span class="chip n">'+esc(o.bizsafe)+'</span>';
+    if(o.checksafeResult&&o.checksafeResult!=='Clear') out+='<span class="chip b">'+esc(o.checksafeResult)+'</span>';
+    else{ const d=checksafeDue(o); if(d&&(daysTo(d)??1)<=0) out+='<span class="chip w">CheckSafe due</span>'; }
+    return out;
+  };
+})();
 
 /* ============ cloud sync (Supabase, offline-first) ============
    Local storage stays the source of truth on-device; changes diff-push to a
@@ -6380,7 +6942,7 @@ function unGate(){ GATED=false; document.body.classList.remove('gated'); }
 
 initShell();
 (async()=>{
-  const authLink=/^#access_token=|^#error/.test(location.hash) || /^#\/checkin\//.test(location.hash);
+  const authLink=/^#access_token=|^#error/.test(location.hash) || /^#\/(checkin|hazard)\//.test(location.hash);
   const cfg=sbCfg();
   if(cfg && cfg.url && !authLink && !localStorage.getItem('kkl-local-ok')){
     renderLanding();
@@ -6391,6 +6953,7 @@ initShell();
   }
   setTimeout(()=>autoBackup(), 4000);   /* daily OneDrive backup, silent if folder not connected */
   setTimeout(()=>expiryNotify(), 6500); /* after the initial pull has usually landed */
+  setTimeout(()=>wxRefresh(), 3500);    /* ambient weather for record stamps */
 })();
 </script>
 </body>
