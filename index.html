@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-19-2300">
+<meta name="build" content="2026-08-19-2359">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -5751,7 +5751,12 @@ function renderLmraCheck(){
       '<button class="btn danger" id="lmStop" style="flex:1">STOP WORK — escalate</button>'+
       '<button class="btn" id="lmCtrl" style="flex:1">Controls in place — proceed</button></div></div>'
      :'<div class="btnrow"><button class="btn" id="lmGo" style="flex:1"'+(allAnswered?'':' disabled')+'>All clear — start work</button></div>');
-  document.getElementById('lmWa').onchange=e=>{ LMX.waId=e.target.value; };
+  document.getElementById('lmWa').onchange=e=>{
+    LMX.waId=e.target.value;
+    const h=document.getElementById('lmHaz'), a=document.getElementById('lmAct');
+    if(h) LMX.hazard=h.value; if(a) LMX.action=a.value;
+    renderLmraCheck();            /* show this activity's briefing recap now */
+  };
   document.getElementById('lmBy').oninput=e=>{ LMX.by=e.target.value; };
   app.querySelectorAll('[data-lm]').forEach(b=>b.onclick=()=>{
     const h=document.getElementById('lmHaz'), a=document.getElementById('lmAct');
