@@ -6377,7 +6377,7 @@ function attentionItems(){
   });
   const over=allOpenActions().filter(a=>a.days!==null&&a.days<0);
   if(over.length) add(over.length>5?'CRITICAL':'WARNING','actions','actions','all',
-    over.length+' corrective action(s) overdue','Oldest: '+esc(over[0].label).slice(0,60),'#/actions');
+    over.length+' corrective action(s) overdue','Oldest: '+String(over[0].label||'').slice(0,60),'#/actions');
   const subs=db.workerProjectAccess.filter(a=>a.sicStatus==='SUBMITTED');
   if(subs.length) add('WARNING','sic','sic','subs',subs.length+' SIC submission(s) awaiting review',
     subs.slice(0,3).map(a=>a.memberName).join(', '),'#/sic');
