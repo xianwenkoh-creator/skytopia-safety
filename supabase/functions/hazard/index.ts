@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     const now = new Date();
     const rec: Record<string, unknown> = {
       id, date: today, time: now.toISOString().slice(11, 16),
-      kind: "Negative — safety non-compliance", category: "Others",
+      kind: "Unsafe act / unsafe condition", category: "Others",
       desc: "[Anonymous QR report] " + desc,
       location: String(b.area || "").slice(0, 120),
       initiator: "Anonymous (QR)", severity: "2", status: "Open",
