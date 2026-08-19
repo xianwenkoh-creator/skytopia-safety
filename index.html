@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-20-1400">
+<meta name="build" content="2026-08-20-1800">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -240,6 +240,7 @@
   .cell textarea{padding:6px 8px; font-size:14px; background:var(--card);}
 
   /* member picker */
+  [hidden]{display:none !important;}
   .pickgrid{display:grid; grid-template-columns:repeat(2,1fr); gap:6px;}
   @media(min-width:520px){.pickgrid{grid-template-columns:repeat(3,1fr);}}
   @media(min-width:900px){.pickgrid{grid-template-columns:repeat(4,1fr);}}
@@ -839,9 +840,11 @@ function fieldHtml(f, v){
     inner='<textarea data-f="'+f.k+'" rows="'+(f.rows||3)+'" placeholder="'+esc(f.ph||'')+'">'+esc(val)+'</textarea>';
   }else if(t==='select'){
     const optArr=typeof f.opts==='function'?f.opts():f.opts; /* dynamic option lists + [value,label] pairs */
+    const _sp=otherSplit(val), _hasOther=f.other||optArr.some(o=>(Array.isArray(o)?o[0]:o)==='Others');
     inner='<select data-f="'+f.k+'"><option value=""></option>'+
       optArr.map(o=>{ const v=Array.isArray(o)?o[0]:o, l=Array.isArray(o)?o[1]:o;
-        return '<option value="'+esc(v)+'"'+(String(v)===String(val)?' selected':'')+'>'+esc(l)+'</option>'; }).join('')+'</select>';
+        return '<option value="'+esc(v)+'"'+(String(v)===String(_sp.opt)?' selected':'')+'>'+esc(l)+'</option>'; }).join('')+'</select>'+
+      (_hasOther?otherBoxHtml(f,val):'');
   }else{
     const listArr = f.list ? (typeof f.list==='function'?f.list():f.list) : null;
     inner='<input data-f="'+f.k+'" type="'+t+'" value="'+esc(val)+'" placeholder="'+esc(f.ph||'')+'"'+
@@ -859,9 +862,11 @@ function subRow(f, r){
     let inp;
     if(c.type==='select'){
       const optArr=typeof c.opts==='function'?c.opts():(c.opts||[]);
+      const sp=otherSplit(v), hasOther=optArr.some(o=>(Array.isArray(o)?o[0]:o)==='Others');
       inp='<select data-c="'+c.k+'"><option value=""></option>'+
         optArr.map(o=>{ const ov=Array.isArray(o)?o[0]:o, ol=Array.isArray(o)?o[1]:o;
-          return '<option value="'+esc(ov)+'"'+(String(ov)===String(v)?' selected':'')+'>'+esc(ol)+'</option>'; }).join('')+'</select>';
+          return '<option value="'+esc(ov)+'"'+(String(ov)===String(sp.opt)?' selected':'')+'>'+esc(ol)+'</option>'; }).join('')+'</select>'+
+        (hasOther?'<input data-cother="'+c.k+'" class="otherbox" placeholder="Please specify" value="'+esc(sp.txt)+'"'+(sp.opt==='Others'?'':' hidden')+' style="margin-top:5px">':'');
     }else if(c.type==='photos'){
       const arr=Array.isArray(v)?v:[];
       return '<div class="cell full"><span class="cl">'+esc(c.label)+'</span>'+
@@ -869,6 +874,8 @@ function subRow(f, r){
         '<button type="button" class="minor" data-addrowphoto="1">+ Photo</button></div>';
     }else if(c.type==='textarea'){
       inp='<textarea data-c="'+c.k+'" rows="2">'+esc(v)+'</textarea>';
+    }else if(c.list){
+      inp='<input data-c="'+c.k+'" type="'+(c.type||'text')+'" value="'+esc(v)+'" list="dlr-'+f.k+'-'+c.k+'" placeholder="'+esc(c.ph||'')+'">';
     }else{
       inp='<input data-c="'+c.k+'" type="'+(c.type||'text')+'" value="'+esc(v)+'">';
     }
@@ -878,7 +885,12 @@ function subRow(f, r){
 }
 
 function rowsHtml(f, arr){
-  return '<div class="fld"><label>'+esc(f.label)+'</label>'+
+  /* one datalist per suggesting column, shared by every row incl. added ones */
+  const dls=(f.cols||[]).filter(c=>c.list).map(c=>{
+    const items=typeof c.list==='function'?c.list():c.list;
+    return '<datalist id="dlr-'+f.k+'-'+c.k+'">'+(items||[]).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist>';
+  }).join('');
+  return '<div class="fld"><label>'+esc(f.label)+'</label>'+dls+
     '<div class="rowswrap" data-rows="'+f.k+'">'+(arr||[]).map(r=>subRow(f,r)).join('')+'</div>'+
     '<button type="button" class="minor" data-addrow="'+f.k+'">+ '+esc(f.add||'Add row')+'</button>'+
     (f.hint?'<div class="hint">'+f.hint+'</div>':'')+'</div>';
@@ -892,11 +904,21 @@ function thumbHtml(dataUrl){
 function photosHtml(f, arr){
   return '<div class="fld"><label>'+esc(f.label)+'</label>'+
     '<div class="thumbs" data-photos="'+f.k+'">'+(arr||[]).map(thumbHtml).join('')+'</div>'+
-    '<button type="button" class="minor" data-addphoto="'+f.k+'">+ Add photo</button>'+
-    '<input type="file" accept="image/*" capture="environment" hidden data-photofile="'+f.k+'">'+
+    '<button type="button" class="minor" data-addphoto="'+f.k+'">+ Add photo (camera or library)</button>'+
+    '<input type="file" accept="image/*" multiple hidden data-photofile="'+f.k+'">'+
     (f.hint?'<div class="hint">'+f.hint+'</div>':'')+'</div>';
 }
 
+/* "Others — something" splits back into the option and the free text */
+function otherSplit(v){
+  const m=/^Others\s+\u2014\s+(.*)$/.exec(String(v||''));
+  return m?{opt:'Others', txt:m[1]}:{opt:v||'', txt:''};
+}
+function otherBoxHtml(f, v){
+  const sp=otherSplit(v);
+  return '<input data-other="'+f.k+'" class="otherbox" placeholder="Please specify" value="'+esc(sp.txt)+'"'+
+    (sp.opt==='Others'?'':' hidden')+' style="margin-top:6px">';
+}
 function membersHtml(f, ids){
   ids=ids||[];
   const ms=[...db.members].filter(m=>!m.mergedInto).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
@@ -970,6 +992,10 @@ function collectRows(wrap){
   return [...wrap.querySelectorAll(':scope > .subrow')].map(sr=>{
     const o={};
     sr.querySelectorAll('[data-c]').forEach(el=>o[el.dataset.c]=el.value.trim());
+    sr.querySelectorAll('[data-cother]').forEach(ob=>{
+      const k=ob.dataset.cother, t=ob.value.trim();
+      if(o[k]==='Others' && t) o[k]='Others — '+t;
+    });
     sr.querySelectorAll('[data-cphotos]').forEach(pw=>
       o[pw.dataset.cphotos]=[...pw.querySelectorAll('img')].map(im=>im.src));
     return o;
@@ -991,7 +1017,12 @@ function collectForm(mod){
       continue;
     }
     const el=app.querySelector('[data-f="'+f.k+'"]');
-    const v=el?el.value.trim():'';
+    let v=el?el.value.trim():'';
+    if(v==='Others'){
+      const ob=app.querySelector('[data-other="'+f.k+'"]');
+      const ot=ob?ob.value.trim():'';
+      if(ot) v='Others — '+ot;
+    }
     obj[f.k]=v;
     if(el) el.classList.remove('err');
     if(f.req && !v){ ok=false; if(el){el.classList.add('err'); first=first||el;} }
@@ -1019,10 +1050,13 @@ app.addEventListener('click', e=>{
     let inp=document.getElementById('rowPhotoFile');
     if(!inp){
       inp=document.createElement('input');
-      inp.type='file'; inp.accept='image/*'; inp.capture='environment'; inp.hidden=true; inp.id='rowPhotoFile';
+      inp.type='file'; inp.accept='image/*'; inp.multiple=true; inp.hidden=true; inp.id='rowPhotoFile';
       inp.addEventListener('change',()=>{
-        const f=inp.files&&inp.files[0]; inp.value='';
-        if(f&&ROWPHOTO_TARGET) compressImage(f, d=>ROWPHOTO_TARGET.insertAdjacentHTML('beforeend', thumbHtml(d)));
+        const files=[...(inp.files||[])]; inp.value='';
+        if(!files.length||!ROWPHOTO_TARGET) return;
+        const room=Math.max(0, 3-ROWPHOTO_TARGET.children.length);
+        if(files.length>room) toast('Only '+room+' more photo(s) fit here — the rest were skipped.');
+        files.slice(0,room).forEach(f=>compressImage(f, d=>ROWPHOTO_TARGET.insertAdjacentHTML('beforeend', thumbHtml(d))));
       });
       document.body.appendChild(inp);
     }
@@ -1042,13 +1076,28 @@ app.addEventListener('click', e=>{
   const mk=e.target.closest('.thumb .mkp');
   if(mk){ openMarkup(mk.closest('.thumb').querySelector('img')); }
 });
+/* show the specify box the moment Others is picked */
+app.addEventListener('change', e=>{
+  const sel=e.target.closest('select[data-f]');
+  if(sel){
+    const box=app.querySelector('[data-other="'+sel.dataset.f+'"]');
+    if(box){ box.hidden=(sel.value!=='Others'); if(!box.hidden) box.focus(); }
+  }
+  const sub=e.target.closest('select[data-c]');
+  if(sub){
+    const box=sub.closest('.subrow')&&sub.closest('.subrow').querySelector('[data-cother="'+sub.dataset.c+'"]');
+    if(box){ box.hidden=(sub.value!=='Others'); if(!box.hidden) box.focus(); }
+  }
+});
 app.addEventListener('change', e=>{
   const inp=e.target.closest('[data-photofile]');
-  if(!inp || !inp.files || !inp.files[0]) return;
-  const file=inp.files[0]; inp.value='';
+  if(!inp || !inp.files || !inp.files.length) return;
+  const files=[...inp.files]; inp.value='';
   const wrap=app.querySelector('[data-photos="'+inp.dataset.photofile+'"]');
   if(!wrap) return;
-  compressImage(file, dataUrl=>wrap.insertAdjacentHTML('beforeend', thumbHtml(dataUrl)));
+  const room=Math.max(0, 3-wrap.children.length);
+  if(files.length>room) toast('Only '+room+' more photo(s) fit here — the rest were skipped.');
+  files.slice(0,room).forEach(f=>compressImage(f, d=>wrap.insertAdjacentHTML('beforeend', thumbHtml(d))));
 });
 
 /* ============ shell views ============ */
@@ -1740,7 +1789,7 @@ const MODULES={
      {k:'desc',label:'Finding / observation',type:'textarea',w:'full'},
      {k:'action',label:'Corrective action required',type:'textarea',w:'full'},
      {k:'severity',label:'Severity',type:'select',opts:SEVHDB},
-     {k:'by',label:'Action by'},
+     {k:'by',label:'Action by',list:siteSupervisorList,ph:'Supervisor responsible'},
      {k:'due',label:'Due',type:'date'},
      {k:'status',label:'Status',type:'select',opts:['Open','Rectified','Verified','Closed']},
      {k:'photos',label:'Photo evidence — tap the pencil on a photo to circle the problem',type:'photos',w:'full'}]},
@@ -1769,9 +1818,11 @@ const MODULES={
    {k:'location',label:'Exact location / area'},
    {k:'waId',label:'Linked work activity',type:'select',opts:()=>db.workActivities.map(w=>[w.id,w.title]),half:1},
    {k:'category',label:'Category (standard list)',type:'select',opts:Object.keys(NEGCATS),req:1},
-   {k:'subitem',label:'Standard item',type:'select',opts:[]},
+   {k:'subitem',label:'Standard item',type:'select',opts:[],other:1},
    {k:'desc',label:'Description / remarks',type:'textarea'},
    {k:'severity',label:'Severity',type:'select',opts:SEVHDB,half:1,hint:'For non-compliances.'},
+   {k:'by',label:'Action by (supervisor responsible)',half:1,list:siteSupervisorList,
+    hint:'Drawn from the supervisors listed for this site — contacts, activity crews and safety personnel.'},
    {k:'due',label:'Due date to close',type:'date',half:1},
    {k:'status',label:'Status',type:'select',opts:['Open','Rectified','Verified','Closed'],def:'Open',half:1},
    {k:'rectifiedBy',label:'Rectified by',half:1},
@@ -1786,8 +1837,11 @@ const MODULES={
     const catSel=app.querySelector('[data-f="category"]');
     const subSel=app.querySelector('[data-f="subitem"]');
     let curCat=item?item.category:'', curSub=item?item.subitem:'';
-    const fill=(sel,opts,cur)=>{ sel.innerHTML='<option value=""></option>'+
-      opts.map(o=>'<option'+(o===cur?' selected':'')+'>'+esc(o)+'</option>').join(''); };
+    const fill=(sel,opts,cur)=>{ const sp=otherSplit(cur);
+      sel.innerHTML='<option value=""></option>'+
+        opts.map(o=>'<option'+(o===sp.opt?' selected':'')+'>'+esc(o)+'</option>').join('');
+      const box=app.querySelector('[data-other="'+sel.dataset.f+'"]');
+      if(box){ box.value=sp.txt; box.hidden=(sel.value!=='Others'); } };
     const syncSub=()=>{ const items=NEGCATS[catSel.value]||[];
       fill(subSel, items, curSub);
       subSel.closest('.fld').style.display=items.length?'':'none'; };
@@ -2054,7 +2108,7 @@ const MODULES={
   fields:[
    {k:'title',label:'Inspection',req:1,ph:'e.g. Weekly scaffold inspection'},
    {k:'freq',label:'Frequency',type:'select',req:1,half:1,opts:['Daily','Weekly','Fortnightly','Monthly','Quarterly','6-Monthly','Yearly']},
-   {k:'assignTo',label:'Assigned to',half:1},
+   {k:'assignTo',label:'Assigned to',half:1,list:siteSupervisorList},
    {k:'area',label:'Area / equipment',half:1},
    {k:'lastDone',label:'Last done',type:'date',half:1},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
@@ -2165,7 +2219,7 @@ const MODULES={
     cols:[
      {k:'item',label:'Item discussed',type:'textarea',w:'full'},
      {k:'action',label:'Action required',type:'textarea',w:'full'},
-     {k:'by',label:'Action by'},
+     {k:'by',label:'Action by',list:siteSupervisorList,ph:'Supervisor responsible'},
      {k:'due',label:'Due',type:'date'},
      {k:'status',label:'Status',type:'select',opts:OPENCLOSED}]},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
@@ -2196,7 +2250,7 @@ const MODULES={
    {k:'actions',label:'Corrective & preventive actions',type:'rows',add:'Add action',
     cols:[
      {k:'desc',label:'Action',type:'textarea',w:'full'},
-     {k:'by',label:'Action by'},
+     {k:'by',label:'Action by',list:siteSupervisorList,ph:'Supervisor responsible'},
      {k:'due',label:'Due',type:'date'},
      {k:'status',label:'Status',type:'select',opts:OPENCLOSED},
      {k:'photos',label:'Photo of the completed action',type:'photos',w:'full'}]},
@@ -4460,7 +4514,7 @@ function renderToolbox(){
      '<p class="hint">Take 2–3 photos of the actual work area before the meeting. Workers discuss the real site, not stock pictures.</p>'+
      '<div class="thumbs" id="tbxThumbs">'+t.photos.map(p=>'<div class="thumb"><img src="'+p+'"><button type="button" class="rmp" data-rmphoto>×</button></div>').join('')+'</div>'+
      '<button type="button" class="minor" id="tbxAddPhoto">+ Add photo</button>'+
-     '<input type="file" accept="image/*" capture="environment" hidden id="tbxPhotoFile">'+
+     '<input type="file" accept="image/*" hidden id="tbxPhotoFile">'+
    '</div>'+
    '<div class="card"><div class="tbx-step">5 · 60-second briefing</div>'+
      risks+
@@ -4491,7 +4545,7 @@ function renderToolbox(){
    '</div>'+
      '<div class="thumbs" id="tbxSpotThumb">'+(t.spot.photo?'<div class="thumb"><img src="'+t.spot.photo+'"><button type="button" class="rmp" data-rmspot>×</button></div>':'')+'</div>'+
      '<button type="button" class="minor" id="tbxSpotPhotoBtn">+ Photo of the hazard</button>'+
-     '<input type="file" accept="image/*" capture="environment" hidden id="tbxSpotFile">'+
+     '<input type="file" accept="image/*" hidden id="tbxSpotFile">'+
      '<p class="hint">Saved as an open Observation so it gets tracked to closure — and it becomes tomorrow’s "yesterday’s lesson".</p>'+
    '</div>'+
    '<div class="btnrow"><button class="btn" id="tbxSave">Save toolbox meeting</button>'+
@@ -4969,6 +5023,23 @@ function myDisplayName(){
 }
 /* people who plausibly run a session: past conductors, safety contacts,
    safety-trade members. Deduped, alphabetical. */
+/* supervisors listed for THIS site: site contacts, anyone holding a
+   supervisory role on a work activity crew, and supervisory trades on site. */
+function siteSupervisorList(){
+  const set=new Set();
+  const add=v=>{ v=String(v||'').trim(); if(v) set.add(v); };
+  const SUP=/supervisor|foreman|wsho|wshc|safety|manager|engineer|\bre\b|\bpm\b|charge/i;
+  db.contacts.filter(c=>SUP.test((c.role||'')+' '+(c.notes||''))).forEach(c=>add(c.name));
+  db.workActivities.forEach(w=>(w.crew||[]).forEach(c=>{
+    if(!SUP.test(c.role||'')) return;
+    const m=db.members.find(x=>x.id===c.memberId); if(m) add(m.name);
+  }));
+  const onSite=(typeof projectMemberIds==='function')?projectMemberIds():new Set();
+  db.members.filter(m=>!m.mergedInto&&SUP.test(m.trade||'')&&(!onSite.size||onSite.has(m.id)))
+    .forEach(m=>add(m.name));
+  safetyPersonnelList().forEach(add);
+  return [...set].sort((a,b)=>a.localeCompare(b));
+}
 function safetyPersonnelList(){
   const set=new Set();
   const add=v=>{ v=String(v||'').trim(); if(v) set.add(v); };
@@ -6364,7 +6435,7 @@ async function renderHazardPublic(projId, tok){
     '<div><div class="lg-t">REPORT A HAZARD</div><div class="lg-s">Anonymous — no login needed</div></div></div>'+
     '<label>Where is it?</label><input id="hzArea" placeholder="e.g. Zone B, near gate 2">'+
     '<label>What did you see? *</label><textarea id="hzDesc" rows="3" placeholder="Describe the unsafe condition or act"></textarea>'+
-    '<label>Photo (optional)</label><input type="file" id="hzPhoto" accept="image/*" capture="environment">'+
+    '<label>Photo (optional)</label><input type="file" id="hzPhoto" accept="image/*">'+
     '<div class="lg-err" id="hzErr"></div>'+
     '<div class="btnrow"><button class="btn" id="hzGo" style="flex:1">Send report</button></div>'+
     '<p class="hint" style="margin-top:10px">Your report goes straight to the safety team. Thank you for speaking up.</p></div></div>';
