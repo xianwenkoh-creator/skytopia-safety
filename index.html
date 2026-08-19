@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-19-2359">
+<meta name="build" content="2026-08-20-0900">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -553,7 +553,7 @@ function downloadRaw(name, text, mime){
    Reports & exports save straight into the connected Safety folder
    (OneDrive\Skytopia\Safety), each type into its own subfolder.        */
 const DIRMAP={contacts:'Registers',members:'Registers',equipment:'Registers',documents:'Registers',certexp:'Registers',
-  tbm:'Toolbox Meetings',inspections:'Inspections',observations:'Observations',checklists:'Checklists',ra:'RA-SWP',training:'Training',
+  tbm:'Toolbox Meetings',inspections:'Inspections',observations:'Near Miss Reports',checklists:'Checklists',ra:'RA-SWP',training:'Training',
   meetings:'Meetings',incidents:'Incidents',defects:'Quality Defects',report:'Monthly Reports',backup:'Backups',work:'Registers'};
 function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open('kkl-cms-fs',1);
   r.onupgradeneeded=()=>r.result.createObjectStore('kv');
@@ -736,6 +736,10 @@ function fixRoot(r){
   COMPANY_STORES.forEach(k=>{ if(!Array.isArray(r.company[k])) r.company[k]=[]; });
   r.projects.forEach(p=>{
     if(!p.id) p.id=uid();
+    /* Near Miss rename: rewrite the pre-rename wording so the form preselects.
+       Literal, not OBS_KIND_OLD — fixRoot runs before those consts exist. */
+    if(Array.isArray(p.observations))
+      p.observations.forEach(o=>{ if(o&&o.kind==='Negative — safety non-compliance') o.kind='Unsafe act / unsafe condition'; });
     if(!p.settings) p.settings=structuredClone(BLANK.settings);
     if(!p.manhours) p.manhours={}; if(!p.mandays) p.mandays={};
     PROJECT_STORES.forEach(k=>{ if(!Array.isArray(p[k])) p[k]=[]; });
@@ -971,7 +975,7 @@ const NAV=[
                           ['layout','Site Layouts','folder'],['locations','Locations','pin'],
                           ['contacts','Contacts','contact'],['equipment','Equipment','equip'],
                           ['documents','Documents','doc'],['actions','Actions','act'],['recurringChecks','Recurring Inspections','recur'],['visitors','Visitors','visitor']]},
- {group:'Safety',  items:[['lmra','LMRA','lmra'],['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Observations','obs'],
+ {group:'Safety',  items:[['lmra','LMRA','lmra'],['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Near Miss','obs'],
                           ['checklists','Checklists','check'],['rasys','RA / SWP','ra'],
                           ['meetings','Meetings','meet'],['incidents','Incidents','incid']]},
  {group:'Quality', items:[['defects','Defects','defect']]},
@@ -986,7 +990,7 @@ function buildNav(){
   if(SB.profile&&SB.profile.role==='subcon'){
     nav.innerHTML='<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'My Work</a>'+
       '<div class="sn-group">My Site</div>'+
-      [['rasys','My RA / SWP','ra'],['observations','My Observations','obs'],['defects','My Defects','defect'],
+      [['rasys','My RA / SWP','ra'],['observations','My Near Miss Reports','obs'],['defects','My Defects','defect'],
        ['members','My Workers','members'],['sicready','SIC Readiness','sic'],['workerCompetencies','My Competencies','cert'],
        ['equipment','My Equipment','equip'],['training','My Training','train']]
         .map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+'</a>').join('')+
@@ -1068,11 +1072,11 @@ function renderHome(){
     app.innerHTML=header(db.settings.project||'My Work', false)+
       '<h2 class="sect">Today</h2>'+
       '<div class="tiles">'+
-        '<a class="stile" href="#/observations"><div class="v'+(myObs?' w':'')+'">'+myObs+'</div><div class="l">Open observations</div></a>'+
+        '<a class="stile" href="#/observations"><div class="v'+(myObs?' w':'')+'">'+myObs+'</div><div class="l">Open near miss / unsafe</div></a>'+
         '<a class="stile" href="#/rasys"><div class="v">'+db.raAdoptions.length+'</div><div class="l">My RA / SWP</div></a>'+
       '</div>'+
       '<h2 class="sect">My site</h2>'+
-      '<div class="grid">'+tile('rasys','My RA/SWP','ra')+tile('observations','Observations','obs')+
+      '<div class="grid">'+tile('rasys','My RA/SWP','ra')+tile('observations','Near Miss','obs')+
         tile('defects','Defects','defect')+tile('members','My Workers','members')+
         tile('sicready','SIC Readiness','sic')+tile('workerCompetencies','Competencies','cert')+
         tile('equipment','My Equipment','equip')+tile('training','Training','train')+'</div>'+
@@ -1141,7 +1145,7 @@ function renderHome(){
     '<div class="grid">'+
       tile('tbm','Toolbox Meetings','tbm')+
       tile('inspections','Inspections','insp')+
-      tile('observations','Observations','obs')+
+      tile('observations','Near Miss','obs')+
       tile('checklists','Checklists','check')+
       ((SB.profile&&SB.profile.role==='viewer')?'':tile('rasys','RA / SWP','ra'))+
       tile('meetings','Meetings','meet')+
@@ -1367,7 +1371,7 @@ window.addEventListener('hashchange', route);
 const TRADES=['General Worker','Excavator Operator','Crane Operator','Lifting Supervisor','Rigger / Signalman','Banksman','Scaffolder','Welder','Electrician','Driver','Supervisor / Foreman','Site Engineer','WSH Officer / Coordinator','Project Manager','Others'];
 const EQUIPTYPES=['Excavator','Mobile Crane','Crawler Crane','Lorry Crane','Lorry / Tipper','Dump Truck','Roller / Compactor','Piling Rig','Generator','Air Compressor','Welding Set','Power Tool','Lifting Gear','MEWP / Boom Lift','Forklift','Others'];
 const DOCCATS=['WSH Policy / Safety Plan','RA / SWP','Permit / Licence','Insurance','Method Statement','Emergency Response Plan','Drawing','Circular / Notice','MOM Correspondence','Inspection Report','Others'];
-const INCTYPES=['Near Miss','First Aid Case','Medical Treatment / MC','Lost Time Injury','Dangerous Occurrence','Property Damage','Fatality'];
+const INCTYPES=['First Aid Case','Medical Treatment / MC','Lost Time Injury','Dangerous Occurrence','Property Damage','Fatality'];
 const COURSES=['WSQ Apply WSH in Construction Sites (AWSHCS / CSOC)','CSOC Recertification','Perform Work at Height (PWAH)','Supervise Work at Height (SWAH)','Manage Work at Height (MWAH)','Perform Work in Confined Space Operation (PWCSO)','Supervise Work in Confined Space Operation','Confined Space Safety Assessor (CSSA)','Perform Rigger and Signalman Tasks (PRST)','Supervise Safe Lifting Operations (SSLO)','Perform Metal Scaffold Erection (PMSE)','Supervise Metal Scaffold Erection (SMSE)','Perform Rigging of Suspended Scaffold (Gondola)','Perform Formwork Activities','Supervise WSH for Formwork Construction (SWSHFC)','WSQ Operate Forklift','Hydraulic Excavator Operation (As Lifting Machine)','WSQ Operate Lorry Crane','WSQ Operate Boom Lift','WSQ Operate Scissor Lift','Basic Traffic Control Course (BTCC)','Traffic Control Supervisor Course (BTSC)','Fire Watchman Course (Hot Work)','Occupational First Aid Course (OFAC)','OFAC Refresher','WSH Management in Construction Industry (WSHMCI / ex-BCSS)','Manage WSH in Construction Sites (PM, ex-CSCPM)','WSH Coordinator Course','WSH Officer Course','Workshop to Enhance Safety of Crane Operation (WESCO)','WSQ Perform Welding'];
 const SEV135=['1','2','3','4','5'];
 const OPENCLOSED=['Open','Closed'];
@@ -1389,7 +1393,13 @@ const NEGCATS={
  'Others':[]
 };
 const POSCATS=['Good Work-At-Height provision','Good provision for prevention of Hit-By-Falling Objects','Good Housekeeping','Provisions in accordance to PE design','Good provision for prevention of Struck by Moving Objects','Compliances relating to lifting operations and equipment','Compliances relating to electrical appliances','Good traffic management','Compliances relating to RAs, SWPs or PTWs','Good PPE provision','Good provision to prevent collapse of temporary structures','Others'];
-const OBS_NEG='Negative — safety non-compliance', OBS_POS='Positive — good practice';
+const OBS_NM='Near miss — could have caused injury or damage',
+      OBS_NEG='Unsafe act / unsafe condition',
+      OBS_POS='Positive — good practice';
+/* records written before the Near Miss rename carry the old wording */
+const OBS_KIND_OLD={'Negative — safety non-compliance':'Unsafe act / unsafe condition'};
+function obsKind(o){ const k=o&&o.kind; return (k&&OBS_KIND_OLD[k])||k||OBS_NEG; }
+function obsIsPositive(o){ return obsKind(o)===OBS_POS; }
 function companyList(){
   return [...new Set([].concat(db.organisations.map(o=>o.name), db.members.map(m=>m.company), db.equipment.map(e=>e.owner), db.contacts.map(c=>c.company)).filter(Boolean))];
 }
@@ -1648,9 +1658,10 @@ const MODULES={
     return o?'<span class="chip w">'+o+' open</span>':'<span class="chip g">all closed</span>'; },
   empty:'Site safety inspections with findings tracking — open items roll up into Statistics.'},
 
- observations:{ title:'Observation', store:'observations',
+ observations:{ title:'Near Miss / Unsafe Condition', store:'observations',
   fields:[
-   {k:'kind',label:'Observation type',type:'select',opts:[OBS_NEG,OBS_POS],req:1,def:OBS_NEG},
+   {k:'kind',label:'What are you reporting?',type:'select',opts:()=>[OBS_NM,OBS_NEG,OBS_POS],req:1,def:OBS_NEG,
+    hint:'Near miss = no one was hurt but someone could have been. Unsafe act / condition = something is wrong now.'},
    {k:'date',label:'Date found',type:'date',req:1,def:'today',half:1},
    {k:'time',label:'Time found',type:'time',half:1},
    {k:'initiator',label:'Reported by (initiator)',req:1,half:1},
@@ -1696,7 +1707,7 @@ const MODULES={
     if(obj.kind!==OBS_POS && obj.status==='Open' && !(obj.beforePhotos||[]).length)
       setTimeout(()=>alert('Reminder: before/after photos are required for every safety non-compliance — attach a photo when you can.'),50);
   },
-  line1:i=>esc(i.category||'Observation'),
+  line1:i=>esc((obsKind(i)===OBS_NM?'NEAR MISS — ':'')+(i.category||'Report')),
   line2:i=>fmtD(i.date)+esc([i.subitem&&i.subitem!=='Others'?' · '+i.subitem:(i.desc?' · '+i.desc.split('\n')[0].slice(0,50):''), i.subcon?' · '+i.subcon:''].join('')),
   meta:i=>{ let out='';
     if(i.kind===OBS_POS){ out+='<span class="chip g">positive</span>'; }
@@ -1707,7 +1718,7 @@ const MODULES={
     }
     out+='<span class="chip '+(i.status==='Closed'?'g':'w')+'">'+esc(i.status||'Open')+'</span>';
     return out; },
-  empty:'Site observations — safety non-compliances (NCR/near-miss) and positive observations, with before/after photos and rectify → verify → close tracking.'},
+  empty:'Near misses, unsafe acts and unsafe conditions — raised by anyone, any time, with before/after photos and rectify → verify → close tracking. Good practice can be recorded here too.'},
 
  checklists:{ title:'Checklist', store:'checklists',
   fields:[
@@ -2249,7 +2260,7 @@ function allOpenActions(){
   const out=[];
   const add=(due,label,detail,link,src,by)=>out.push({due:due||'', days:daysTo(due), label, detail, link, src, by:by||''});
   db.observations.forEach(o=>{ if(o.kind!==OBS_POS && o.status!=='Closed')
-    add(o.due, o.category||'Observation', [o.subitem||o.desc, o.subcon].filter(Boolean).join(' · '), '#/observations/'+o.id, 'Observation', o.by); });
+    add(o.due, o.category||'Near miss / unsafe condition', [o.subitem||o.desc, o.subcon].filter(Boolean).join(' · '), '#/observations/'+o.id, 'Near miss', o.by); });
   db.defects.forEach(o=>{ if(o.status!=='Closed')
     add(o.due, [o.element,o.grouping].filter(Boolean).join(' — ')||'Defect', [o.desc, o.subcon].filter(Boolean).join(' · '), '#/defects/'+o.id, 'Defect', o.subcon); });
   db.inspections.forEach(i=>(i.findings||[]).forEach(f=>{ if(f.status!=='Closed' && (f.desc||f.action))
@@ -2579,7 +2590,7 @@ function renderStats(){
       tile(daysLost,'Man-days lost')+
       tile(doN,'Dangerous occ.')+
       tile(openF,'Open actions')+
-      tile(openObs,'Open observations')+
+      tile(openObs,'Open near miss / unsafe')+
     '</div>'+
     '<a class="btn ghost noprint" style="display:block;text-align:center;text-decoration:none;margin-bottom:12px" href="#/report">Monthly safety data report &rarr;</a>'+
     '<div class="card"><div class="charthead">Incidents by month — '+yr+'</div>'+
@@ -2708,7 +2719,7 @@ function renderReport(){
     '</div>'+
     '<div class="card"><div class="charthead">Safety non-compliances by subcontractor (ranked)</div>'+
       rankedBars(d.subs.map(t=>({label:t[0], v:t[1], txt:String(t[1])})))+
-      (d.pos?'<div class="hint" style="margin-top:8px">'+d.pos+' positive observation(s) also recorded this month.</div>':'')+
+      (d.pos?'<div class="hint" style="margin-top:8px">'+d.pos+' positive (good practice) report(s) also recorded this month.</div>':'')+
     '</div>';
   let body;
   if(client==='HDB')            body=secSummary+secPtw+secRanked;          /* Appendix VI shape */
@@ -2811,7 +2822,7 @@ function renderSettings(){
         '<div class="btnrow" style="margin-top:8px"><button id="mfaBtn" class="btn ghost" style="display:none"></button></div></div>'+
     '</div>'+
     '<div class="card"><label style="margin-top:0">SKYTOPIA Safety folder</label>'+
-      '<p class="hint">Connect your <b>Skytopia \\ Safety</b> folder (OneDrive) so reports, CSV exports and backups save straight into it — each report type goes to its own subfolder (Inspections, Observations, Monthly Reports, &hellip;). Works in Chrome / Edge.</p>'+
+      '<p class="hint">Connect your <b>Skytopia \\ Safety</b> folder (OneDrive) so reports, CSV exports and backups save straight into it — each report type goes to its own subfolder (Inspections, Near Miss Reports, Monthly Reports, &hellip;). Works in Chrome / Edge.</p>'+
       '<p class="hint" id="fsStatus">Checking&hellip;</p>'+
       '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="fsPick">Connect folder</button>'+
       '<button class="btn ghost" id="fsDocs">Export worker documents</button>'+
@@ -3055,9 +3066,9 @@ function checkWorkActivityReadiness(workActivityId){
     res.push(RR('WA-TBM-TODAY','WARN','No toolbox briefing today','Activity is Active but no toolbox meeting is linked for today.','workActivity',wa.id));
   /* linked observations / incidents */
   db.observations.filter(o=>o.waId===wa.id&&o.status!=='Closed').forEach(o=>{
-    if(o.severity==='Critical') res.push(RR('WA-OBS-CRITICAL','BLOCK','Open critical observation',(o.category||'Observation')+' is open: '+(o.desc||o.subitem||'').split('\n')[0].slice(0,80),'observation',o.id));
-    else if(o.severity==='Major') res.push(RR('WA-OBS-MAJOR','WARN','Open major observation',(o.category||'Observation')+' is open.','observation',o.id));
-    if(o.due&&(daysTo(o.due)??0)<0) res.push(RR('WA-OBS-OVERDUE','WARN','Observation overdue','Corrective action was due '+fmtD(o.due)+'.','observation',o.id));
+    if(o.severity==='Critical') res.push(RR('WA-OBS-CRITICAL','BLOCK','Open critical near miss / unsafe condition',(o.category||'Report')+' is open: '+(o.desc||o.subitem||'').split('\n')[0].slice(0,80),'observation',o.id));
+    else if(o.severity==='Major') res.push(RR('WA-OBS-MAJOR','WARN','Open major near miss / unsafe condition',(o.category||'Report')+' is open.','observation',o.id));
+    if(o.due&&(daysTo(o.due)??0)<0) res.push(RR('WA-OBS-OVERDUE','WARN','Near miss report overdue','Corrective action was due '+fmtD(o.due)+'.','observation',o.id));
   });
   db.incidents.filter(i=>i.waId===wa.id&&i.status!=='Closed').forEach(i=>
     res.push(RR('WA-INC-OPEN','BLOCK','Open incident',(i.type||'Incident')+' on '+fmtD(i.date)+' is not closed.','incident',i.id)));
@@ -4197,7 +4208,7 @@ function tbxYesterday(){
   db.incidents.filter(i=>i.type==='Near Miss'&&(i.date||'')>=d7).slice(-2).forEach(i=>
     items.push({t:'Near miss — '+fmtD(i.date), d:(i.description||'').split('\n')[0], photo:null}));
   const dy=new Date(Date.now()-3*864e5).toISOString().slice(0,10);
-  db.observations.filter(o=>o.kind!=='Positive observation'&&(o.date||'')>=dy).slice(-2).forEach(o=>
+  db.observations.filter(o=>!obsIsPositive(o)&&(o.date||'')>=dy).slice(-2).forEach(o=>
     items.push({t:'Recent finding — '+esc(o.category||''), d:[o.subitem||o.desc,o.subcon].filter(Boolean).join(' · '),
       photo:(o.beforePhotos||[])[0]||null}));
   return items;
@@ -6319,7 +6330,7 @@ const CTX_RENDER={
   },
   observation(id, t, b){
     const o=db.observations.find(x=>x.id===id); if(!o) throw new Error('Observation not found');
-    t.textContent=o.category||'Observation';
+    t.textContent=o.category||'Near miss / unsafe condition';
     b.innerHTML='<div style="margin-bottom:8px"><span class="chip '+(o.status==='Closed'?'g':'w')+'">'+esc(o.status||'Open')+'</span>'+
       (o.severity?'<span class="chip n">sev '+esc(o.severity)+'</span>':'')+'</div>'+
       '<div class="hint">'+esc([fmtD(o.date), o.location, o.subcon, o.initiator].filter(Boolean).join(' · '))+'</div>'+
@@ -6422,7 +6433,7 @@ function globalSearch(q){
   db.workActivities.filter(w=>has(w.title)||has(w.type)||has(w.ptw)).slice(0,4)
     .forEach(w=>push('wa',w.id,w.title||w.type,[(w.readiness||{}).status,w.location].filter(Boolean).join(' · ')));
   db.observations.filter(o=>has(o.desc)||has(o.category)).slice(0,3)
-    .forEach(o=>push('observation',o.id,(o.category||'Observation'),fmtD(o.date)+' · '+(o.status||'')));
+    .forEach(o=>push('observation',o.id,(o.category||'Near miss / unsafe'),fmtD(o.date)+' · '+(o.status||'')));
   db.incidents.filter(i=>has(i.desc)||has(i.type)).slice(0,3)
     .forEach(i=>push('incident',i.id,i.type||'Incident',fmtD(i.date)));
   db.raAdoptions.filter(r=>has(r.title)).slice(0,3)
