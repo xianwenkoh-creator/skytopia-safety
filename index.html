@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-20-0900">
+<meta name="build" content="2026-08-20-1400">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -66,6 +66,15 @@
   .bmark{display:flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:4px;
          background:var(--acc); color:#fff; font-size:14px; font-weight:800;}
   .bword{font-size:14.5px; font-weight:750; letter-spacing:.14em;}
+  .mpick{border:1px solid var(--line2,#dfe3e6); border-radius:8px; padding:8px; background:var(--card,#fff);}
+  .mpick-chips{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:7px;}
+  .mchip{display:inline-flex; align-items:center; gap:5px; font-size:13px; font-weight:600;
+    background:var(--soft,#f2f4f6); border:1px solid var(--line2,#dfe3e6); border-radius:20px; padding:3px 6px 3px 11px;}
+  .mchip-x{border:0; background:none; font-size:16px; line-height:1; cursor:pointer; color:var(--sub,#68757d); padding:0 3px;}
+  .mpick-q{width:100%; margin:0 0 7px;}
+  .mpick-res{max-height:290px; overflow-y:auto;}
+  .mpick-res .pick{display:flex; align-items:center; gap:9px; padding:7px 4px; border-bottom:1px solid var(--line,#eef1f3);}
+  .mpick-res .pick:last-child{border-bottom:0;}
   .blogo{height:26px; background:#fff; border-radius:4px; padding:2px 6px; display:block;}
   #ctxPanel{position:fixed; top:48px; right:0; bottom:0; width:380px; max-width:94vw; background:var(--card);
             border-left:1px solid var(--line); z-index:45; display:flex; flex-direction:column; box-shadow:var(--sh-l,0 16px 40px rgba(0,0,0,.2));}
@@ -853,6 +862,11 @@ function subRow(f, r){
       inp='<select data-c="'+c.k+'"><option value=""></option>'+
         optArr.map(o=>{ const ov=Array.isArray(o)?o[0]:o, ol=Array.isArray(o)?o[1]:o;
           return '<option value="'+esc(ov)+'"'+(String(ov)===String(v)?' selected':'')+'>'+esc(ol)+'</option>'; }).join('')+'</select>';
+    }else if(c.type==='photos'){
+      const arr=Array.isArray(v)?v:[];
+      return '<div class="cell full"><span class="cl">'+esc(c.label)+'</span>'+
+        '<div class="thumbs" data-cphotos="'+c.k+'">'+arr.map(thumbHtml).join('')+'</div>'+
+        '<button type="button" class="minor" data-addrowphoto="1">+ Photo</button></div>';
     }else if(c.type==='textarea'){
       inp='<textarea data-c="'+c.k+'" rows="2">'+esc(v)+'</textarea>';
     }else{
@@ -885,21 +899,81 @@ function photosHtml(f, arr){
 
 function membersHtml(f, ids){
   ids=ids||[];
-  const ms=[...db.members].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-  const grid = ms.length
-    ? '<div class="pickgrid" data-f="'+f.k+'" data-type="members">'+
-        ms.map(m=>'<label class="pick"><input type="checkbox" data-mid="'+m.id+'"'+(ids.includes(m.id)?' checked':'')+'><span>'+esc(memberLabel(m))+'</span></label>').join('')+'</div>'
-    : '<div class="hint">No members registered yet — add workers under Member(s) to tick attendance here.</div>';
-  return '<div class="fld"><label>'+esc(f.label)+'</label>'+grid+'</div>';
+  const ms=[...db.members].filter(m=>!m.mergedInto).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  if(!ms.length)
+    return '<div class="fld"><label>'+esc(f.label)+'</label>'+
+      '<div class="hint">No workers registered yet — add them under Workers to tick attendance here.</div></div>';
+  /* hidden authoritative set: one checkbox per worker, read on save */
+  const grid='<div class="pickgrid" data-f="'+f.k+'" data-type="members" hidden>'+
+    ms.map(m=>'<input type="checkbox" data-mid="'+m.id+'"'+(ids.includes(m.id)?' checked':'')+'>').join('')+'</div>';
+  return '<div class="fld"><label>'+esc(f.label)+'</label>'+
+    '<div class="mpick" data-for="'+f.k+'">'+
+      '<div class="mpick-chips"></div>'+
+      '<input class="mpick-q" type="search" inputmode="search" autocomplete="off" placeholder="Search worker name or ID\u2026">'+
+      '<div class="mpick-res"></div>'+
+    '</div>'+ grid +
+    (f.hint?'<div class="hint">'+f.hint+'</div>':'')+'</div>';
 }
+/* ---- searchable attendance picker (delegated: works in every render path) ---- */
+function mpickBox(el){ return el.closest('.mpick'); }
+function mpickGrid(box){ return box.parentNode.querySelector('.pickgrid[data-f="'+box.dataset.for+'"]'); }
+function mpickPaint(box){
+  const grid=mpickGrid(box); if(!grid) return;
+  const chips=box.querySelector('.mpick-chips');
+  const on=[...grid.querySelectorAll('[data-mid]')].filter(c=>c.checked);
+  chips.innerHTML = on.length
+    ? on.map(c=>{ const m=db.members.find(x=>x.id===c.dataset.mid);
+        return '<span class="mchip">'+esc(m?memberLabel(m):c.dataset.mid)+
+          '<button type="button" class="mchip-x" data-cid="'+c.dataset.mid+'" aria-label="Remove">\u00d7</button></span>'; }).join('')
+    : '<span class="hint" style="padding:2px 0">Nobody ticked yet.</span>';
+  const cnt=box.querySelector('.mpick-cnt');
+  if(cnt) cnt.textContent=on.length+' selected';
+}
+function mpickSearch(box){
+  const grid=mpickGrid(box); if(!grid) return;
+  const q=(box.querySelector('.mpick-q').value||'').trim().toLowerCase();
+  const res=box.querySelector('.mpick-res');
+  if(q.length<1){ res.innerHTML='<div class="hint">Type a name or worker ID to find people. Or let workers scan the QR code to check themselves in.</div>'; return; }
+  const hits=db.members.filter(m=>!m.mergedInto).filter(m=>
+    ((m.name||'')+' '+(m.wid||'')+' '+(m.company||'')).toLowerCase().includes(q)).slice(0,40);
+  if(!hits.length){ res.innerHTML='<div class="hint">No worker matches \u201c'+esc(q)+'\u201d.</div>'; return; }
+  res.innerHTML=hits.map(m=>{
+    const cb=grid.querySelector('[data-mid="'+m.id+'"]');
+    return '<label class="pick"><input type="checkbox" data-rid="'+m.id+'"'+((cb&&cb.checked)?' checked':'')+'>'+
+      '<span>'+esc(memberLabel(m))+(m.company?' <span class="hint">'+esc(m.company)+'</span>':'')+'</span></label>';
+  }).join('')+'<div class="hint mpick-cnt"></div>';
+  mpickPaint(box);
+}
+document.addEventListener('input',e=>{
+  if(e.target.classList&&e.target.classList.contains('mpick-q')) mpickSearch(mpickBox(e.target));
+});
+document.addEventListener('change',e=>{
+  const rid=e.target.dataset&&e.target.dataset.rid; if(!rid) return;
+  const box=mpickBox(e.target), grid=box&&mpickGrid(box); if(!grid) return;
+  const cb=grid.querySelector('[data-mid="'+rid+'"]'); if(cb) cb.checked=e.target.checked;
+  mpickPaint(box);
+});
+document.addEventListener('click',e=>{
+  const cid=e.target.dataset&&e.target.dataset.cid; if(!cid) return;
+  const box=mpickBox(e.target), grid=box&&mpickGrid(box); if(!grid) return;
+  const cb=grid.querySelector('[data-mid="'+cid+'"]'); if(cb) cb.checked=false;
+  const row=box.querySelector('[data-rid="'+cid+'"]'); if(row) row.checked=false;
+  mpickPaint(box);
+});
+/* paint chips whenever a picker appears */
+document.addEventListener('DOMContentLoaded',()=>{});
+function mpickInitAll(){ document.querySelectorAll('.mpick').forEach(b=>{ mpickSearch(b); mpickPaint(b); }); }
 
+let ROWPHOTO_TARGET=null;
 function collectRows(wrap){
   if(!wrap) return [];
   return [...wrap.querySelectorAll(':scope > .subrow')].map(sr=>{
     const o={};
     sr.querySelectorAll('[data-c]').forEach(el=>o[el.dataset.c]=el.value.trim());
+    sr.querySelectorAll('[data-cphotos]').forEach(pw=>
+      o[pw.dataset.cphotos]=[...pw.querySelectorAll('img')].map(im=>im.src));
     return o;
-  }).filter(o=>Object.values(o).some(v=>v!==''));
+  }).filter(o=>Object.values(o).some(v=>Array.isArray(v)?v.length:v!==''));
 }
 
 function collectForm(mod){
@@ -937,6 +1011,24 @@ app.addEventListener('click', e=>{
   }
   const rm=e.target.closest('.subrow .rm');
   if(rm){ rm.closest('.subrow').remove(); return; }
+  const arp=e.target.closest('[data-addrowphoto]');
+  if(arp){
+    const wrap=arp.parentNode.querySelector('[data-cphotos]');
+    if(wrap && wrap.children.length>=3){ alert('Maximum 3 photos per finding — remove one first.'); return; }
+    ROWPHOTO_TARGET=wrap;
+    let inp=document.getElementById('rowPhotoFile');
+    if(!inp){
+      inp=document.createElement('input');
+      inp.type='file'; inp.accept='image/*'; inp.capture='environment'; inp.hidden=true; inp.id='rowPhotoFile';
+      inp.addEventListener('change',()=>{
+        const f=inp.files&&inp.files[0]; inp.value='';
+        if(f&&ROWPHOTO_TARGET) compressImage(f, d=>ROWPHOTO_TARGET.insertAdjacentHTML('beforeend', thumbHtml(d)));
+      });
+      document.body.appendChild(inp);
+    }
+    inp.click();
+    return;
+  }
   const ap=e.target.closest('[data-addphoto]');
   if(ap){
     const wrap=app.querySelector('[data-photos="'+ap.dataset.addphoto+'"]');
@@ -1283,6 +1375,7 @@ function renderEdit(key, id){
 /* ============ router ============ */
 function route(){
   if(typeof GATED!=='undefined' && GATED) return; /* sign-in landing owns the screen */
+  setTimeout(()=>{ try{ mpickInitAll(); }catch(e){} },0);
   const p=location.hash.replace(/^#\/?/,'').split('/').filter(Boolean);
   if(window._keepScroll){ window._keepScroll=false; }
   else window.scrollTo(0,0);
@@ -1614,7 +1707,7 @@ const MODULES={
    {k:'hazards',label:'Key hazards & precautions',type:'textarea'},
    {k:'ptw',label:'Linked ePTW permit no(s).',half:1},
    {k:'photos',label:'Work area photos',type:'photos'},
-   {k:'attendees',label:'Attendance',type:'members'},
+   {k:'attendees',label:'Attendance',type:'members',hint:'Two ways to take attendance: workers scan the QR code and check themselves in with their Worker ID, or search and tick them here.'},
    {k:'others',label:'Other attendees (one per line)',type:'textarea',rows:2},
    {k:'remarks',label:'Remarks / feedback from workers',type:'textarea',rows:2}],
   printExtra:function(t){
@@ -1649,7 +1742,8 @@ const MODULES={
      {k:'severity',label:'Severity',type:'select',opts:SEVHDB},
      {k:'by',label:'Action by'},
      {k:'due',label:'Due',type:'date'},
-     {k:'status',label:'Status',type:'select',opts:['Open','Rectified','Verified','Closed']}]},
+     {k:'status',label:'Status',type:'select',opts:['Open','Rectified','Verified','Closed']},
+     {k:'photos',label:'Photo evidence — tap the pencil on a photo to circle the problem',type:'photos',w:'full'}]},
    {k:'remarks',label:'General remarks',type:'textarea',rows:2}],
   line1:i=>fmtD(i.date)+' · '+esc(i.type||'Inspection'),
   line2:i=>esc([i.area,i.inspector].filter(Boolean).join(' · ')),
@@ -1733,7 +1827,8 @@ const MODULES={
     cols:[
      {k:'text',label:'Item',type:'textarea',w:'full'},
      {k:'result',label:'Result',type:'select',opts:['OK','NG','N/A']},
-     {k:'remarks',label:'Remarks'}]},
+     {k:'remarks',label:'Remarks'},
+     {k:'photos',label:'Photo (for anything not OK)',type:'photos',w:'full'}]},
    {k:'overall',label:'Overall result',type:'select',opts:['Satisfactory','Unsatisfactory — follow-up required']},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
   afterRender:function(item){
@@ -2064,7 +2159,7 @@ const MODULES={
     opts:['WSH Committee','Site Coordination','Contractor Coordination','Management Review','Incident Review','Others']},
    {k:'chairman',label:'Chaired by',half:1},
    {k:'venue',label:'Venue',half:1},
-   {k:'attendees',label:'Attendance (registered members)',type:'members'},
+   {k:'attendees',label:'Attendance',type:'members',hint:'Search by name or worker ID, then tick.'},
    {k:'others',label:'Other attendees (one per line)',type:'textarea',rows:2},
    {k:'agenda',label:'Minutes & actions',type:'rows',add:'Add item',
     cols:[
@@ -2087,7 +2182,7 @@ const MODULES={
    {k:'type',label:'Classification',type:'select',opts:INCTYPES,req:1},
    {k:'location',label:'Location'},
    {k:'waId',label:'Linked work activity',type:'select',opts:()=>db.workActivities.map(w=>[w.id,w.title]),half:1},
-   {k:'injuredIds',label:'Injured / involved workers (registered)',type:'members'},
+   {k:'injuredIds',label:'Injured / involved workers',type:'members',hint:'Search by name or worker ID, then tick. Their pass and trade are pulled into the MOM iReport sheet.'},
    {k:'description',label:'What happened',type:'textarea',req:1},
    {k:'persons',label:'Person(s) involved',half:1},
    {k:'injury',label:'Injury / damage details',half:1},
@@ -2096,13 +2191,15 @@ const MODULES={
     opts:['Not required','Required — pending','Submitted'],
     hint:'Report to MOM: any workplace death, injury with >3 days MC or any hospitalisation, and dangerous occurrences.'},
    {k:'status',label:'Status',type:'select',opts:['Open','Under investigation','Closed'],def:'Open',half:1},
+   {k:'photos',label:'Scene / injury / damage photos',type:'photos',hint:'Tap the pencil on a photo to circle what matters. Take them before the scene is cleared.'},
    {k:'rootCause',label:'Root cause / contributing factors',type:'textarea'},
    {k:'actions',label:'Corrective & preventive actions',type:'rows',add:'Add action',
     cols:[
      {k:'desc',label:'Action',type:'textarea',w:'full'},
      {k:'by',label:'Action by'},
      {k:'due',label:'Due',type:'date'},
-     {k:'status',label:'Status',type:'select',opts:OPENCLOSED}]},
+     {k:'status',label:'Status',type:'select',opts:OPENCLOSED},
+     {k:'photos',label:'Photo of the completed action',type:'photos',w:'full'}]},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
   beforeSave:function(obj){
     /* immutable context snapshot — captured once at creation, never rebuilt */
@@ -2339,8 +2436,14 @@ function renderRecordPrint(key, id){
       return names.length? names.join(', ') : '';
     }
     if(f.type==='rows'){
-      return '<table class="dtable" style="margin:4px 0"><tr>'+f.cols.map(c=>'<th style="text-align:left">'+esc(c.label)+'</th>').join('')+'</tr>'+
-        v.map(r=>'<tr>'+f.cols.map(c=>'<td style="text-align:left">'+esc(r[c.k]||'')+'</td>').join('')+'</tr>').join('')+'</table>';
+      const cols=f.cols.filter(c=>c.type!=='photos'), pcol=f.cols.find(c=>c.type==='photos');
+      return '<table class="dtable" style="margin:4px 0"><tr>'+cols.map(c=>'<th style="text-align:left">'+esc(c.label)+'</th>').join('')+'</tr>'+
+        v.map(r=>{
+          const imgs=pcol&&Array.isArray(r[pcol.k])?r[pcol.k]:[];
+          return '<tr>'+cols.map(c=>'<td style="text-align:left">'+esc(r[c.k]||'')+'</td>').join('')+'</tr>'+
+            (imgs.length?'<tr><td colspan="'+cols.length+'" style="text-align:left">'+
+              imgs.map(d=>'<img src="'+d+'" style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</td></tr>':'');
+        }).join('')+'</table>';
     }
     if(f.type==='textarea') return esc(v).replace(/\n/g,'<br>');
     if(f.type==='date') return fmtD(v);
@@ -4341,8 +4444,8 @@ function renderToolbox(){
    '<div class="card"><div class="tbx-step">1 · Today</div><div class="fgrid">'+
      '<div class="fld half"><label>Date</label><input id="tbxDate" type="date" value="'+esc(t.date)+'"></div>'+
      '<div class="fld half"><label>Time</label><input id="tbxTime" type="time" value="'+esc(t.time)+'"></div>'+
-     '<div class="fld half"><label>Conducted by *</label><input id="tbxCond" value="'+esc(t.conductor)+'" list="dl-tbxc"><datalist id="dl-tbxc">'+
-       db.members.map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist></div>'+
+     '<div class="fld half"><label>Conducted by *</label><input id="tbxCond" value="'+esc(t.conductor||myDisplayName())+'" list="dl-tbxc" placeholder="Name of the WSHO / WSHC / supervisor"><datalist id="dl-tbxc">'+
+       safetyPersonnelList().map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'+
      '<div class="fld half"><label>Linked ePTW permit no(s).</label><input id="tbxPtw" value="'+esc(t.ptw)+'" placeholder="e.g. PTW-0231, PTW-0232"></div>'+
      (db.workActivities.length?'<div class="fld"><label>Work activity being briefed</label><select id="tbxWa"><option value=""></option>'+
        db.workActivities.filter(w=>w.status!=='Completed').map(w=>'<option value="'+w.id+'"'+(t.waId===w.id?' selected':'')+'>'+esc(w.title)+
@@ -4859,12 +4962,32 @@ function renderSicReadiness(memberIds){
   };
   document.getElementById('sicPack').onclick=()=>sicPack(rows, prof);
 }
+/* the person holding the phone — used to prefill "conducted by" fields */
+function myDisplayName(){
+  const p=SB&&SB.profile; if(!p) return '';
+  return (p.display_name||'').trim() || (p.email||'').split('@')[0].replace(/[._-]+/g,' ').trim();
+}
+/* people who plausibly run a session: past conductors, safety contacts,
+   safety-trade members. Deduped, alphabetical. */
+function safetyPersonnelList(){
+  const set=new Set();
+  const add=v=>{ v=String(v||'').trim(); if(v) set.add(v); };
+  db.sicSessions.forEach(x=>add(x.conductor));
+  db.tbm.forEach(x=>add(x.conductor));
+  db.inspections.forEach(x=>add(x.inspector));
+  db.checklists.forEach(x=>add(x.inspector));
+  db.contacts.filter(c=>/wsh|safety|sho|wsho|wshc/i.test((c.role||'')+' '+(c.notes||''))).forEach(c=>add(c.name));
+  db.members.filter(m=>/wsh|safety/i.test(m.trade||'')).forEach(m=>add(m.name));
+  add(myDisplayName());
+  return [...set].sort((a,b)=>a.localeCompare(b));
+}
 function renderSicConduct(rows){
   app.innerHTML=header('Conduct SIC', true)+
     '<div class="card">'+
     '<div class="fld half"><label>Date</label><input type="date" id="scDate" value="'+today()+'"></div>'+
-    '<div class="fld half"><label>Conducted by (Safety Officer) *</label><input id="scBy" list="dl-scby">'+
-    '<datalist id="dl-scby">'+db.members.filter(m=>/wsh|safety/i.test(m.trade||'')).map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist></div>'+
+    '<div class="fld half"><label>Conducted by (safety personnel) *</label>'+
+    '<input id="scBy" list="dl-scby" placeholder="Name of the WSHO / WSHC conducting" value="'+esc(myDisplayName())+'">'+
+    '<datalist id="dl-scby">'+safetyPersonnelList().map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'+
     '<div class="fld"><label>Remarks</label><input id="scRem" placeholder="Venue, language, interpreter…"></div></div>'+
     '<h2 class="sect">Attendance & acknowledgement</h2>'+
     rows.map(r=>{ const ok=r.checks.every(c=>c.ok);
@@ -4874,7 +4997,7 @@ function renderSicConduct(rows){
     '<div class="btnrow" style="margin-top:12px"><button class="btn" id="scDone" style="flex:1">Complete SIC session</button></div>';
   document.getElementById('scDone').onclick=()=>{
     const by=document.getElementById('scBy').value.trim();
-    if(!by){ alert('Enter the conducting Safety Officer.'); return; }
+    if(!by){ alert('Enter the safety personnel conducting this induction.'); return; }
     const date=document.getElementById('scDate').value||today();
     const present=[...document.querySelectorAll('input[data-m]:checked')].map(cb=>cb.dataset.m);
     if(!present.length){ alert('No attendance ticked.'); return; }
@@ -5703,28 +5826,65 @@ function openMarkup(imgEl){
 
 /* ---- LMRA: last minute risk assessment at the workface ---- */
 const LMRA_QS=[
- 'I understand the task and have been briefed (toolbox / RA)',
- 'I am trained and competent for this task',
- 'Work area is safe — access, housekeeping, barricades in place',
- 'Tools, plant and equipment are correct and in good condition',
- 'Required PPE is available and worn',
- 'Energy sources / services are isolated where required',
- 'Weather and surroundings are acceptable for this task'
+ 'Everyone here understands the task and has been briefed (toolbox / RA / SWP)',
+ 'Everyone is trained, competent and certified for this task',
+ 'The approved RA / SWP for this activity is in force and its controls are in place',
+ 'Permit-to-work is approved and displayed where the work needs one',
+ 'Access, egress and housekeeping in the work area are safe',
+ 'Barricades, signage and exclusion zones are in place',
+ 'Tools, plant and equipment are correct, inspected and in good condition',
+ 'Lifting gear / scaffold / platform has a valid inspection tag where used',
+ 'Required PPE is available, correct and worn by everyone',
+ 'Energy sources and services are isolated, locked and tagged where required',
+ 'Work at height: anchorage, fall arrest and edge protection are ready',
+ 'Confined space / hot work: gas test, ventilation and fire watch are in place',
+ 'Weather, lighting and surrounding activities are acceptable',
+ 'Everyone knows the emergency arrangements and who to call'
 ];
+/* extra check lines drawn from this activity's own approved RA controls */
+function lmraRaChecks(waId){
+  const wa=db.workActivities.find(w=>w.id===waId); if(!wa) return [];
+  if(typeof waPinnedRaItems!=='function') return [];
+  const out=[];
+  waPinnedRaItems(wa).slice(0,6).forEach(x=>{
+    const ctl=[].concat(x.item.controls||[],x.item.addControls||[]).filter(Boolean);
+    if(ctl.length) out.push({hazard:x.item.hazard||'', text:ctl.slice(0,2).join('; ')});
+  });
+  return out;
+}
+function lmraAllQs(waId){
+  return LMRA_QS.concat(lmraRaChecks(waId).map(r=>'RA control \u2014 '+r.text+(r.hazard?' (for: '+r.hazard+')':'')));
+}
 let LMX=null;
 function renderLmraCheck(){
   geoCapture();
-  if(!LMX) LMX={waId:'', by:'', ans:{}, hazard:'', action:''};
+  if(!LMX) LMX={waId:'', by:'', ans:{}, hazard:'', action:'', crew:[], photos:[]};
+  /* the screen re-renders on every tap — hold what the user already entered */
+  const _grab=()=>{
+    const pg=app.querySelector('.pickgrid[data-f="lmCrew"]');
+    if(pg) LMX.crew=[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid);
+    const pw=app.querySelector('[data-photos="lmPhotos"]');
+    if(pw) LMX.photos=[...pw.querySelectorAll('img')].map(im=>im.src);
+    const h=app.querySelector('#lmHaz'), a=app.querySelector('#lmAct');
+    if(h) LMX.hazard=h.value; if(a) LMX.action=a.value;
+  };
+  if(app.querySelector('#lmBy')) _grab();
   const was=db.workActivities.filter(w=>w.status!=='Completed');
-  const allAnswered=LMRA_QS.every((q,i)=>LMX.ans[i]);
-  const anyNo=LMRA_QS.some((q,i)=>LMX.ans[i]==='NO');
+  const QS=lmraAllQs(LMX.waId);
+  const allAnswered=QS.every((q,i)=>LMX.ans[i]);
+  const anyNo=QS.some((q,i)=>LMX.ans[i]==='NO');
   app.innerHTML=header('LMRA — Last Minute Risk Assessment', true)+
     '<div class="card"><div class="fgrid">'+
     '<div class="fld half"><label>Work activity *</label><select id="lmWa">'+
       '<option value=""></option>'+was.map(w=>'<option value="'+w.id+'"'+(LMX.waId===w.id?' selected':'')+'>'+esc(w.title||w.type)+'</option>').join('')+'</select></div>'+
-    '<div class="fld half"><label>Carried out by *</label><input id="lmBy" value="'+esc(LMX.by)+'" list="dl-lmby">'+
-      '<datalist id="dl-lmby">'+db.members.map(m=>'<option value="'+esc(m.name)+'">').join('')+'</datalist></div>'+
-    '</div></div>'+
+    '<div class="fld half"><label>Led by *</label><input id="lmBy" value="'+esc(LMX.by)+'" list="dl-lmby" placeholder="Supervisor / foreman conducting">'+
+      '<datalist id="dl-lmby">'+safetyPersonnelList().map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'+
+    '</div>'+
+    membersHtml({k:'lmCrew',label:'Crew briefed at the workface',
+      hint:'Search by name or worker ID, then tick everyone standing in the briefing.'}, LMX.crew||[])+
+    photosHtml({k:'lmPhotos',label:'Briefing photo (evidence)',
+      hint:'A photo of the crew at the workface. Tap the pencil to mark up the hazard being pointed out.'}, LMX.photos||[])+
+    '</div>'+
     (function(){ /* replay what was briefed this morning for THIS activity */
       if(!LMX.waId) return '';
       const wa=db.workActivities.find(w=>w.id===LMX.waId);
@@ -5751,7 +5911,8 @@ function renderLmraCheck(){
       return h+'</div>';
     })()+
     '<h2 class="sect">Take 2 minutes — check before you start</h2>'+
-    LMRA_QS.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px">'+
+    QS.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px'+(i>=LMRA_QS.length?';border-left:3px solid var(--acc,#e11b12)':'')+'">'+
+      (i===LMRA_QS.length?'<div class="hint" style="margin:-4px 0 8px">From the approved RA for this activity</div>':'')+
       '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
       '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+(LMX.ans[i]===a?(a==='NO'?'danger':''):'ghost')+'" data-lm="'+i+'" data-a="'+a+'" style="flex:1;min-height:38px;padding:6px">'+a+'</button>').join('')+'</div></div>').join('')+
     (anyNo?'<div class="card" style="border-color:var(--bad-ink)">'+
@@ -5763,23 +5924,25 @@ function renderLmraCheck(){
       '<button class="btn" id="lmCtrl" style="flex:1">Controls in place — proceed</button></div></div>'
      :'<div class="btnrow"><button class="btn" id="lmGo" style="flex:1"'+(allAnswered?'':' disabled')+'>All clear — start work</button></div>');
   document.getElementById('lmWa').onchange=e=>{
+    _grab();
     LMX.waId=e.target.value;
-    const h=document.getElementById('lmHaz'), a=document.getElementById('lmAct');
-    if(h) LMX.hazard=h.value; if(a) LMX.action=a.value;
+    LMX.ans={};                   /* the RA check lines change with the activity */
     renderLmraCheck();            /* show this activity's briefing recap now */
   };
+  setTimeout(()=>{ try{ mpickInitAll(); }catch(err){} },0);
   document.getElementById('lmBy').oninput=e=>{ LMX.by=e.target.value; };
   app.querySelectorAll('[data-lm]').forEach(b=>b.onclick=()=>{
-    const h=document.getElementById('lmHaz'), a=document.getElementById('lmAct');
-    if(h) LMX.hazard=h.value; if(a) LMX.action=a.value;
+    _grab();
     LMX.ans[b.dataset.lm]=b.dataset.a; renderLmraCheck(); });
   const doSave=safe=>{
     if(!LMX.waId){ alert('Select the work activity.'); return; }
     if(!LMX.by.trim()){ alert('Enter who carried out this LMRA.'); return; }
     const h=document.getElementById('lmHaz'), a=document.getElementById('lmAct');
+    _grab();
     const rec={id:uid(), date:today(), time:new Date().toTimeString().slice(0,5),
       geo:geoStamp(), waId:LMX.waId, by:LMX.by.trim(),
-      answers:LMRA_QS.map((q,i)=>({q, a:LMX.ans[i]||''})),
+      crew:LMX.crew||[], crewCount:(LMX.crew||[]).length, photos:LMX.photos||[],
+      answers:lmraAllQs(LMX.waId).map((q,i)=>({q, a:LMX.ans[i]||''})),
       hazard:h?h.value.trim():'', action:a?a.value.trim():'',
       safe, resolved:safe!=='STOP'?'Resolved':'Open'};
     db.lmra.push(rec);
