@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-20-1800">
+<meta name="build" content="2026-08-20-1900">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1738,12 +1738,16 @@ const MODULES={
    {k:'rev',label:'Revision',half:1},
    {k:'date',label:'Issue date',type:'date',half:1},
    {k:'expiry',label:'Valid until (optional)',type:'date',half:1},
-   {k:'location',label:'Where it is kept',half:1,ph:'e.g. site office file 3 / shared drive'},
+   {k:'location',label:'Where the original is kept',half:1,ph:'e.g. site office file 3'},
+   {k:'link',label:'Link to the file (OneDrive / SharePoint)',ph:'Paste the share link — opens the real document',
+    hint:'This register records the document; the file itself stays in OneDrive. Paste its share link here so anyone can open it in one tap.'},
+   {k:'scan',label:'Scan / photo of the document',type:'photos',
+    hint:'For a certificate or a one-page permit. Long PDFs belong in OneDrive — use the link above.'},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
   line1:i=>esc(i.title),
   line2:i=>esc([i.category,i.ref,i.rev?('Rev '+i.rev):''].filter(Boolean).join(' · ')),
   meta:i=>i.expiry?expChip(i.expiry):(i.date?'<span class="chip n">'+fmtD(i.date)+'</span>':''),
-  empty:'Controlled document register — safety plan, permits, insurances, method statements, MOM correspondence.'},
+  empty:'Controlled document register — safety plan, permits, insurances, method statements, MOM correspondence. Records what exists, where the original is filed, and links to the file in OneDrive. (Risk assessments live in RA / SWP, not here.)'},
 
  tbm:{ title:'Toolbox Meeting', store:'tbm', newRoute:'#/toolbox',
   listHeader:items=>tbmDashboardHtml(items),
@@ -2108,15 +2112,32 @@ const MODULES={
   fields:[
    {k:'title',label:'Inspection',req:1,ph:'e.g. Weekly scaffold inspection'},
    {k:'freq',label:'Frequency',type:'select',req:1,half:1,opts:['Daily','Weekly','Fortnightly','Monthly','Quarterly','6-Monthly','Yearly']},
-   {k:'assignTo',label:'Assigned to',half:1,list:siteSupervisorList},
+   {k:'assignTo',label:'Assigned to (responsible for doing it)',half:1,list:siteSupervisorList},
    {k:'area',label:'Area / equipment',half:1},
-   {k:'lastDone',label:'Last done',type:'date',half:1},
+   {k:'lastDone',label:'Last done (set automatically from the log)',type:'date',half:1},
+   {k:'log',label:'Inspection log',type:'rows',add:'Add completed inspection',
+    hint:'Tap "Mark done today" above to start an entry, then attach the photo before saving.',
+    cols:[
+     {k:'date',label:'Date done',type:'date'},
+     {k:'by',label:'Inspected by',list:siteSupervisorList,ph:'Who actually did it'},
+     {k:'result',label:'Result',type:'select',opts:['Satisfactory','Issues found \u2014 action raised']},
+     {k:'remarks',label:'Findings / remarks',type:'textarea',w:'full'},
+     {k:'photos',label:'Photo evidence of this inspection',type:'photos',w:'full'}]},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
   afterRender:function(item){
     if(!item) return;
     const bar=document.querySelector('#app .btnrow');
     if(bar){ const b=document.createElement('button'); b.type='button'; b.className='btn ghost';
-      b.textContent='Mark done today'; b.onclick=()=>{ item.lastDone=today(); save(); toast('Logged \u2014 next due '+fmtD(recNextDue(item))); route(); };
+      b.textContent='Mark done today';
+      b.onclick=()=>{
+        const wrap=app.querySelector('[data-rows="log"]');
+        if(!wrap){ item.lastDone=today(); save(); route(); return; }
+        const fld=MODULES.recurringChecks.fields.find(f=>f.k==='log');
+        wrap.insertAdjacentHTML('afterbegin',
+          subRow(fld,{date:today(), by:myDisplayName(), result:'Satisfactory'}));
+        wrap.firstElementChild.scrollIntoView({behavior:'smooth',block:'center'});
+        toast('Entry started — add the photo and remarks, then Save.');
+      };
       bar.appendChild(b); }
   },
   sort:(a,b)=>(recNextDue(a)||'').localeCompare(recNextDue(b)||''),
@@ -2124,6 +2145,12 @@ const MODULES={
   line2:i=>esc([i.freq,i.area,i.assignTo].filter(Boolean).join(' \u00b7 ')),
   meta:i=>{ const d=daysTo(recNextDue(i));
     return d<0?'<span class="chip b">overdue '+(-d)+'d</span>':d<=7?'<span class="chip w">due '+fmtD(recNextDue(i))+'</span>':'<span class="chip g">next '+fmtD(recNextDue(i))+'</span>'; },
+  beforeSave:function(obj){
+    /* last done follows the log, so the due date can never drift from evidence */
+    const ds=(obj.log||[]).map(r=>r.date).filter(Boolean).sort();
+    if(ds.length) obj.lastDone=ds[ds.length-1];
+    return obj;
+  },
   empty:'Statutory / scheduled inspections \u2014 weekly scaffold, monthly LEW, AE cycles. Overdue items raise corrective actions automatically.'},
 
  visitors:{ title:'Visitor', store:'visitors',
