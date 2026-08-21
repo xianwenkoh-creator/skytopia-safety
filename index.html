@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-21-1000">
+<meta name="build" content="2026-08-21-1400">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -614,19 +614,25 @@ function downloadBlob(name, blob){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),5000);
 }
-/* html2pdf.js (jsPDF + html2canvas) loaded on demand, once */
+/* html2canvas + jsPDF loaded on demand, once */
 let H2P=null;
-function loadH2P(){
-  if(window.html2pdf) return Promise.resolve(true);
-  if(H2P) return H2P;
-  H2P=new Promise(res=>{
+function loadOne(src, test){
+  return new Promise(res=>{
+    if(test()) return res(true);
     const t=setTimeout(()=>res(false),15000);
     const sc=document.createElement('script');
-    sc.src='https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js';
-    sc.onload=()=>{ clearTimeout(t); res(true); };
-    sc.onerror=()=>{ clearTimeout(t); H2P=null; res(false); };
+    sc.src=src;
+    sc.onload=()=>{ clearTimeout(t); res(!!test()); };
+    sc.onerror=()=>{ clearTimeout(t); res(false); };
     document.head.appendChild(sc);
   });
+}
+function loadH2P(){
+  if(H2P) return H2P;
+  H2P=Promise.all([
+    loadOne('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',()=>window.html2canvas),
+    loadOne('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js',()=>window.jspdf&&window.jspdf.jsPDF)
+  ]).then(r=>{ if(!(r[0]&&r[1])) H2P=null; return r[0]&&r[1]; });
   return H2P;
 }
 /* render a self-contained report HTML offscreen and convert to a PDF blob */
@@ -644,14 +650,35 @@ async function htmlToPdfBlob(docHtml){
     await new Promise(r=>setTimeout(r,250)); /* let images decode */
     const el=fr.contentDocument.body;
     el.style.margin='0'; el.style.padding='0'; el.style.maxWidth=W+'px'; el.style.width=W+'px';
-    const blob=await window.html2pdf().set({
-      margin:[10,9,12,9],
-      image:{type:'jpeg',quality:0.92},
-      html2canvas:{scale:2,useCORS:false,logging:false,windowWidth:W,width:W},
-      jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
-      pagebreak:{mode:['css','legacy']}
-    }).from(el).outputPdf('blob');
-    return blob;
+    const canvas=await window.html2canvas(el,{scale:2,useCORS:false,logging:false,windowWidth:W,width:W,backgroundColor:'#ffffff'});
+    /* place the canvas onto A4 pages ourselves — 192mm printable width */
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF({unit:'mm',format:'a4',orientation:'portrait'});
+    const mL=9, mT=10, mB=12, imgWmm=210-mL*2, innerHmm=297-mT-mB;
+    const pxPerMm=canvas.width/imgWmm;
+    const pageHpx=Math.floor(innerHmm*pxPerMm);
+    let y=0, first=true;
+    while(y<canvas.height){
+      const sliceH=Math.min(pageHpx, canvas.height-y);
+      const pc=document.createElement('canvas');
+      pc.width=canvas.width; pc.height=sliceH;
+      const ctx=pc.getContext('2d');
+      ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,pc.width,pc.height);
+      ctx.drawImage(canvas,0,y,canvas.width,sliceH,0,0,canvas.width,sliceH);
+      /* skip effectively-blank slices (trailing padding produced empty pages) */
+      const probe=document.createElement('canvas'); probe.width=40; probe.height=40;
+      const pctx=probe.getContext('2d'); pctx.fillStyle='#fff'; pctx.fillRect(0,0,40,40);
+      pctx.drawImage(pc,0,0,pc.width,pc.height,0,0,40,40);
+      const px=pctx.getImageData(0,0,40,40).data;
+      let ink=0; for(let i=0;i<px.length;i+=4){ if(px[i]<245||px[i+1]<245||px[i+2]<245) ink++; }
+      if(ink>3){
+        if(!first) pdf.addPage();
+        pdf.addImage(pc.toDataURL('image/jpeg',0.92),'JPEG',mL,mT,imgWmm,sliceH/pxPerMm);
+        first=false;
+      }
+      y+=sliceH;
+    }
+    return pdf.output('blob');
   }catch(e){ console.warn('pdf conversion failed',e); return null;
   }finally{ fr.remove(); }
 }
@@ -661,7 +688,9 @@ function repoKeySafe(x){ return String(x||'').normalize('NFKD').replace(/[—–
 /* upload one generated report into the cloud repository (best effort) */
 async function repoUpload(cat, name, payload, mime){
   try{
-    if(!SB.client || !SB.session) return false;         /* offline / local mode */
+    if(!SB.client) return false;                        /* local-only device */
+    const {data:{session}}=await SB.client.auth.getSession();
+    if(!session) return false;                          /* signed out */
     const key=(root.cur||'p')+'/'+repoKeySafe(cat)+'/'+repoKeySafe(name);
     const body=(payload instanceof Blob)?payload:new Blob([payload],{type:mime||'text/plain'});
     const {error}=await SB.client.storage.from('reports').upload(key, body,
@@ -706,6 +735,17 @@ function reportDocHtml(title, bodyHtml){
     '.hfill{height:100%;background:#e11b12;min-width:2px}'+
     '.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:3px;background:#f0f6fe;color:#006ddf;margin-left:3px}'+
     '.hint{font-size:12px;color:#68757d}.noprint{display:none}label{display:none}input,select{display:none}'+
+    '.ftable{width:100%;border-collapse:collapse;font-size:13.5px;margin:0 0 14px}'+
+    '.ftable th{background:#f1f3f4;border:1px solid #9aa0a6;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:#3c4043;text-align:left;padding:5px 8px;width:17%;vertical-align:top}'+
+    '.ftable td{border:1px solid #9aa0a6;padding:6px 8px;vertical-align:top;width:33%}'+
+    '.ftable td.wide{width:83%}'+
+    '.ftable .dtable{margin:0}'+
+    '.dtable th,.dtable td{border:1px solid #9aa0a6 !important;padding:5px 7px}'+
+    '.dtable th{background:#f1f3f4;color:#3c4043}'+
+    '.sigtable{width:100%;border-collapse:collapse;margin-top:22px;font-size:12.5px}'+
+    '.sigtable td{border:1px solid #9aa0a6;padding:8px;width:50%;height:74px;vertical-align:top;color:#5f6368}'+
+    '.doctitle{border:1px solid #9aa0a6;border-bottom:0;background:#f1f3f4;padding:8px 10px;font-weight:750;font-size:15px}'+
+    '.docmeta{border:1px solid #9aa0a6;border-top:0;padding:6px 10px;font-size:12px;color:#5f6368;margin-bottom:14px}'+
     '.rephead{width:100%;border-collapse:collapse;border-bottom:3px solid #e11b12;margin-bottom:16px}'+
     '.rephead td{padding:0 0 10px;vertical-align:middle;border:0}'+
     '.rtitle{font-size:17px;font-weight:750;letter-spacing:.02em;display:inline-block;vertical-align:middle;margin-left:10px}'+
@@ -1788,10 +1828,11 @@ const MODULES={
     const cks=t.checkins||[]; if(!cks.length) return '';
     const hh=at=>{ try{ return new Date(at).toTimeString().slice(0,5); }catch(e){ return ''; } };
     return '<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Worker check-ins ('+cks.length+' &middot; ID-validated)</div>'+
-      '<table class="dtable" style="margin:4px 0"><tr><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th><th style="text-align:left">Company</th><th>Time</th><th>Check question</th></tr>'+
-      cks.map(c=>'<tr><td style="text-align:left">'+esc(c.wid||'')+'</td><td style="text-align:left">'+esc(c.name||'')+'</td>'+
+      '<table class="dtable" style="margin:4px 0"><tr><th style="width:34px">S/N</th><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th><th style="text-align:left">Company</th><th>Time in</th><th>Check question</th><th style="width:90px">Signature</th></tr>'+
+      cks.map((c,i)=>'<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(c.wid||'')+'</td><td style="text-align:left">'+esc(c.name||'')+'</td>'+
         '<td style="text-align:left">'+esc(c.company||'')+'</td><td>'+esc(hh(c.at))+'</td>'+
-        '<td>'+(c.answer===undefined||c.answer===null?'&mdash;':(c.correct?'&#10003; correct':'&#10007; wrong'))+'</td></tr>').join('')+'</table>'+
+        '<td>'+(c.answer===undefined||c.answer===null?'&mdash;':(c.correct?'&#10003; correct':'&#10007; wrong'))+'</td>'+
+        '<td class="hint" style="font-size:10px">e-checked-in</td></tr>').join('')+'</table>'+
       (t.briefing?'<div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-top:8px">Briefing delivered</div><div style="font-size:14.5px;white-space:pre-line">'+esc(t.briefing)+'</div>':'')+
       '</div>';
   },
@@ -2569,22 +2610,33 @@ function recordPrintCard(key, id){
       const hit=(f.opts()||[]).find(o=>Array.isArray(o)&&o[0]===v); if(hit) return esc(hit[1]); }
     return esc(v);
   };
-  const rows=mod.fields.map(f=>{ const v=val(f); if(!v) return '';
-    return '<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">'+esc(f.label)+'</div>'+
-      '<div style="font-size:14.5px">'+v+'</div></div>'; }).join('');
-  const proj=[['Project',s.project],['Contractor',s.company],['Contract no.',s.hdbContract],['Site ref',s.siteRef]]
-    .filter(x=>x[1]).map(x=>x[0]+': <b>'+esc(x[1])+'</b>').join(' &nbsp;·&nbsp; ');
-  return '<div class="card">'+
-      '<div class="charthead">'+esc(mod.title)+' Report</div>'+
-      (proj?'<div class="repmeta" style="margin-bottom:10px">'+proj+'</div>':'')+
-      '<div class="repmeta" style="margin-bottom:12px">Record ID: <b>'+esc(item.id)+'</b> &nbsp;·&nbsp; Generated: <b>'+fmtD(today())+'</b></div>'+
-      rows+
-      (mod.printExtra?mod.printExtra(item):'')+
-      '<div style="display:flex;gap:24px;margin-top:26px">'+
-        '<div style="flex:1;border-top:1px solid var(--line2);padding-top:5px;font-size:12px;color:var(--sub)">Prepared by / date</div>'+
-        '<div style="flex:1;border-top:1px solid var(--line2);padding-top:5px;font-size:12px;color:var(--sub)">Verified by / date</div>'+
-      '</div>'+
-    '</div>';
+  /* short fields pair up two per row; long content gets a full-width row */
+  const cells=[]; let pair=null;
+  mod.fields.forEach(f=>{
+    const v=val(f); if(!v) return;
+    const long = f.type==='rows'||f.type==='photos'||f.type==='textarea'||f.type==='members'||v.length>90||v.includes('<');
+    if(long){
+      if(pair){ cells.push('<tr>'+pair+'<th></th><td></td></tr>'); pair=null; }
+      cells.push('<tr><th>'+esc(f.label)+'</th><td class="wide" colspan="3">'+v+'</td></tr>');
+    }else if(pair){ cells.push('<tr>'+pair+'<th>'+esc(f.label)+'</th><td>'+v+'</td></tr>'); pair=null; }
+    else pair='<th>'+esc(f.label)+'</th><td>'+v+'</td>';
+  });
+  if(pair) cells.push('<tr>'+pair+'<th></th><td></td></tr>');
+  const proj=[['Project',s.project],['Contractor',s.company||'Koh Kock Leong Enterprise Pte Ltd'],
+    ['Contract no.',s.hdbContract],['Site ref',s.siteRef]].filter(x=>x[1]);
+  return '<div class="doctitle">'+esc(mod.title.toUpperCase())+' REPORT</div>'+
+    '<div class="docmeta">Record ID: <b>'+esc(item.id)+'</b> &nbsp;·&nbsp; Generated: <b>'+fmtD(today())+'</b> &nbsp;·&nbsp; KKL CMS</div>'+
+    '<table class="ftable">'+
+      (proj.length?'<tr>'+proj.slice(0,2).map(x=>'<th>'+esc(x[0])+'</th><td>'+esc(x[1])+'</td>').join('')+'</tr>':'')+
+      (proj.length>2?'<tr>'+proj.slice(2,4).map(x=>'<th>'+esc(x[0])+'</th><td>'+esc(x[1])+'</td>').join('')+
+        (proj.length===3?'<th></th><td></td>':'')+'</tr>':'')+
+    '</table>'+
+    '<table class="ftable">'+cells.join('')+'</table>'+
+    (mod.printExtra?mod.printExtra(item):'')+
+    '<table class="sigtable"><tr>'+
+      '<td>Prepared by (name / designation / signature / date)</td>'+
+      '<td>Reviewed by (name / designation / signature / date)</td>'+
+    '</tr></table>';
 }
 function renderRecordPrint(key, id){
   const card=recordPrintCard(key, id);
@@ -2612,10 +2664,9 @@ async function autoFileRecord(key, id){
 function saveRecordHtml(key, id){
   const mod=MODULES[key];
   const item=db[mod.store].find(x=>x.id===id); if(!item) return;
-  const card=app.querySelector('.card'); if(!card) return;
-  const cl=card.cloneNode(true); cl.querySelectorAll('.noprint').forEach(e=>e.remove());
+  const card=recordPrintCard(key, id); if(!card) return;   /* build from data, not the DOM */
   const name=mod.store+'-'+(item.date||today())+'-'+fileStamp(item.id)+'.html';
-  saveOrDownload(DIRMAP[key]||'Registers', name, reportDocHtml(mod.title+' Report', cl.outerHTML), 'text/html');
+  saveOrDownload(DIRMAP[key]||'Registers', name, reportDocHtml(mod.title+' Report', card), 'text/html');
 }
 
 /* ============ cert expiry dashboard ============ */
@@ -6122,7 +6173,8 @@ async function renderReports(){
     '<p class="hint" style="margin:0 16px 10px">Every report generated on any device files here automatically — one repository for the whole project. Tap a report to download it.</p>'+
     '<div id="repoList"><div class="empty">Loading…</div></div>';
   const box=document.getElementById('repoList');
-  if(!SB.client || !SB.session){
+  const _sess=SB.client?(await SB.client.auth.getSession()).data.session:null;
+  if(!SB.client || !_sess){
     box.innerHTML='<div class="empty">Sign in to browse the Report Library. Reports generated while signed out download to this device only.</div>';
     return;
   }
