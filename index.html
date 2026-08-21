@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-21-1400">
+<meta name="build" content="2026-08-21-1600">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -691,7 +691,7 @@ async function repoUpload(cat, name, payload, mime){
     if(!SB.client) return false;                        /* local-only device */
     const {data:{session}}=await SB.client.auth.getSession();
     if(!session) return false;                          /* signed out */
-    const key=(root.cur||'p')+'/'+repoKeySafe(cat)+'/'+repoKeySafe(name);
+    const key=repoKeySafe(db.settings.project||root.cur||'Project')+'/'+repoKeySafe(cat)+'/'+repoKeySafe(name);
     const body=(payload instanceof Blob)?payload:new Blob([payload],{type:mime||'text/plain'});
     const {error}=await SB.client.storage.from('reports').upload(key, body,
       {contentType:(payload instanceof Blob)?(payload.type||mime):mime, upsert:true});
@@ -6169,9 +6169,23 @@ function renderLmraCheck(){
 /* ---- Report Library: browse and download everything ever generated ---- */
 const REPORT_CATS=['Monthly Reports','Site Diary','Toolbox Meetings','LMRA','Incidents','Inspections','Near Miss Reports','SIC Packs','Checklists','Registers','Expiry Alerts','Quality Defects','Meetings','RA-SWP','Training'];
 async function renderReports(){
+  const folderUrl=(db.settings.reportFolderUrl||'').trim();
   app.innerHTML=header('Report Library', true)+
-    '<p class="hint" style="margin:0 16px 10px">Every report generated on any device files here automatically — one repository for the whole project. Tap a report to download it.</p>'+
+    '<div class="card"><label style="margin-top:0">Where reports live</label>'+
+    '<p class="hint" style="margin:4px 0 10px">Every report generated on any device is carried into the company OneDrive '+
+    '(<b>Skytopia \\ Safety \\ Report Library</b>) within about 5 minutes, filed by project and type. '+
+    'View and share them there — OneDrive access rights decide who sees what.</p>'+
+    (folderUrl?'<a class="btn" style="display:block;text-align:center" href="'+esc(folderUrl)+'" target="_blank" rel="noopener">Open the OneDrive report folder</a>'
+      :'<p class="hint">Ask the admin to paste the OneDrive share link below to enable one-tap access.</p>')+
+    ((!SB.profile||SB.profile.role==='admin')?'<div class="fld" style="margin-top:8px"><label>OneDrive share link (admin)</label>'+
+      '<input id="repoUrl" value="'+esc(folderUrl)+'" placeholder="Paste the folder\u2019s share link from OneDrive">'+
+      '<button class="btn ghost" id="repoUrlSave" style="margin-top:6px">Save link</button></div>':'')+
+    '</div>'+
+    '<h2 class="sect">Waiting to transfer</h2>'+
+    '<p class="hint" style="margin:0 16px 8px">Reports appear here for a few minutes after generation, then move to OneDrive.</p>'+
     '<div id="repoList"><div class="empty">Loading…</div></div>';
+  const us=document.getElementById('repoUrlSave');
+  if(us) us.onclick=()=>{ db.settings.reportFolderUrl=document.getElementById('repoUrl').value.trim(); save(); toast('Link saved'); renderReports(); };
   const box=document.getElementById('repoList');
   const _sess=SB.client?(await SB.client.auth.getSession()).data.session:null;
   if(!SB.client || !_sess){
@@ -6182,7 +6196,7 @@ async function renderReports(){
     box.innerHTML='<div class="empty">The Report Library is available to the main contractor’s team.</div>';
     return;
   }
-  const pid=root.cur;
+  const pid=repoKeySafe(db.settings.project||root.cur||'Project');
   let html='';
   for(const cat of REPORT_CATS){
     try{
@@ -6200,7 +6214,7 @@ async function renderReports(){
       }).join('');
     }catch(e){ /* category folder may not exist yet */ }
   }
-  box.innerHTML=html||'<div class="empty">No reports filed yet — generate any report (monthly report, site diary export, SIC pack, record print) and it appears here for everyone.</div>';
+  box.innerHTML=html||'<div class="empty">Nothing in transit — everything has been carried into OneDrive.</div>';
   box.querySelectorAll('.repo-item').forEach(b=>b.onclick=async()=>{
     b.disabled=true;
     try{
