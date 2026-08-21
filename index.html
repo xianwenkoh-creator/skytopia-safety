@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-21-0900">
+<meta name="build" content="2026-08-21-1000">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -563,7 +563,7 @@ function downloadRaw(name, text, mime){
    Reports & exports save straight into the connected Safety folder
    (OneDrive\Skytopia\Safety), each type into its own subfolder.        */
 const DIRMAP={contacts:'Registers',members:'Registers',equipment:'Registers',documents:'Registers',certexp:'Registers',
-  tbm:'Toolbox Meetings',inspections:'Inspections',observations:'Near Miss Reports',checklists:'Checklists',ra:'RA-SWP',training:'Training',
+  tbm:'Toolbox Meetings',lmra:'LMRA',inspections:'Inspections',observations:'Near Miss Reports',checklists:'Checklists',ra:'RA-SWP',training:'Training',
   meetings:'Meetings',incidents:'Incidents',defects:'Quality Defects',report:'Monthly Reports',backup:'Backups',work:'Registers'};
 function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open('kkl-cms-fs',1);
   r.onupgradeneeded=()=>r.result.createObjectStore('kv');
@@ -2122,6 +2122,22 @@ const MODULES={
    {k:'resolved',label:'Stop-work status',type:'select',half:1,opts:['Resolved','Open']},
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
   beforeSave:function(obj){ if(obj.safe!=='STOP'&&!obj.resolved) obj.resolved='Resolved'; },
+  printExtra:function(r){
+    let h='';
+    const crew=(r.crew||[]).map(id=>{ const m=db.members.find(x=>x.id===id); return m?memberLabel(m):id; });
+    if(crew.length)
+      h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Crew briefed at the workface ('+crew.length+')</div>'+
+         '<div style="font-size:14.5px">'+crew.map(esc).join(', ')+'</div></div>';
+    const ans=(r.answers||[]).filter(a=>a.q);
+    if(ans.length)
+      h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Checks ('+ans.length+')</div>'+
+         '<table class="dtable" style="margin:4px 0">'+ans.map(a=>'<tr><td style="text-align:left">'+esc(a.q)+'</td>'+
+           '<td style="width:60px">'+(a.a==='NO'?'<b style="color:#c5221f">NO</b>':esc(a.a||'\u2014'))+'</td></tr>').join('')+'</table></div>';
+    if((r.photos||[]).length)
+      h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Briefing photos</div>'+
+         r.photos.map(d=>'<img src="'+d+'" style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</div>';
+    return h;
+  },
   sort:(a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||'')),
   line1:i=>{ const w=db.workActivities.find(x=>x.id===i.waId); return esc((w?(w.title||w.type):'(activity)')); },
   line2:i=>esc([fmtD(i.date),i.time,i.by].filter(Boolean).join(' \u00b7 ')),
@@ -2524,10 +2540,10 @@ function renderActions(){
 }
 
 /* ============ per-record report (print / PDF) ============ */
-function renderRecordPrint(key, id){
+function recordPrintCard(key, id){
   const mod=MODULES[key];
   const item=db[mod.store].find(x=>x.id===id);
-  if(!item){ location.hash='#/'+key; return; }
+  if(!item) return null;
   const s=db.settings;
   const val=f=>{
     const v=item[f.k];
@@ -2558,8 +2574,7 @@ function renderRecordPrint(key, id){
       '<div style="font-size:14.5px">'+v+'</div></div>'; }).join('');
   const proj=[['Project',s.project],['Contractor',s.company],['Contract no.',s.hdbContract],['Site ref',s.siteRef]]
     .filter(x=>x[1]).map(x=>x[0]+': <b>'+esc(x[1])+'</b>').join(' &nbsp;·&nbsp; ');
-  app.innerHTML = header(mod.title+' Report', true)+
-    '<div class="card">'+
+  return '<div class="card">'+
       '<div class="charthead">'+esc(mod.title)+' Report</div>'+
       (proj?'<div class="repmeta" style="margin-bottom:10px">'+proj+'</div>':'')+
       '<div class="repmeta" style="margin-bottom:12px">Record ID: <b>'+esc(item.id)+'</b> &nbsp;·&nbsp; Generated: <b>'+fmtD(today())+'</b></div>'+
@@ -2569,9 +2584,30 @@ function renderRecordPrint(key, id){
         '<div style="flex:1;border-top:1px solid var(--line2);padding-top:5px;font-size:12px;color:var(--sub)">Prepared by / date</div>'+
         '<div style="flex:1;border-top:1px solid var(--line2);padding-top:5px;font-size:12px;color:var(--sub)">Verified by / date</div>'+
       '</div>'+
-    '</div>'+
+    '</div>';
+}
+function renderRecordPrint(key, id){
+  const card=recordPrintCard(key, id);
+  if(card===null){ location.hash='#/'+key; return; }
+  app.innerHTML = header(MODULES[key].title+' Report', true)+ card +
     '<div class="btnrow noprint"><button class="btn" onclick="window.print()">Print / save as PDF</button>'+
     '<button class="btn ghost" onclick="saveRecordHtml(\''+key+'\',\''+id+'\')">Save to Safety folder</button></div>';
+}
+/* auto-file a completed record's report: cloud library + OneDrive mirror,
+   never a forced download. Fire-and-forget. */
+async function autoFileRecord(key, id){
+  try{
+    const mod=MODULES[key];
+    const item=db[mod.store].find(x=>x.id===id); if(!item) return;
+    const card=recordPrintCard(key, id); if(!card) return;
+    const doc=reportDocHtml(mod.title+' Report', card);
+    const pdf=await htmlToPdfBlob(doc); if(!pdf) return;
+    const name=mod.store+'-'+(item.date||today())+'-'+fileStamp(item.id)+'.pdf';
+    const cat=DIRMAP[key]||'Registers';
+    const up=await repoUpload(cat, name, pdf, 'application/pdf');
+    await saveToSafety(cat, name, pdf, 'application/pdf').catch(()=>{});
+    if(up) toast(mod.title+' report filed to the Report Library');
+  }catch(e){ console.warn('auto-file failed', e); }
 }
 function saveRecordHtml(key, id){
   const mod=MODULES[key];
@@ -4713,7 +4749,10 @@ function tbxPersist(final){
   const i=db.tbm.findIndex(x=>x.id===t.id);
   if(i>=0) db.tbm[i]=rec; else db.tbm.push(rec);
   save();
-  if(final) EV.emit('record:changed',{store:'tbm', id:rec.id});
+  if(final){
+    EV.emit('record:changed',{store:'tbm', id:rec.id});
+    setTimeout(()=>autoFileRecord('tbm', rec.id), 400);   /* file the eTBM report */
+  }
 }
 /* public worker check-in page (opened from the QR code; no login) */
 async function renderCheckin(projId, tbmId, token){
@@ -6067,6 +6106,7 @@ function renderLmraCheck(){
     db.lmra.push(rec);
     audit('lmra','workActivity',LMX.waId,null,{safe, by:rec.by});
     save(); EV.emit('record:changed',{store:'lmra', id:rec.id});
+    setTimeout(()=>autoFileRecord('lmra', rec.id), 400);
     toast(safe==='STOP'?'STOP WORK recorded — activity is now blocked':'LMRA recorded — safe to start');
     LMX=null; location.hash='#/lmra';
   };
@@ -6076,7 +6116,7 @@ function renderLmraCheck(){
 }
 
 /* ---- Report Library: browse and download everything ever generated ---- */
-const REPORT_CATS=['Monthly Reports','Site Diary','Toolbox Meetings','Incidents','Inspections','Near Miss Reports','SIC Packs','Checklists','Registers','Expiry Alerts','Quality Defects','Meetings','RA-SWP','Training'];
+const REPORT_CATS=['Monthly Reports','Site Diary','Toolbox Meetings','LMRA','Incidents','Inspections','Near Miss Reports','SIC Packs','Checklists','Registers','Expiry Alerts','Quality Defects','Meetings','RA-SWP','Training'];
 async function renderReports(){
   app.innerHTML=header('Report Library', true)+
     '<p class="hint" style="margin:0 16px 10px">Every report generated on any device files here automatically — one repository for the whole project. Tap a report to download it.</p>'+
