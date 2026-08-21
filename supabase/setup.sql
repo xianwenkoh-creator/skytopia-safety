@@ -343,3 +343,9 @@ create policy rec_subcon_update on public.records
               and lower(coalesce(data->>'company','')) = lower(coalesce(public.my_subcon(),''))
               and coalesce(data->>'sicStatus','') = 'SUBMITTED') )
   );
+
+-- ============ REPORT REPOSITORY (21 Aug 2026) ============
+-- Private bucket 'reports' (10MB cap; pdf/csv/html). Path: <project_id>/<category>/<file>
+-- read: staff (admin/wsho/hr/viewer), project-pinned unless HQ; write: admin/wsho/hr; delete: admin.
+-- Policies "reports read staff" / "reports write staff" / "reports update staff" /
+-- "reports delete admin" on storage.objects — applied live 21 Aug 2026.

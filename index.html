@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-20-1900">
+<meta name="build" content="2026-08-21-0900">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -655,17 +655,36 @@ async function htmlToPdfBlob(docHtml){
   }catch(e){ console.warn('pdf conversion failed',e); return null;
   }finally{ fr.remove(); }
 }
+/* storage keys must be plain ASCII */
+function repoKeySafe(x){ return String(x||'').normalize('NFKD').replace(/[—–]/g,'-')
+  .replace(/[^\x20-\x7E]/g,'').replace(/[\\/:*?"<>|#%&{}]+/g,'-').replace(/\s+/g,' ').trim(); }
+/* upload one generated report into the cloud repository (best effort) */
+async function repoUpload(cat, name, payload, mime){
+  try{
+    if(!SB.client || !SB.session) return false;         /* offline / local mode */
+    const key=(root.cur||'p')+'/'+repoKeySafe(cat)+'/'+repoKeySafe(name);
+    const body=(payload instanceof Blob)?payload:new Blob([payload],{type:mime||'text/plain'});
+    const {error}=await SB.client.storage.from('reports').upload(key, body,
+      {contentType:(payload instanceof Blob)?(payload.type||mime):mime, upsert:true});
+    if(error){ console.warn('repo upload failed', error); return false; }
+    return true;
+  }catch(e){ console.warn('repo upload failed', e); return false; }
+}
 async function saveOrDownload(cat, name, text, mime){
   if((mime||'').includes('html')){
     toast('Generating PDF…');
     const pdf=await htmlToPdfBlob(text);
     if(pdf){
       const pname=name.replace(/\.html?$/i,'')+'.pdf';
+      const up=await repoUpload(cat,pname,pdf,'application/pdf');
+      if(up) toast('Filed to the Report Library');
       if(await saveToSafety(cat,pname,pdf,'application/pdf')) return;
-      downloadBlob(pname,pdf); return;
+      downloadBlob(pname,pdf); /* no folder on this device — keep a local copy too */
+      return;
     }
     toast('PDF engine unavailable — saving HTML instead', true);
   }
+  await repoUpload(cat,name,text,mime);
   if(await saveToSafety(cat,name,text,mime)) return;
   if((mime||'').includes('csv')) downloadText(name,text,mime); else downloadRaw(name,text,mime);
 }
@@ -1120,7 +1139,7 @@ const NAV=[
                           ['checklists','Checklists','check'],['rasys','RA / SWP','ra'],
                           ['meetings','Meetings','meet'],['incidents','Incidents','incid']]},
  {group:'Quality', items:[['defects','Defects','defect']]},
- {group:'Reports', items:[['stats','Statistics','stats'],['report','Monthly Report','print']]},
+ {group:'Reports', items:[['reports','Report Library','folder'],['stats','Statistics','stats'],['report','Monthly Report','print']]},
  {group:'Company (HQ)', items:[['companyhome','Company Home','home'],['ramasters','Master RA Library','ra'],
                           ['companyDocs','Company Documents','doc'],['organisations','Organisations','contact'],
                           ['sicProfiles','SIC Profiles','sic'],['audit','Audit Log','doc']]}
@@ -1293,6 +1312,7 @@ function renderHome(){
       tile('incidents','Incidents','incid')+
     '</div>'+
     '<h2 class="sect">Quality &amp; reports</h2>'+
+    '<div class="grid" style="margin-bottom:10px">'+tile('reports','Report Library','folder')+'</div>'+
     '<div class="grid">'+
       tile('defects','Defects','defect')+
       tile('stats','Statistics','stats')+
@@ -1489,6 +1509,7 @@ function route(){
   if(key==='passport'&&sub) return renderPassport(sub);
   if(key==='sic')      return sub?renderSicSession(sub):renderSic();
   if(key==='sicready') return renderSicReadiness(null);
+  if(key==='reports') return renderReports();
   if(key==='memberPrivate'&&!canHR()){ app.innerHTML=header('Private (HR)', true)+'<div class="empty">HR-restricted records.</div>'; return; }
   if(key==='memberPrivate'&&sub&&SB.profile){
     window.PVSEEN=window.PVSEEN||new Set();
@@ -6052,6 +6073,50 @@ function renderLmraCheck(){
   const g=document.getElementById('lmGo'); if(g) g.onclick=()=>doSave('YES');
   const st=document.getElementById('lmStop'); if(st) st.onclick=()=>doSave('STOP');
   const ct=document.getElementById('lmCtrl'); if(ct) ct.onclick=()=>doSave('CONTROLS');
+}
+
+/* ---- Report Library: browse and download everything ever generated ---- */
+const REPORT_CATS=['Monthly Reports','Site Diary','Toolbox Meetings','Incidents','Inspections','Near Miss Reports','SIC Packs','Checklists','Registers','Expiry Alerts','Quality Defects','Meetings','RA-SWP','Training'];
+async function renderReports(){
+  app.innerHTML=header('Report Library', true)+
+    '<p class="hint" style="margin:0 16px 10px">Every report generated on any device files here automatically — one repository for the whole project. Tap a report to download it.</p>'+
+    '<div id="repoList"><div class="empty">Loading…</div></div>';
+  const box=document.getElementById('repoList');
+  if(!SB.client || !SB.session){
+    box.innerHTML='<div class="empty">Sign in to browse the Report Library. Reports generated while signed out download to this device only.</div>';
+    return;
+  }
+  if(SB.profile && SB.profile.role==='subcon'){
+    box.innerHTML='<div class="empty">The Report Library is available to the main contractor’s team.</div>';
+    return;
+  }
+  const pid=root.cur;
+  let html='';
+  for(const cat of REPORT_CATS){
+    try{
+      const {data,error}=await SB.client.storage.from('reports')
+        .list(pid+'/'+repoKeySafe(cat), {limit:200, sortBy:{column:'name', order:'desc'}});
+      if(error||!data||!data.length) continue;
+      html+='<h2 class="sect">'+esc(cat)+'</h2>'+data.filter(f=>f.id||f.metadata).map(f=>{
+        const kb=f.metadata&&f.metadata.size?Math.max(1,Math.round(f.metadata.size/1024)):'';
+        return '<button class="pick repo-item" data-key="'+esc(pid+'/'+repoKeySafe(cat)+'/'+f.name)+'" '+
+          'style="display:flex;width:100%;text-align:left;align-items:center;gap:10px;margin-bottom:6px">'+
+          ic(/\.csv$/i.test(f.name)?'stats':'doc')+
+          '<span style="flex:1;min-width:0"><span style="display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.name)+'</span>'+
+          '<span class="hint">'+(f.created_at?fmtD(f.created_at.slice(0,10)):'')+(kb?' · '+kb+' KB':'')+'</span></span>'+
+          ic('dl')+'</button>';
+      }).join('');
+    }catch(e){ /* category folder may not exist yet */ }
+  }
+  box.innerHTML=html||'<div class="empty">No reports filed yet — generate any report (monthly report, site diary export, SIC pack, record print) and it appears here for everyone.</div>';
+  box.querySelectorAll('.repo-item').forEach(b=>b.onclick=async()=>{
+    b.disabled=true;
+    try{
+      const {data,error}=await SB.client.storage.from('reports').createSignedUrl(b.dataset.key, 3600, {download:true});
+      if(error||!data){ toast('Could not open that report', true); return; }
+      window.open(data.signedUrl, '_blank');
+    }finally{ b.disabled=false; }
+  });
 }
 
 /* ---- equipment QR: scan the machine, act in two taps ---- */
