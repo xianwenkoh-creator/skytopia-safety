@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-24-1900">
+<meta name="build" content="2026-08-24-2100">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1010,7 +1010,9 @@ function otherBoxHtml(f, v){
   return '<input data-other="'+f.k+'" class="otherbox" placeholder="Please specify" value="'+esc(sp.txt)+'"'+
     (sp.opt==='Others'?'':' hidden')+' style="margin-top:6px">';
 }
-function membersHtml(f, ids){
+/* where a members field keeps its signatures: {memberId: dataURL} */
+function sigKeyOf(f){ return f.sigKey||(f.k+'Sigs'); }
+function membersHtml(f, ids, sigs){
   ids=ids||[];
   const ms=[...db.members].filter(m=>!m.mergedInto).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   if(!ms.length)
@@ -1025,8 +1027,42 @@ function membersHtml(f, ids){
       '<input class="mpick-q" type="search" inputmode="search" autocomplete="off" placeholder="Search worker name or ID\u2026">'+
       '<div class="mpick-res"></div>'+
     '</div>'+ grid +
+    (f.sig?('<textarea data-sigstore="'+f.k+'" hidden>'+esc(JSON.stringify(sigs||{}))+'</textarea>'+
+            '<div data-sigwrap="'+f.k+'">'+sigListHtml(ids, sigs||{}, 'msig')+'</div>'):'')+
     (f.hint?'<div class="hint">'+f.hint+'</div>':'')+'</div>';
 }
+/* ---- signatures on any attendance field (delegated: works in every render path) ---- */
+function sigStoreRead(wrap){
+  const ta=wrap.parentNode.querySelector('[data-sigstore="'+wrap.dataset.sigwrap+'"]');
+  try{ return JSON.parse(ta.value||'{}'); }catch(e){ return {}; }
+}
+function sigStoreWrite(wrap, obj){
+  const ta=wrap.parentNode.querySelector('[data-sigstore="'+wrap.dataset.sigwrap+'"]');
+  if(ta) ta.value=JSON.stringify(obj||{});
+}
+function sigWrapPaint(wrap){
+  const grid=wrap.parentNode.querySelector('.pickgrid[data-f="'+wrap.dataset.sigwrap+'"]');
+  if(!grid) return;
+  const ids=[...grid.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid);
+  wrap.innerHTML=sigListHtml(ids, sigStoreRead(wrap), 'msig');
+}
+/* ticking / unticking someone refreshes their sign-here button */
+document.addEventListener('change',e=>{
+  const grid=e.target.closest&&e.target.closest('.pickgrid[data-type="members"]');
+  if(!grid) return;
+  const wrap=grid.parentNode.querySelector('[data-sigwrap="'+grid.dataset.f+'"]');
+  if(wrap) sigWrapPaint(wrap);
+});
+document.addEventListener('click',e=>{
+  const btn=e.target.closest&&e.target.closest('[data-msig]');
+  if(!btn) return;
+  const wrap=btn.closest('[data-sigwrap]'); if(!wrap) return;
+  const id=btn.dataset.msig, m=db.members.find(x=>x.id===id);
+  sigPadOpen(m?m.name:'', d=>{
+    if(!d) return;
+    const cur=sigStoreRead(wrap); cur[id]=d; sigStoreWrite(wrap, cur); sigWrapPaint(wrap);
+  });
+});
 /* ---- searchable attendance picker (delegated: works in every render path) ---- */
 function mpickBox(el){ return el.closest('.mpick'); }
 function mpickGrid(box){ return box.parentNode.querySelector('.pickgrid[data-f="'+box.dataset.for+'"]'); }
@@ -1107,6 +1143,12 @@ function collectForm(mod){
     if(f.type==='members'){
       const pg=app.querySelector('.pickgrid[data-f="'+f.k+'"]');
       obj[f.k]=pg?[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid):[];
+      if(f.sig){ /* keep only signatures of people still ticked */
+        const ta=app.querySelector('[data-sigstore="'+f.k+'"]');
+        let all={}; try{ all=JSON.parse((ta&&ta.value)||'{}'); }catch(e){}
+        const keep={}; obj[f.k].forEach(id=>{ if(all[id]) keep[id]=all[id]; });
+        obj[sigKeyOf(f)]=keep;
+      }
       continue;
     }
     const el=app.querySelector('[data-f="'+f.k+'"]');
@@ -1132,7 +1174,10 @@ function formSnapshot(mod){
     if(f.type==='photos'){ const pw=app.querySelector('[data-photos="'+f.k+'"]');
       obj[f.k]=pw?[...pw.querySelectorAll('img')].map(im=>im.src):[]; continue; }
     if(f.type==='members'){ const pg=app.querySelector('.pickgrid[data-f="'+f.k+'"]');
-      obj[f.k]=pg?[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid):[]; continue; }
+      obj[f.k]=pg?[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid):[];
+      if(f.sig){ const ta=app.querySelector('[data-sigstore="'+f.k+'"]');
+        try{ obj[sigKeyOf(f)]=JSON.parse((ta&&ta.value)||'{}'); }catch(e){} }
+      continue; }
     const el=app.querySelector('[data-f="'+f.k+'"]');
     let v=el?el.value:'';
     if(v==='Others'){ const ob=app.querySelector('[data-other="'+f.k+'"]');
@@ -1498,7 +1543,8 @@ function renderEdit(key, id){
         :(f.mem&&mem[f.k]!==undefined)?mem[f.k]
         :undefined;
       if(f.type==='rows') return rowsHtml(f, v);
-      if(f.type==='members') return membersHtml(f, v);
+      if(f.type==='members') return membersHtml(f, v,
+        item?item[sigKeyOf(f)]:((draft&&draft.vals[sigKeyOf(f)])||(pre&&pre[sigKeyOf(f)])||{}));
       if(f.type==='photos') return photosHtml(f, v);
       return fieldHtml(f, v);
     }).join('')+
@@ -1898,7 +1944,8 @@ const MODULES={
    {k:'hazards',label:'Key hazards & precautions',type:'textarea'},
    {k:'ptw',label:'Linked ePTW permit no(s).',half:1},
    {k:'photos',label:'Work area photos',type:'photos'},
-   {k:'attendees',label:'Attendance',type:'members',hint:'Two ways to take attendance: workers scan the QR code and check themselves in with their Worker ID, or search and tick them here.'},
+   {k:'attendees',label:'Attendance',type:'members',sig:1,sigKey:'sigs',
+    hint:'Two ways to take attendance: workers scan the QR code and check themselves in with their Worker ID, or search and tick them here. Each person then signs against their own name.'},
    {k:'others',label:'Other attendees (one per line)',type:'textarea',rows:2},
    {k:'remarks',label:'Remarks / feedback from workers',type:'textarea',rows:2}],
   printExtra:function(t){
@@ -1912,15 +1959,8 @@ const MODULES={
           '<td style="text-align:left">'+esc(c.company||'')+'</td><td>'+esc(hh(c.at))+'</td>'+
           '<td>'+(c.answer===undefined||c.answer===null?'&mdash;':(c.correct?'&#10003; correct':'&#10007; wrong'))+'</td>'+
           '<td style="height:30px;text-align:center">'+(c.sig?'<img src="'+c.sig+'" style="height:24px">':'<span class="hint" style="font-size:10px">e-checked-in</span>')+'</td></tr>').join('')+'</table></div>';
-    const att=t.attendees||[];
-    if(att.length){
-      const sg=t.sigs||{};
-      h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Attendance — signed ('+att.length+')</div>'+
-        '<table class="dtable" style="margin:4px 0"><tr><th style="width:34px">S/N</th><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th><th style="text-align:left">Company</th><th style="width:110px">Signature</th></tr>'+
-        att.map((id,i)=>{ const m=db.members.find(x=>x.id===id)||{};
-          return '<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(m.wid||'')+'</td><td style="text-align:left">'+esc(m.name||id)+'</td>'+
-            '<td style="text-align:left">'+esc(m.company||'')+'</td><td style="height:30px;text-align:center">'+(sg[id]?'<img src="'+sg[id]+'" style="height:24px">':'')+'</td></tr>'; }).join('')+'</table></div>';
-    }
+    /* the manually-ticked attendance list + its signatures is printed by the
+       generic members-field renderer (sig:1 on the attendees field) */
     if(t.briefing)
       h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Briefing delivered</div>'+
         '<div style="font-size:14.5px;white-space:pre-line">'+esc(t.briefing)+'</div></div>';
@@ -2432,7 +2472,8 @@ const MODULES={
     opts:['WSH Committee','Site Coordination','Contractor Coordination','Management Review','Incident Review','Others']},
    {k:'chairman',label:'Chaired by',half:1},
    {k:'venue',label:'Venue',half:1},
-   {k:'attendees',label:'Attendance',type:'members',hint:'Search by name or worker ID, then tick.'},
+   {k:'attendees',label:'Attendance',type:'members',sig:1,
+    hint:'Search by name or worker ID, then tick. Each person then signs against their own name.'},
    {k:'others',label:'Other attendees (one per line)',type:'textarea',rows:2},
    {k:'agenda',label:'Minutes & actions',type:'rows',add:'Add item',
     cols:[
@@ -2705,6 +2746,17 @@ function recordPrintCard(key, id){
     if(v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length)) return '';
     if(f.type==='photos') return '<div class="thumbs">'+v.map(d=>'<div class="thumb"><img src="'+d+'"></div>').join('')+'</div>';
     if(f.type==='members'){
+      if(f.sig){ /* auditor SS679: signature against each name */
+        const sg=item[sigKeyOf(f)]||{};
+        return '<table class="dtable" style="margin:4px 0"><tr><th style="width:34px">S/N</th>'+
+          '<th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th>'+
+          '<th style="text-align:left">Company</th><th style="width:110px">Signature</th></tr>'+
+          v.map((idm,i)=>{ const m=db.members.find(x=>x.id===idm)||{};
+            return '<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(m.wid||'')+'</td>'+
+              '<td style="text-align:left">'+esc(m.name||idm)+'</td><td style="text-align:left">'+esc(m.company||'')+'</td>'+
+              '<td style="height:30px;text-align:center">'+(sg[idm]?'<img src="'+sg[idm]+'" style="height:24px">':'')+'</td></tr>'; }).join('')+
+          '</table>';
+      }
       const names=v.map(idm=>{const m=db.members.find(x=>x.id===idm); return m?esc(memberLabel(m)):'';}).filter(Boolean);
       return names.length? names.join(', ') : '';
     }
