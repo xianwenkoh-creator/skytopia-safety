@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-0300">
+<meta name="build" content="2026-08-25-0500">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1324,6 +1324,27 @@ const NAV=[
 const HQ_NAV=['companyhome','ramasters','companyDocs','organisations','sicProfiles','audit'];
 function buildNav(){
   const nav=document.getElementById('sidenav');
+  /* lite roles don't switch or manage projects — the dropdown becomes a label */
+  const _ps=document.getElementById('projSel');
+  if(_ps){
+    const off=liteRole();
+    _ps.style.pointerEvents=off?'none':'';
+    const ch=_ps.querySelector('svg'); if(ch) ch.style.display=off?'none':'';
+    if(off&&SB.profile.role==='hr'){ const pn=document.getElementById('projName'); if(pn) pn.textContent=root.company.name||'Company'; }
+  }
+  if(SB.profile&&SB.profile.role==='hr'){
+    nav.innerHTML='<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'HR Home</a>'+
+      '<div class="sn-group">Workforce</div>'+
+      [['members','Workers','members'],['matrix','Competency Matrix','cert'],['training','Training','train'],
+       ['certexp','Cert Expiry','cert'],['finder','Worker Finder','members'],['memberPrivate','Private (HR)','doc']]
+        .map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+'</a>').join('')+
+      '<div class="sn-group">Company</div>'+
+      [['organisations','Companies','contact'],['reports','Report Library','folder'],['audit','Audit Log','doc']]
+        .map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+'</a>').join('')+
+      '<div class="sn-group">Admin</div>'+
+      '<a class="sn-item" href="#/settings" data-nav="settings">'+ic('gear')+'Settings</a>';
+    return;
+  }
   if(SB.profile&&SB.profile.role==='subcon'){
     nav.innerHTML='<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'My Work</a>'+
       '<div class="sn-group">My Site</div>'+
@@ -1402,6 +1423,41 @@ function initShell(){
 }
 
 function renderHome(){
+  if(SB.profile&&SB.profile.role==='hr'){
+    const tile=(href,label,icon,badge)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+
+      (badge?'<span class="bdg">'+badge+'</span>':'')+'</span><span class="tl">'+label+'</span></a>';
+    const ms=db.members.filter(m=>!m.mergedInto);
+    const active=ms.filter(m=>m.status!=='INACTIVE').length;
+    const nb=certBadgeCount();
+    const mk=today().slice(0,7);
+    const trainM=db.training.filter(t=>t.date&&t.date.slice(0,7)===mk).length;
+    const ov=(href,v,l,cls)=>'<a class="stile" href="#/'+href+'"><div class="v'+(cls&&v?' '+cls:'')+'">'+v+'</div><div class="l">'+l+'</div></a>';
+    app.innerHTML=header('HR — '+esc(root.company.name||'Workforce'), false)+
+      '<h2 class="sect">Today</h2>'+
+      '<div class="tiles">'+
+        ov('members', active, 'Active workers')+
+        ov('certexp', nb, 'Certs expiring / expired', 'w')+
+        ov('training', trainM, 'Training records this month')+
+      '</div>'+
+      '<h2 class="sect">Workforce</h2>'+
+      '<div class="grid">'+
+        tile('members','Workers','members')+
+        tile('matrix','Competency Matrix','cert')+
+        tile('training','Training','train')+
+        tile('certexp','Cert Expiry','cert',nb||'')+
+        tile('finder','Worker Finder','members')+
+        tile('memberPrivate','Private (HR)','doc')+
+      '</div>'+
+      '<h2 class="sect">Company</h2>'+
+      '<div class="grid">'+
+        tile('organisations','Companies','contact')+
+        tile('reports','Report Library','folder')+
+        tile('audit','Audit Log','doc')+
+      '</div>'+
+      '<div class="foot">HR workspace — worker records, competencies, training and the files only HR can open. '+
+        'Safety registers stay available read-only via search or direct links.</div>';
+    return;
+  }
   if(isDesktop()&&!(SB.profile&&SB.profile.role==='subcon')) return renderControlCentre();
   if(SB.profile&&SB.profile.role==='subcon'){
     const tile=(href,label,icon)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+'</span><span class="tl">'+label+'</span></a>';
@@ -3320,8 +3376,9 @@ function saveReportHtml(){
 /* ============ settings ============ */
 function renderSettings(){
   const s=db.settings;
+  const lite=liteRole();
   app.innerHTML = header('Settings', true)+
-    '<div class="card"><label style="margin-top:0">Projects (company level)</label>'+
+    (lite?'':'<div class="card"><label style="margin-top:0">Projects (company level)</label>'+
       '<p class="hint">Company registers — Member(s), Equipment, Training — are shared across all projects. Everything else below belongs to the project selected in the top bar.</p>'+
       '<div class="fgrid"><div class="fld"><label>Company name</label><input id="setCoName" value="'+esc(root.company.name||'')+'" placeholder="e.g. Koh Kock Leong Enterprise Pte Ltd"></div></div>'+
       '<div id="projList" style="margin-top:10px">'+root.projects.map(p=>
@@ -3331,8 +3388,8 @@ function renderSettings(){
         (root.projects.length>1?'<button class="btn danger" style="min-height:34px;padding:6px 12px" data-delproj="'+p.id+'">Delete</button>':'')+'</div></div>').join('')+
       '</div>'+
       '<button class="minor" id="addProj">+ New project</button>'+
-    '</div>'+
-    '<div class="card"><label style="margin-top:0">Current project — '+esc(s.project||'(unnamed)')+'</label><div class="fgrid">'+
+    '</div>')+
+    (lite?'':'<div class="card"><label style="margin-top:0">Current project — '+esc(s.project||'(unnamed)')+'</label><div class="fgrid">'+
       '<div class="fld"><label>Project name</label><input id="setProject" value="'+esc(s.project||'')+'" placeholder="Shown on the home screen"></div>'+
       '<div class="fld"><label>Contractor (for reports)</label><input id="setCompany" value="'+esc(s.company||'')+'"></div>'+
       '<div class="fld half"><label>Main contract no.</label><input id="setHdb" value="'+esc(s.hdbContract||'')+'" placeholder="e.g. D/357/18"></div>'+
@@ -3344,8 +3401,8 @@ function renderSettings(){
         ['Generic','HDB','LTA','JTC','Private'].map(c=>'<option'+(c===(s.client||'Generic')?' selected':'')+'>'+c+'</option>').join('')+
       '</select><div class="hint">Controls the monthly report layout. Same data, client-specific presentation.</div></div>'+
     '</div><div class="hint">These fields appear on report headers. Estate / neighbourhood / precinct only apply to clients that use them.</div>'+
-    '<div class="btnrow"><button class="btn" id="setSave">Save</button></div></div>'+
-    '<div class="card"><label style="margin-top:0">Cloud sync (Supabase)</label>'+
+    '<div class="btnrow"><button class="btn" id="setSave">Save</button></div></div>')+
+    '<div class="card"><label style="margin-top:0">'+(lite?'Your account':'Cloud sync (Supabase)')+'</label>'+
       '<p class="hint">Connect a Supabase project to sync this device with the team — company registers and all projects, offline-first. See SETUP.md in the repo for the one-time setup.</p>'+
       '<p class="hint" id="sbStatus">&hellip;</p>'+
       '<div id="sbCfgWrap"><div class="fgrid">'+
@@ -3366,21 +3423,22 @@ function renderSettings(){
         '<div class="hint" id="mfaBox">Checking&hellip;</div>'+
         '<div class="btnrow" style="margin-top:8px"><button id="mfaBtn" class="btn ghost" style="display:none"></button></div></div>'+
     '</div>'+
-    '<div class="card"><label style="margin-top:0">SKYTOPIA Safety folder</label>'+
+    (lite?'':'<div class="card"><label style="margin-top:0">SKYTOPIA Safety folder</label>'+
       '<p class="hint">Connect your <b>Skytopia \\ Safety</b> folder (OneDrive) so reports, CSV exports and backups save straight into it — each report type goes to its own subfolder (Inspections, Near Miss Reports, Monthly Reports, &hellip;). Works in Chrome / Edge.</p>'+
       '<p class="hint" id="fsStatus">Checking&hellip;</p>'+
       '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="fsPick">Connect folder</button>'+
       '<button class="btn ghost" id="fsDocs">Export worker documents</button>'+
       '<button class="btn danger" id="fsForget" style="display:none">Disconnect</button></div>'+
       '<p class="hint">While connected, the app also files a <b>daily automatic backup</b> into Backups, and worker / certificate photos into <b>Worker Documents\\&lt;Worker ID&gt;</b> whenever records are saved on this device.</p>'+
-    '</div>'+
+    '</div>')+
+    (lite?'':
     '<div class="card"><label style="margin-top:0">LMRA checklist — your site’s wording</label>'+
       '<p class="hint">These are the base questions every LMRA asks (this activity’s RA controls are added on top automatically). Revise them in language your workers understand — one question per line. Leave empty to use the built-in list.</p>'+
       '<textarea id="setLmraQs" rows="8" placeholder="One question per line">'+esc((s.lmraQs||[]).join('\n'))+'</textarea>'+
       '<div class="btnrow" style="margin-top:8px"><button class="btn ghost" id="setLmraSave">Save checklist</button>'+
       '<button class="btn ghost" id="setLmraDefault">Load built-in list to edit</button></div>'+
-    '</div>'+
-    '<div class="card"><label style="margin-top:0">Backup &amp; restore</label>'+
+    '</div>')+
+    (lite?'':'<div class="card"><label style="margin-top:0">Backup &amp; restore</label>'+
       '<p class="hint">Live data syncs to the cloud (see Cloud sync above); this device also keeps a working copy in the browser. Backups export the full dataset as a file — automatic daily when the folder is connected, or manually here.</p>'+
       '<p class="hint">Storage used: ~'+Math.round(JSON.stringify(root).length/1024).toLocaleString()+' KB of a ~5,000 KB browser limit. Photos use the most space.</p>'+
       '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="expBtn">Export backup</button>'+
@@ -3389,7 +3447,8 @@ function renderSettings(){
     '</div>'+
     '<div class="card"><label style="margin-top:0">Danger zone</label>'+
       '<div class="btnrow" style="margin-top:10px"><button class="btn danger" id="clrBtn" style="flex:1">Erase all data on this device</button></div>'+
-    '</div>';
+    '</div>');
+  if(!lite){
   document.getElementById('setLmraSave').onclick=()=>{
     const v=document.getElementById('setLmraQs').value.split('\n').map(x=>x.trim()).filter(Boolean);
     if(v.length) s.lmraQs=v; else delete s.lmraQs;
@@ -3424,7 +3483,9 @@ function renderSettings(){
       save(); renderSettings();
     }
   });
+  } /* end !lite management wiring */
   sbBindSettings();
+  if(lite) return;
   document.getElementById('expBtn').onclick=()=>{
     saveOrDownload('Backups', 'cms-backup-'+today()+'.json', JSON.stringify(root,null,1), 'application/json');
   };
@@ -5232,6 +5293,8 @@ function canHR(){ return !SB.profile || ['admin','hr'].includes(SB.profile.role)
 /* Can this account CHANGE records in this store? Mirrors the server's RLS —
    the server stays the authority; this only declutters the screen so nobody
    is shown a button that would silently do nothing. */
+/* roles that do NOT manage projects or this device's data */
+function liteRole(){ return !!(SB.profile && ['hr','viewer','subcon'].includes(SB.profile.role)); }
 function canWrite(store){
   if(!SB.profile) return true;                             /* local device */
   const r=SB.profile.role;
