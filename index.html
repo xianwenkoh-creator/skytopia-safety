@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-24-1200">
+<meta name="build" content="2026-08-24-1800">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -650,7 +650,37 @@ async function htmlToPdfBlob(docHtml){
     await new Promise(r=>setTimeout(r,250)); /* let images decode */
     const el=fr.contentDocument.body;
     el.style.margin='0'; el.style.padding='0'; el.style.maxWidth=W+'px'; el.style.width=W+'px';
-    const canvas=await window.html2canvas(el,{scale:2,useCORS:false,logging:false,windowWidth:W,width:W,backgroundColor:'#ffffff'});
+    /* Capture at ~288 DPI (scale 3 over a 96dpi layout) so text stays sharp
+       when zoomed or printed. A tall report makes a tall canvas, and Safari on
+       iOS has a far smaller canvas budget than desktop — so the ceiling is
+       device-aware, and a failed/blank capture retries smaller rather than
+       silently writing an empty page. */
+    const docH=Math.max(1200, el.scrollHeight||1200);
+    const iOS=/iP(hone|ad|od)/.test(navigator.platform||'')||
+              ((navigator.maxTouchPoints||0)>1&&/Mac/.test(navigator.platform||''));
+    const MAXDIM=iOS?8192:32000, MAXAREA=iOS?16e6:90e6;
+    /* floor at the previous fixed scale on desktop so a long report never comes
+       out softer than it used to; iOS may go lower, and the retry below covers it */
+    let sc=Math.min(3, MAXDIM/docH, Math.sqrt(MAXAREA/(W*docH)));
+    sc=Math.max(sc, iOS?1:2);
+    const grab=async k=>{
+      const c=await window.html2canvas(el,{scale:k,useCORS:false,logging:false,windowWidth:W,width:W,backgroundColor:'#ffffff'});
+      if(!c||!c.width||!c.height) return null;
+      /* a canvas over the device budget comes back blank — sample for ink */
+      const pr=document.createElement('canvas'); pr.width=32; pr.height=32;
+      const px2=pr.getContext('2d');
+      px2.fillStyle='#fff'; px2.fillRect(0,0,32,32);
+      px2.drawImage(c,0,0,c.width,Math.min(c.height,c.width*4),0,0,32,32);
+      const d2=px2.getImageData(0,0,32,32).data;
+      let ink2=0; for(let i=0;i<d2.length;i+=4){ if(d2[i]<245||d2[i+1]<245||d2[i+2]<245) ink2++; }
+      return ink2>0?c:null;
+    };
+    let canvas=null;
+    for(let attempt=0; attempt<3 && !canvas; attempt++){
+      try{ canvas=await grab(sc); }catch(err){ canvas=null; }
+      if(!canvas){ sc=Math.max(1, sc*0.6); }
+    }
+    if(!canvas) throw new Error('capture failed');
     /* place the canvas onto A4 pages ourselves — 192mm printable width */
     const {jsPDF}=window.jspdf;
     const pdf=new jsPDF({unit:'mm',format:'a4',orientation:'portrait'});
@@ -673,7 +703,9 @@ async function htmlToPdfBlob(docHtml){
       let ink=0; for(let i=0;i<px.length;i+=4){ if(px[i]<245||px[i+1]<245||px[i+2]<245) ink++; }
       if(ink>3){
         if(!first) pdf.addPage();
-        pdf.addImage(pc.toDataURL('image/jpeg',0.92),'JPEG',mL,mT,imgWmm,sliceH/pxPerMm);
+        /* JPEG only: jsPDF re-encodes PNG uncompressed (a 141KB PNG page became
+           a 20MB object), so quality comes from capture scale, not the codec. */
+        pdf.addImage(pc.toDataURL('image/jpeg',0.93),'JPEG',mL,mT,imgWmm,sliceH/pxPerMm);
         first=false;
       }
       y+=sliceH;
