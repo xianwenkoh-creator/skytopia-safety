@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-24-2200">
+<meta name="build" content="2026-08-25-0100">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -387,6 +387,9 @@
     header.top{position:static; border-bottom:none;}
     .iconbtn,.searchwrap,.btn,.minor,.noprint{display:none !important;}
     .card,.stile{break-inside:avoid; border-color:#bbb;}
+    /* browser pagination must not slice a row (attendance, findings, minutes) */
+    tr,.subrow{break-inside:avoid; page-break-inside:avoid;}
+    thead{display:table-header-group;}
   }
 
   /* ==================== DESIGN LAYER v2 ====================
@@ -640,7 +643,9 @@ function loadH2P(){
    above the ideal break for the horizontal line with the least ink (a gap
    between rows reads as almost-white; only column borders survive). */
 function cleanBreakH(canvas, y, idealH){
-  const bandH=Math.min(Math.floor(idealH*0.18), Math.max(0, idealH-40));
+  /* search a generous band: a tall table row (a long finding description) can
+     be taller than a narrow band, leaving no gap to find and forcing a raw cut */
+  const bandH=Math.min(Math.floor(idealH*0.34), Math.max(0, idealH-40));
   if(bandH<8) return idealH;
   const yStart=y+idealH-bandH, W2=700;   /* wide enough that text still reads as edges; 140 blurred it into a fake gap */
   const sc=document.createElement('canvas'); sc.width=W2; sc.height=bandH;
@@ -674,7 +679,10 @@ async function htmlToPdfBlob(docHtml){
   try{
     fr.contentDocument.open(); fr.contentDocument.write(docHtml); fr.contentDocument.close();
     const st=fr.contentDocument.createElement('style');
-    st.textContent='table{table-layout:fixed;width:100% !important;max-width:100%}td,th{overflow-wrap:anywhere}';
+    st.textContent='table{table-layout:fixed;width:100% !important;max-width:100%}'+
+      '.dtable{table-layout:auto;font-size:12px}'+        /* data columns size to content, a touch smaller than prose */
+      'td,th{overflow-wrap:break-word;word-break:normal;hyphens:auto}'+
+      '.dtable td,.dtable th{padding:5px 7px}';
     fr.contentDocument.head.appendChild(st);
     await new Promise(r=>setTimeout(r,250)); /* let images decode */
     const el=fr.contentDocument.body;
@@ -813,8 +821,9 @@ function reportDocHtml(title, bodyHtml){
     '.rephead td{padding:0 0 10px;vertical-align:middle;border:0}'+
     '.rtitle{font-size:17px;font-weight:750;letter-spacing:.02em;display:inline-block;vertical-align:middle;margin-left:10px}'+
     '.rsub{font-size:12px;color:#68757d;text-align:right}'+
-    'table:not(.rephead){table-layout:fixed;width:100%;max-width:100%}td,th{overflow-wrap:anywhere}'+
-    '@media print{body{margin:0;max-width:none}}'+
+    'table:not(.rephead){table-layout:fixed;width:100%;max-width:100%}'+
+    '.dtable{table-layout:auto;font-size:12px}td,th{overflow-wrap:break-word;word-break:normal;hyphens:auto}'+
+    '@media print{body{margin:0;max-width:none}tr{break-inside:avoid;page-break-inside:avoid}thead{display:table-header-group}.card{break-inside:avoid}}'+
     '</style></head><body>'+
     '<table class="rephead"><tr><td style="white-space:nowrap"><img src="'+KKL_LOGO+'" alt="KKL" style="height:32px;vertical-align:middle"><span class="rtitle">'+esc(root.company.name||s.company||'KKL CMS')+'</span></td>'+
     '<td class="rsub">'+esc([s.project,s.company].filter(Boolean).join(' — '))+'<br>Generated '+esc(today())+'</td></tr></table>'+
@@ -2793,10 +2802,19 @@ function recordPrintCard(key, id){
     }
     if(f.type==='rows'){
       const cols=f.cols.filter(c=>c.type!=='photos'), pcol=f.cols.find(c=>c.type==='photos');
-      return '<table class="dtable" style="margin:4px 0"><tr>'+cols.map(c=>'<th style="text-align:left">'+esc(c.label)+'</th>').join('')+'</tr>'+
+      /* prose columns claim the width; dates/statuses stay narrow, so a report
+         with many columns still reads as sentences rather than 1-word ribbons */
+      const wide=cols.filter(c=>c.type==='textarea'||c.w==='full').length;
+      const cw=c=>(c.type==='textarea'||c.w==='full')
+        ? Math.floor(64/Math.max(1,wide))+'%'
+        : Math.floor(36/Math.max(1,cols.length-wide))+'%';
+      return '<table class="dtable" style="margin:4px 0"><tr>'+cols.map(c=>'<th style="text-align:left;width:'+cw(c)+'">'+esc(c.label)+'</th>').join('')+'</tr>'+
         v.map(r=>{
           const imgs=pcol&&Array.isArray(r[pcol.k])?r[pcol.k]:[];
-          return '<tr>'+cols.map(c=>'<td style="text-align:left">'+esc(r[c.k]||'')+'</td>').join('')+'</tr>'+
+          return '<tr>'+cols.map(c=>{ const cv=String(r[c.k]||'');
+            /* short values (dates, statuses, names) should not split across lines */
+            const nw=(c.type!=='textarea'&&c.w!=='full'&&cv.length<=16)?';white-space:nowrap':'';
+            return '<td style="text-align:left'+nw+'">'+esc(cv)+'</td>'; }).join('')+'</tr>'+
             (imgs.length?'<tr><td colspan="'+cols.length+'" style="text-align:left">'+
               imgs.map(d=>'<img src="'+d+'" style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</td></tr>':'');
         }).join('')+'</table>';
