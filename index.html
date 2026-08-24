@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-24-1800">
+<meta name="build" content="2026-08-24-1900">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -2450,7 +2450,7 @@ const MODULES={
 
  incidents:{ title:'Incident', store:'incidents',
   fields:[
-   {k:'date',label:'Date of incident',type:'date',req:1,half:1},
+   {k:'date',label:'Date of incident',type:'date',req:1,def:'today',half:1},
    {k:'time',label:'Time',type:'time',half:1},
    {k:'type',label:'Classification',type:'select',opts:INCTYPES,req:1},
    {k:'location',label:'Location'},
@@ -3635,6 +3635,13 @@ EV.on('record:changed',({store,id})=>{
   if(store==='workActivities') return;               /* its own save already recalcs */
   const was=affectedWAs(store,id);
   if(was.length){ was.forEach(recalcWA); save(); }
+});
+/* owner: ALL reports generated must reach the OneDrive Report Library — not
+   just eTBM/LMRA. Every save of a report-type record files (or refreshes) its
+   PDF; the name is stable per record so edits overwrite, never duplicate. */
+EV.on('record:changed',({store,id})=>{
+  if(['inspections','observations','incidents','checklists','meetings','defects'].includes(store))
+    setTimeout(()=>autoFileRecord(store,id), 400);
 });
 EV.on('record:deleted',({store,id})=>{
   const was=affectedWAs(store,id);
