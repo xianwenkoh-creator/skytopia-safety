@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-0700">
+<meta name="build" content="2026-08-25-0800">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -3407,7 +3407,7 @@ function renderSettings(){
     '</div><div class="hint">These fields appear on report headers. Estate / neighbourhood / precinct only apply to clients that use them.</div>'+
     '<div class="btnrow"><button class="btn" id="setSave">Save</button></div></div>')+
     '<div class="card"><label style="margin-top:0">'+(lite?'Your account':'Cloud sync (Supabase)')+'</label>'+
-      '<p class="hint">Connect a Supabase project to sync this device with the team — company registers and all projects, offline-first. See SETUP.md in the repo for the one-time setup.</p>'+
+      '<p class="hint">This device syncs with the team automatically whenever you save — it also works offline and catches up when you are back on the network. <b>Sync now</b> pushes and pulls immediately.</p>'+
       '<p class="hint" id="sbStatus">&hellip;</p>'+
       '<div id="sbCfgWrap"><div class="fgrid">'+
         '<div class="fld half"><label>Supabase project URL</label><input id="sbUrl" placeholder="https://xxxx.supabase.co"></div>'+
@@ -3420,15 +3420,14 @@ function renderSettings(){
       '<div class="btnrow" style="margin-top:10px">'+
         '<button class="btn ghost" id="sbMain">Save connection</button>'+
         '<button class="btn ghost" id="sbPush" style="display:none">Sync now</button>'+
-        '<button class="btn ghost" id="sbLink" style="display:none">Copy connect link</button>'+
         '<button class="btn danger" id="sbOut" style="display:none">Sign out</button>'+
       '</div>'+
       '<div id="mfaWrap" style="display:none"><label>Two-factor authentication (TOTP)</label>'+
         '<div class="hint" id="mfaBox">Checking&hellip;</div>'+
         '<div class="btnrow" style="margin-top:8px"><button id="mfaBtn" class="btn ghost" style="display:none"></button></div></div>'+
     '</div>'+
-    (lite?'':'<div class="card"><label style="margin-top:0">SKYTOPIA Safety folder</label>'+
-      '<p class="hint">Connect your <b>Skytopia \\ Safety</b> folder (OneDrive) so reports, CSV exports and backups save straight into it — each report type goes to its own subfolder (Inspections, Near Miss Reports, Monthly Reports, &hellip;). Works in Chrome / Edge.</p>'+
+    ((lite||!fsSupported())?'':'<div class="card"><label style="margin-top:0">SKYTOPIA Safety folder (optional, this PC)</label>'+
+      '<p class="hint">Reports from every device already reach the company OneDrive by themselves (see Report Library). Connecting the <b>Skytopia \\ Safety</b> folder here additionally saves this PC’s exports and backups straight into it.</p>'+
       '<p class="hint" id="fsStatus">Checking&hellip;</p>'+
       '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="fsPick">Connect folder</button>'+
       '<button class="btn ghost" id="fsDocs">Export worker documents</button>'+
@@ -3512,6 +3511,7 @@ function renderSettings(){
     saveOrDownload('Backups', 'cms-backup-'+today()+'.json', JSON.stringify(root,null,1), 'application/json');
   };
   const fsStatus=document.getElementById('fsStatus'), fsPick=document.getElementById('fsPick'), fsForget=document.getElementById('fsForget');
+  if(fsPick){
   async function fsRefresh(){
     if(!fsSupported()){ fsStatus.innerHTML='Not supported in this browser — files will download to your Downloads folder instead.'; fsPick.style.display='none'; return; }
     let h=null; try{ h=await idbGet('safetyDir'); }catch(e){}
@@ -3529,6 +3529,7 @@ function renderSettings(){
   fsForget.onclick=async()=>{ await idbDel('safetyDir').catch(()=>{}); fsRefresh(); };
   document.getElementById('fsDocs').onclick=exportAllWorkerDocs;
   fsRefresh();
+  } /* end fsSupported card wiring */
   const impFile=document.getElementById('impFile');
   document.getElementById('impBtn').onclick=()=>impFile.click();
   impFile.onchange=()=>{
@@ -8088,10 +8089,6 @@ function sbBindSettings(){
   const cfg=sbCfg();
   const cfgWrap=document.getElementById('sbCfgWrap'), loginWrap=document.getElementById('sbLoginWrap');
   const main=document.getElementById('sbMain'), out=document.getElementById('sbOut'), push=document.getElementById('sbPush');
-  const lnk=document.getElementById('sbLink');
-  if(cfg && lnk){ lnk.style.display='';
-    lnk.onclick=()=>{ navigator.clipboard.writeText(sbConnectLink()).then(()=>toast('Connect link copied — send it to teammates; they tap it, then sign in.'))
-      .catch(()=>prompt('Copy this link:', sbConnectLink())); }; }
   sbSetStatus(SB.status, SB.statusMsg||'&hellip;');
   if(!cfg){
     cfgWrap.style.display=''; loginWrap.style.display='none';
