@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-0200">
+<meta name="build" content="2026-08-25-0300">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1345,7 +1345,7 @@ function buildNav(){
           if(t[0]==='audit'||t[0]==='organisations') return !SB.profile||['admin','wsho','hr'].includes(SB.profile.role);
           return true;
         }
-        if(t[0]==='rasys') return !SB.profile||SB.profile.role!=='viewer';
+        if(t[0]==='rasys') return canRA();      /* RLS blocks RA stores for hr + viewer */
         if(t[0]==='ra'||t[0]==='ralib') return canRA();
         return true; });
       if(!items.length) return '';
@@ -1484,7 +1484,7 @@ function renderHome(){
       tile('inspections','Inspections','insp')+
       tile('observations','Near Miss','obs')+
       tile('checklists','Checklists','check')+
-      ((SB.profile&&SB.profile.role==='viewer')?'':tile('rasys','RA / SWP','ra'))+
+      (canRA()?tile('rasys','RA / SWP','ra'):'')+
       tile('meetings','Meetings','meet')+
       tile('incidents','Incidents','incid')+
     '</div>'+
@@ -1515,7 +1515,7 @@ function renderList(key){
   const newHash=mod.newRoute||('#/'+key+'/new');
   app.innerHTML = header(mod.title, true,
       (items.length?'<button class="iconbtn" aria-label="Export CSV" title="Export CSV (Excel)" onclick="exportModuleCsv(\''+key+'\')">'+ic('dl')+'</button>':'')+
-      '<button class="iconbtn" aria-label="Add" onclick="location.hash=\''+newHash+'\'">'+ic('plus')+'</button>')+
+      (canWrite(mod.store)?'<button class="iconbtn" aria-label="Add" onclick="location.hash=\''+newHash+'\'">'+ic('plus')+'</button>':''))+
     (scoped?'<div class="btnrow" style="margin:0 0 10px">'+
       '<button class="btn'+(scope==='site'?'':' ghost')+'" id="scSite" style="flex:1">On this project ('+siteItems.length+')</button>'+
       (isHQ()?'<button class="btn'+(scope==='company'?'':' ghost')+'" id="scAll" style="flex:1">Whole company ('+items.length+')</button>':'')+
@@ -1555,6 +1555,12 @@ function renderEdit(key, id){
   const mod=MODULES[key];
   const item=id?db[mod.store].find(x=>x.id===id):null;
   if(id && !item){ location.hash='#/'+key; return; }
+  const ro=!canWrite(mod.store);                 /* view, but not change */
+  if(ro && !item){
+    app.innerHTML=header('New — '+mod.title, true)+
+      '<div class="empty">Your role can view these records, not create them.</div>';
+    return;
+  }
   curEdit={key,id};
   /* entry memory: new records prefill remembered fields (who conducted, which
      provider, ...) and can copy the whole previous entry */
@@ -1588,10 +1594,15 @@ function renderEdit(key, id){
       if(f.type==='photos') return photosHtml(f, v);
       return fieldHtml(f, v);
     }).join('')+
-    '</div><div class="btnrow"><button class="btn" id="saveBtn">Save</button>'+
-    ((!item&&mod.copyLast&&db[mod.store].length&&!pre)?'<button class="btn ghost" type="button" id="copyLastBtn">Copy last entry</button>':'')+
-    (item?'<button class="btn ghost" title="Print / PDF report" onclick="location.hash=\'#/'+key+'/'+id+'/print\'" style="padding:12px 14px">'+ic('print')+'</button>':'')+
-    (item?'<button class="btn danger" id="delBtn">Delete</button>':'')+'</div></div>';
+    '</div>'+
+    (ro
+      ?'<div class="btnrow">'+
+        (item?'<button class="btn ghost" onclick="location.hash=\'#/'+key+'/'+id+'/print\'" style="flex:1">'+ic('print')+' View / print report</button>':'')+
+       '</div><div class="hint" style="margin-top:8px">Read-only — your role can view these records but not change them.</div>'
+      :'<div class="btnrow"><button class="btn" id="saveBtn">Save</button>'+
+        ((!item&&mod.copyLast&&db[mod.store].length&&!pre)?'<button class="btn ghost" type="button" id="copyLastBtn">Copy last entry</button>':'')+
+        (item?'<button class="btn ghost" title="Print / PDF report" onclick="location.hash=\'#/'+key+'/'+id+'/print\'" style="padding:12px 14px">'+ic('print')+'</button>':'')+
+        (item?'<button class="btn danger" id="delBtn">Delete</button>':''))+'</div></div>';
   const clb=document.getElementById('copyLastBtn');
   if(clb) clb.onclick=()=>{
     const last=[...db[mod.store]].sort(mod.sort||((a,b)=>(b.date||'').localeCompare(a.date||'')))[0];
@@ -1607,7 +1618,8 @@ function renderEdit(key, id){
     renderEdit(key, null);
     toast('Copied from the last entry — adjust and save');
   };
-  document.getElementById('saveBtn').onclick=()=>{
+  const _sv=document.getElementById('saveBtn');
+  if(_sv) _sv.onclick=()=>{
     const obj=collectForm(mod); if(!obj) return;
     window._draftMute=true;
     try{ localStorage.removeItem('kkl-draft-'+key); }catch(e){}
@@ -1632,7 +1644,7 @@ function renderEdit(key, id){
       location.hash='#/'+key;
     }
   };
-  if(!item){
+  if(!item && !ro){
     const dkey='kkl-draft-'+key; let _dt=null;
     const _snap=()=>{ if(window._draftMute||!curEdit||curEdit.key!==key||curEdit.id) return;
       try{ localStorage.setItem(dkey, JSON.stringify({at:Date.now(), vals:formSnapshot(mod)})); }catch(e){} };
@@ -1641,6 +1653,8 @@ function renderEdit(key, id){
     const dk=document.getElementById('draftKill');
     if(dk) dk.onclick=()=>{ window._draftMute=true; try{ localStorage.removeItem(dkey); }catch(e){} renderEdit(key,null); };
   }
+  if(ro) app.querySelectorAll('.fgrid input,.fgrid select,.fgrid textarea,[data-addrow],[data-addphoto],[data-addrowphoto],.subrow .rm,.thumb .rmp,.thumb .mkp,[data-msig]')
+    .forEach(el=>{ el.disabled=true; });
   if(mod.afterRender) mod.afterRender(item);
 }
 
@@ -1658,7 +1672,11 @@ function route(){
   }
   if(p[0]==='setpw') return renderSetPw();
   if(p[0]==='team') return renderTeam();
-  if(p[0]==='toolbox') return renderToolbox();
+  if(p[0]==='toolbox'){
+    if(!canWrite('tbm')){ app.innerHTML=header('Toolbox Meeting', true)+
+      '<div class="empty">Your role can view toolbox records under Toolbox Meetings, not conduct them.</div>'; return; }
+    return renderToolbox();
+  }
   if(p[0]==='checkin' && p[3]) return renderCheckin(p[1], p[2], decodeURIComponent(p[3]));
   if(p[0]==='hazard' && p[2]) return renderHazardPublic(p[1], decodeURIComponent(p[2]));
   if(p[0]==='hazardqr') return renderHazardPoster();
@@ -1700,7 +1718,11 @@ function route(){
   }
   if(key==='layout')   return sub?renderLayoutEditor(sub):renderLayouts();
   if(key==='diary')    return renderDiary();
-  if(key==='lmracheck') return renderLmraCheck();
+  if(key==='lmracheck'){
+    if(!canWrite('lmra')){ app.innerHTML=header('LMRA', true)+
+      '<div class="empty">Your role can view LMRA records under LMRA, not carry them out.</div>'; return; }
+    return renderLmraCheck();
+  }
   if(key==='eq'&&sub)  return renderEqQuick(sub);
   if(key==='eqposters') return renderEqPosters();
   if(key==='matrix')   return renderMatrix();
@@ -5207,6 +5229,25 @@ function compTypeKws(t){ return (t&&t.kws&&t.kws.length)?t.kws:(t?[String(t.name
 function memberComps(mid){ return db.workerCompetencies.filter(c=>c.memberId===mid); }
 function memberLabel(m){ return (m.wid?m.wid+' — ':'')+(m.name||''); }
 function canHR(){ return !SB.profile || ['admin','hr'].includes(SB.profile.role); }
+/* Can this account CHANGE records in this store? Mirrors the server's RLS —
+   the server stays the authority; this only declutters the screen so nobody
+   is shown a button that would silently do nothing. */
+function canWrite(store){
+  if(!SB.profile) return true;                             /* local device */
+  const r=SB.profile.role;
+  if(r==='admin') return true;
+  if(r==='viewer') return false;
+  if(r==='hr') return ['members','memberPrivate','workerCompetencies','training','organisations'].includes(store);
+  if(r==='subcon') return ['observations','defects','members','equipment','training','workerCompetencies'].includes(store);
+  if(r==='wsho'){
+    if(store==='memberPrivate') return false;
+    if(SB.profile.hq) return true;
+    if(COMPANY_STORES.includes(store))
+      return ['members','equipment','training','competencyTypes','workerCompetencies'].includes(store);
+    return true;                                           /* their project's records */
+  }
+  return false;
+}
 function wfGuessType(certName){
   const n=String(certName||'').toLowerCase();
   const t=db.competencyTypes.find(x=>(x.kws||[]).some(k=>n.includes(k)));
