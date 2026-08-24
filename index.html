@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-0100">
+<meta name="build" content="2026-08-25-0200">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -7618,6 +7618,28 @@ function rowsFromRoot(){
   });
   return rows;
 }
+/* Which rows may THIS account write? Mirrors the server's RLS so the client
+   never offers a row the database will refuse. The server stays the authority;
+   this only avoids poisoning the batch. */
+const WSHO_COMPANY_WRITABLE=['members','equipment','training','competencyTypes','workerCompetencies'];
+const HR_WRITABLE=['members','memberPrivate','workerCompetencies','training','organisations','auditEvents'];
+const SUBCON_WRITABLE=['members','workerCompetencies','workerProjectAccess','training'];
+function canPushRow(r){
+  const pr=SB.profile; if(!pr) return false;
+  const role=pr.role||'admin';
+  const hq=(role==='admin'||role==='hr'||!!pr.hq);
+  if(role==='viewer') return false;
+  if(role==='admin') return true;
+  if(role==='hr')    return HR_WRITABLE.includes(r.store);
+  if(role==='subcon')return SUBCON_WRITABLE.includes(r.store);
+  if(role==='wsho'){
+    if(hq) return true;                                   /* HQ WSHO writes everything */
+    if(r.project_id==='_company') return WSHO_COMPANY_WRITABLE.includes(r.store);
+    if(pr.project_id && r.project_id!==pr.project_id) return false;
+    return true;                                          /* their project's records */
+  }
+  return false;
+}
 let pushTimer=null;
 function schedulePush(){
   if(!SB.client||!SB.profile) return;
@@ -7635,8 +7657,12 @@ async function pushNow(){
     const rows=rowsFromRoot(), up=[], seen={};
     rows.forEach(r=>{
       const k=r.project_id+'|'+r.store+'|'+r.id, h=hashStr(JSON.stringify(r.data));
+      if(!canPushRow(r)){                 /* not ours to write — leave it untouched */
+        if(pushed[k]!==undefined) seen[k]=pushed[k];
+        return;
+      }
       seen[k]=h;
-      if(pushed[k]!==h) up.push({id:r.id, project_id:r.project_id, store:r.store, data:r.data, deleted:false});
+      if(pushed[k]!==h) up.push({id:r.id, project_id:r.project_id, store:r.store, data:r.data, deleted:false, _k:k});
     });
     Object.keys(pushed).forEach(k=>{
       if(!(k in seen)){
@@ -7644,13 +7670,28 @@ async function pushNow(){
         up.push({id:k.slice(i2+1), project_id:k.slice(0,i1), store:k.slice(i1+1,i2), data:{}, deleted:true});
       }
     });
+    const refused=[];
+    const strip=r=>{ const o={...r, org_id:SB.profile.org_id, updated_by:SB.profile.id}; delete o._k; return o; };
     for(let i=0;i<up.length;i+=100){
-      const chunk=up.slice(i,i+100).map(r=>({...r, org_id:SB.profile.org_id, updated_by:SB.profile.id}));
-      const {error}=await SB.client.from('records').upsert(chunk);
-      if(error) throw error;
+      const slice=up.slice(i,i+100);
+      const {error}=await SB.client.from('records').upsert(slice.map(strip));
+      if(!error) continue;
+      if(!/row-level security|42501/i.test(error.message||'')) throw error;
+      /* the server refused something in this batch — save the rest one by one
+         instead of losing everyone's work to a single bad row */
+      for(const row of slice){
+        const {error:e2}=await SB.client.from('records').upsert([strip(row)]);
+        if(e2){ refused.push(row.store); if(row._k) delete seen[row._k]; }  /* retry next push */
+      }
     }
     localStorage.setItem(SB.hashKey, JSON.stringify(seen));
-    if(up.length) sbSetStatus('ok','Synced '+up.length+' change(s) · '+new Date().toLocaleTimeString());
+    const okCount=up.length-refused.length;
+    if(refused.length){
+      const kinds=[...new Set(refused)].join(', ');
+      sbSetStatus('err','Synced '+okCount+' change(s); '+refused.length+' not permitted for your account ('+esc(kinds)+') — kept on this device.');
+    }else if(up.length){
+      sbSetStatus('ok','Synced '+up.length+' change(s) · '+new Date().toLocaleTimeString());
+    }
   }finally{ SB.busy=false; }
 }
 function localHashOf(project_id, store, id){
