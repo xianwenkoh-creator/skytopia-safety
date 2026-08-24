@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-21-1600">
+<meta name="build" content="2026-08-24-1200">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1033,6 +1033,7 @@ document.addEventListener('change',e=>{
   const box=mpickBox(e.target), grid=box&&mpickGrid(box); if(!grid) return;
   const cb=grid.querySelector('[data-mid="'+rid+'"]'); if(cb) cb.checked=e.target.checked;
   mpickPaint(box);
+  grid.dispatchEvent(new Event('change',{bubbles:true}));
 });
 document.addEventListener('click',e=>{
   const cid=e.target.dataset&&e.target.dataset.cid; if(!cid) return;
@@ -1040,6 +1041,7 @@ document.addEventListener('click',e=>{
   const cb=grid.querySelector('[data-mid="'+cid+'"]'); if(cb) cb.checked=false;
   const row=box.querySelector('[data-rid="'+cid+'"]'); if(row) row.checked=false;
   mpickPaint(box);
+  grid.dispatchEvent(new Event('change',{bubbles:true}));
 });
 /* paint chips whenever a picker appears */
 document.addEventListener('DOMContentLoaded',()=>{});
@@ -1087,6 +1089,24 @@ function collectForm(mod){
     if(f.req && !v){ ok=false; if(el){el.classList.add('err'); first=first||el;} }
   }
   if(!ok){ if(first) first.scrollIntoView({behavior:'smooth',block:'center'}); return null; }
+  return obj;
+}
+
+/* form snapshot without validation — powers close-and-resume drafts (auditor item 22) */
+function formSnapshot(mod){
+  const obj={};
+  for(const f of mod.fields){
+    if(f.type==='rows'){ obj[f.k]=collectRows(app.querySelector('[data-rows="'+f.k+'"]')); continue; }
+    if(f.type==='photos'){ const pw=app.querySelector('[data-photos="'+f.k+'"]');
+      obj[f.k]=pw?[...pw.querySelectorAll('img')].map(im=>im.src):[]; continue; }
+    if(f.type==='members'){ const pg=app.querySelector('.pickgrid[data-f="'+f.k+'"]');
+      obj[f.k]=pg?[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid):[]; continue; }
+    const el=app.querySelector('[data-f="'+f.k+'"]');
+    let v=el?el.value:'';
+    if(v==='Others'){ const ob=app.querySelector('[data-other="'+f.k+'"]');
+      const ot=ob?ob.value.trim():''; if(ot) v='Others — '+ot; }
+    if(el) obj[f.k]=v;
+  }
   return obj;
 }
 
@@ -1424,11 +1444,25 @@ function renderEdit(key, id){
   let mem={}; try{ mem=item?{}:JSON.parse(localStorage.getItem('kkl-mem-'+key)||'{}'); }catch(e){}
   const pre=(!item&&PREFILL&&PREFILL.key===key)?PREFILL.vals:null;
   PREFILL=null;
+  window._draftMute=false;
+  /* close-and-resume: an unfinished new entry survives the app closing */
+  let draft=null;
+  if(!item && !pre){
+    try{
+      const d=JSON.parse(localStorage.getItem('kkl-draft-'+key)||'null');
+      if(d&&d.vals&&(Date.now()-d.at)<86400000&&Object.values(d.vals).some(v=>Array.isArray(v)?v.length:String(v||'').trim())) draft=d;
+      else localStorage.removeItem('kkl-draft-'+key);
+    }catch(e){}
+  }
   app.innerHTML = header((item?'Edit — ':'New — ')+mod.title, true)+
-    '<div class="card"><div class="fgrid">'+
+    '<div class="card">'+
+    (draft?'<div class="hint" style="background:#fff6e2;border:1px solid #e8c877;border-radius:8px;padding:8px 10px;margin-bottom:10px;color:#5c4400">⏎ Resumed your unfinished entry — nothing was lost when the app closed. '+
+      '<a href="javascript:void 0" id="draftKill" style="font-weight:650">Start fresh instead</a></div>':'')+
+    '<div class="fgrid">'+
     mod.fields.map(f=>{
       const v=item?item[f.k]
         :(pre&&pre[f.k]!==undefined)?pre[f.k]
+        :(draft&&draft.vals[f.k]!==undefined&&draft.vals[f.k]!==''&&!(Array.isArray(draft.vals[f.k])&&!draft.vals[f.k].length))?draft.vals[f.k]
         :(f.mem&&mem[f.k]!==undefined)?mem[f.k]
         :undefined;
       if(f.type==='rows') return rowsHtml(f, v);
@@ -1457,6 +1491,8 @@ function renderEdit(key, id){
   };
   document.getElementById('saveBtn').onclick=()=>{
     const obj=collectForm(mod); if(!obj) return;
+    window._draftMute=true;
+    try{ localStorage.removeItem('kkl-draft-'+key); }catch(e){}
     const memFs=mod.fields.filter(f=>f.mem);
     if(memFs.length){
       const m={}; memFs.forEach(f=>{ if(obj[f.k]) m[f.k]=obj[f.k]; });
@@ -1478,6 +1514,15 @@ function renderEdit(key, id){
       location.hash='#/'+key;
     }
   };
+  if(!item){
+    const dkey='kkl-draft-'+key; let _dt=null;
+    const _snap=()=>{ if(window._draftMute||!curEdit||curEdit.key!==key||curEdit.id) return;
+      try{ localStorage.setItem(dkey, JSON.stringify({at:Date.now(), vals:formSnapshot(mod)})); }catch(e){} };
+    const dcard=app.querySelector('.card');
+    if(dcard) ['input','change','click'].forEach(ev=>dcard.addEventListener(ev,()=>{ clearTimeout(_dt); _dt=setTimeout(_snap, ev==='input'?700:900); }));
+    const dk=document.getElementById('draftKill');
+    if(dk) dk.onclick=()=>{ window._draftMute=true; try{ localStorage.removeItem(dkey); }catch(e){} renderEdit(key,null); };
+  }
   if(mod.afterRender) mod.afterRender(item);
 }
 
@@ -1825,16 +1870,29 @@ const MODULES={
    {k:'others',label:'Other attendees (one per line)',type:'textarea',rows:2},
    {k:'remarks',label:'Remarks / feedback from workers',type:'textarea',rows:2}],
   printExtra:function(t){
-    const cks=t.checkins||[]; if(!cks.length) return '';
     const hh=at=>{ try{ return new Date(at).toTimeString().slice(0,5); }catch(e){ return ''; } };
-    return '<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Worker check-ins ('+cks.length+' &middot; ID-validated)</div>'+
-      '<table class="dtable" style="margin:4px 0"><tr><th style="width:34px">S/N</th><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th><th style="text-align:left">Company</th><th>Time in</th><th>Check question</th><th style="width:90px">Signature</th></tr>'+
-      cks.map((c,i)=>'<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(c.wid||'')+'</td><td style="text-align:left">'+esc(c.name||'')+'</td>'+
-        '<td style="text-align:left">'+esc(c.company||'')+'</td><td>'+esc(hh(c.at))+'</td>'+
-        '<td>'+(c.answer===undefined||c.answer===null?'&mdash;':(c.correct?'&#10003; correct':'&#10007; wrong'))+'</td>'+
-        '<td class="hint" style="font-size:10px">e-checked-in</td></tr>').join('')+'</table>'+
-      (t.briefing?'<div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-top:8px">Briefing delivered</div><div style="font-size:14.5px;white-space:pre-line">'+esc(t.briefing)+'</div>':'')+
-      '</div>';
+    let h='';
+    const cks=t.checkins||[];
+    if(cks.length)
+      h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Worker check-ins ('+cks.length+' &middot; ID-validated)</div>'+
+        '<table class="dtable" style="margin:4px 0"><tr><th style="width:34px">S/N</th><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th><th style="text-align:left">Company</th><th>Time in</th><th>Check question</th><th style="width:110px">Signature</th></tr>'+
+        cks.map((c,i)=>'<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(c.wid||'')+'</td><td style="text-align:left">'+esc(c.name||'')+'</td>'+
+          '<td style="text-align:left">'+esc(c.company||'')+'</td><td>'+esc(hh(c.at))+'</td>'+
+          '<td>'+(c.answer===undefined||c.answer===null?'&mdash;':(c.correct?'&#10003; correct':'&#10007; wrong'))+'</td>'+
+          '<td style="height:30px;text-align:center">'+(c.sig?'<img src="'+c.sig+'" style="height:24px">':'<span class="hint" style="font-size:10px">e-checked-in</span>')+'</td></tr>').join('')+'</table></div>';
+    const att=t.attendees||[];
+    if(att.length){
+      const sg=t.sigs||{};
+      h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Attendance — signed ('+att.length+')</div>'+
+        '<table class="dtable" style="margin:4px 0"><tr><th style="width:34px">S/N</th><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th><th style="text-align:left">Company</th><th style="width:110px">Signature</th></tr>'+
+        att.map((id,i)=>{ const m=db.members.find(x=>x.id===id)||{};
+          return '<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(m.wid||'')+'</td><td style="text-align:left">'+esc(m.name||id)+'</td>'+
+            '<td style="text-align:left">'+esc(m.company||'')+'</td><td style="height:30px;text-align:center">'+(sg[id]?'<img src="'+sg[id]+'" style="height:24px">':'')+'</td></tr>'; }).join('')+'</table></div>';
+    }
+    if(t.briefing)
+      h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Briefing delivered</div>'+
+        '<div style="font-size:14.5px;white-space:pre-line">'+esc(t.briefing)+'</div></div>';
+    return h;
   },
   line1:i=>esc((i.topics||'').split('\n')[0].slice(0,70)),
   line2:i=>fmtD(i.date)+(i.time?' '+esc(i.time):'')+(i.conductor?' · '+esc(i.conductor):''),
@@ -1845,6 +1903,7 @@ const MODULES={
  inspections:{ title:'Inspection', store:'inspections',
   fields:[
    {k:'date',label:'Date',type:'date',req:1,def:'today',half:1},
+   {k:'time',label:'Time observed',type:'time',half:1,hint:'When the inspection was carried out — response time counts from here.'},
    {k:'type',label:'Type',type:'select',half:1,
     opts:['Daily walkabout','Weekly site inspection','Joint inspection','Management inspection','MOM / authority visit','Client / consultant audit','Environmental (ECM)','Quality','Defects','In-process audit','Others']},
    {k:'inspector',label:'Inspected by',req:1,half:1},
@@ -1858,8 +1917,22 @@ const MODULES={
      {k:'by',label:'Action by',list:siteSupervisorList,ph:'Supervisor responsible'},
      {k:'due',label:'Due',type:'date'},
      {k:'status',label:'Status',type:'select',opts:['Open','Rectified','Verified','Closed']},
+     {k:'closedDate',label:'Closed on (date)',type:'date'},
      {k:'photos',label:'Photo evidence — tap the pencil on a photo to circle the problem',type:'photos',w:'full'}]},
    {k:'remarks',label:'General remarks',type:'textarea',rows:2}],
+  printExtra:function(r){ /* auditor item 19: monitor responding time per finding */
+    const fs=(r.findings||[]).filter(f=>f.desc);
+    if(!fs.length) return '';
+    return '<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Response-time tracking ('+fs.length+' finding'+(fs.length>1?'s':'')+')</div>'+
+      '<table class="dtable" style="margin:4px 0"><tr><th style="width:34px">S/N</th><th style="text-align:left">Finding</th><th>Severity</th><th>Observed</th><th>Due</th><th>Status</th><th>Closed</th><th>Response</th></tr>'+
+      fs.map((f,i)=>{
+        const resp=(f.closedDate&&r.date)?Math.max(0,Math.round((new Date(f.closedDate)-new Date(r.date))/864e5)):null;
+        return '<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc((f.desc||'').slice(0,90))+'</td>'+
+          '<td>'+esc(f.severity||'')+'</td><td>'+esc([fmtD(r.date),r.time].filter(Boolean).join(' '))+'</td>'+
+          '<td>'+(f.due?fmtD(f.due):'&mdash;')+'</td><td>'+esc(f.status||'Open')+'</td>'+
+          '<td>'+(f.closedDate?fmtD(f.closedDate):'&mdash;')+'</td>'+
+          '<td>'+(resp===null?'<b style="color:#c5221f">open</b>':(resp+(resp===1?' day':' days')))+'</td></tr>'; }).join('')+'</table></div>';
+  },
   line1:i=>fmtD(i.date)+' · '+esc(i.type||'Inspection'),
   line2:i=>esc([i.area,i.inspector].filter(Boolean).join(' · ')),
   meta:i=>{ const fs=i.findings||[]; if(!fs.length) return '<span class="chip g">no findings</span>';
@@ -2156,6 +2229,7 @@ const MODULES={
    {k:'date',label:'Date',type:'date',req:1,half:1},
    {k:'time',label:'Time',half:1},
    {k:'waId',label:'Work activity',type:'select',req:1,opts:()=>db.workActivities.map(w=>[w.id,w.title||w.type])},
+   {k:'locationName',label:'Zone / location',half:1},
    {k:'by',label:'Carried out by',req:1,half:1},
    {k:'safe',label:'Outcome',type:'select',half:1,opts:['YES','CONTROLS','STOP']},
    {k:'hazard',label:'Hazard / issue found'},
@@ -2165,10 +2239,15 @@ const MODULES={
   beforeSave:function(obj){ if(obj.safe!=='STOP'&&!obj.resolved) obj.resolved='Resolved'; },
   printExtra:function(r){
     let h='';
-    const crew=(r.crew||[]).map(id=>{ const m=db.members.find(x=>x.id===id); return m?memberLabel(m):id; });
-    if(crew.length)
+    const crew=(r.crew||[]);
+    if(crew.length){
+      const sg=r.sigs||{};
       h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Crew briefed at the workface ('+crew.length+')</div>'+
-         '<div style="font-size:14.5px">'+crew.map(esc).join(', ')+'</div></div>';
+        '<table class="dtable" style="margin:4px 0"><tr><th style="width:34px">S/N</th><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th><th style="text-align:left">Company</th><th style="width:110px">Signature</th></tr>'+
+        crew.map((id,i)=>{ const m=db.members.find(x=>x.id===id)||{};
+          return '<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(m.wid||'')+'</td><td style="text-align:left">'+esc(m.name||id)+'</td>'+
+            '<td style="text-align:left">'+esc(m.company||'')+'</td><td style="height:30px;text-align:center">'+(sg[id]?'<img src="'+sg[id]+'" style="height:24px">':'')+'</td></tr>'; }).join('')+'</table></div>';
+    }
     const ans=(r.answers||[]).filter(a=>a.q);
     if(ans.length)
       h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Checks ('+ans.length+')</div>'+
@@ -2177,6 +2256,9 @@ const MODULES={
     if((r.photos||[]).length)
       h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Briefing photos</div>'+
          r.photos.map(d=>'<img src="'+d+'" style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</div>';
+    if(r.bySig)
+      h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Conducted by</div>'+
+         '<div style="font-size:14.5px">'+esc(r.by||'')+'</div><img src="'+r.bySig+'" style="height:34px;border-bottom:1px solid #444">'+'</div>';
     return h;
   },
   sort:(a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||'')),
@@ -2964,6 +3046,17 @@ function renderReport(){
   const inMonth=r=>r.date&&r.date.slice(0,7)===mk;
   const acty={tbm:db.tbm.filter(inMonth).length, insp:db.inspections.filter(inMonth).length,
     chk:db.checklists.filter(inMonth).length, train:db.training.filter(inMonth).length};
+  /* auditor items 17-18: training statistics with course titles */
+  const trainM=db.training.filter(inMonth);
+  const trainBy={}; trainM.forEach(t=>{ const k=(t.course||'(untitled course)').trim(); trainBy[k]=(trainBy[k]||0)+1; });
+  const trainRows=Object.entries(trainBy).sort((a,b)=>b[1]-a[1]);
+  const secTrain='<div class="card"><div class="charthead">Training conducted this month</div>'+
+    (trainRows.length
+      ?'<table class="dtable"><tr><th style="text-align:left">Training / course title</th><th>Workers trained</th></tr>'+
+        trainRows.map(t=>'<tr><td style="text-align:left">'+esc(t[0])+'</td><td>'+t[1]+'</td></tr>').join('')+
+        '<tr><td style="text-align:left"><b>Total training records</b></td><td><b>'+trainM.length+'</b></td></tr></table>'
+      :'<div class="hint">No training records dated this month — completed courses logged under Training appear here with their titles.</div>')+
+    '</div>';
   const kpi=(label,m,y)=>'<tr><td style="text-align:left">'+label+'</td><td>'+m+'</td><td>'+y+'</td></tr>';
   const fmt=v=>v===null||v===undefined?'—':(typeof v==='number'&&v>=1000?v.toLocaleString():v);
   /* header lines vary by client */
@@ -3017,6 +3110,7 @@ function renderReport(){
   if(client==='HDB')            body=secSummary+secPtw+secRanked;          /* Appendix VI shape */
   else if(client==='LTA'||client==='JTC') body=secSummary+secKpi+secRanked; /* contract SHE-stats shape */
   else                          body=secSummary+secKpi+secRanked;          /* generic/private: full picture */
+  body+=secTrain;                                                          /* training statistics — every format */
   app.innerHTML = header('Monthly Safety Report', true,
       '<select id="repMonth" class="noprint" style="width:auto;min-height:38px;padding:6px 8px">'+mOpts+'</select>')+
     body+
@@ -3048,6 +3142,10 @@ function exportReportCsv(){
   L.push([]);
   L.push(['Breakdown by subcontractor','Count']);
   d.subs.forEach(t=>L.push([t[0], t[1]])); L.push([]);
+  const trM={}; db.training.filter(t=>t.date&&t.date.slice(0,7)===mk).forEach(t=>{ const k=(t.course||'(untitled course)').trim(); trM[k]=(trM[k]||0)+1; });
+  L.push(['Training conducted this month','Workers trained']);
+  Object.entries(trM).sort((a,b)=>b[1]-a[1]).forEach(t=>L.push([t[0], t[1]]));
+  L.push([]);
   L.push(['S/N','Block','Storey','Unit','Location','Initiator','Subcontractor','Trade','Category','Standard item','Description','Severity','Date found','Time found','Status','Rectified date','Verified date','Closed date','Duration (days)']);
   d.negs.forEach((o,i)=>{
     const dur=(o.closedDate&&o.date)?Math.max(0,Math.round((new Date(o.closedDate)-new Date(o.date))/864e5)):'';
@@ -3121,6 +3219,12 @@ function renderSettings(){
       '<button class="btn danger" id="fsForget" style="display:none">Disconnect</button></div>'+
       '<p class="hint">While connected, the app also files a <b>daily automatic backup</b> into Backups, and worker / certificate photos into <b>Worker Documents\\&lt;Worker ID&gt;</b> whenever records are saved on this device.</p>'+
     '</div>'+
+    '<div class="card"><label style="margin-top:0">LMRA checklist — your site’s wording</label>'+
+      '<p class="hint">These are the base questions every LMRA asks (this activity’s RA controls are added on top automatically). Revise them in language your workers understand — one question per line. Leave empty to use the built-in list.</p>'+
+      '<textarea id="setLmraQs" rows="8" placeholder="One question per line">'+esc((s.lmraQs||[]).join('\n'))+'</textarea>'+
+      '<div class="btnrow" style="margin-top:8px"><button class="btn ghost" id="setLmraSave">Save checklist</button>'+
+      '<button class="btn ghost" id="setLmraDefault">Load built-in list to edit</button></div>'+
+    '</div>'+
     '<div class="card"><label style="margin-top:0">Backup &amp; restore</label>'+
       '<p class="hint">Live data syncs to the cloud (see Cloud sync above); this device also keeps a working copy in the browser. Backups export the full dataset as a file — automatic daily when the folder is connected, or manually here.</p>'+
       '<p class="hint">Storage used: ~'+Math.round(JSON.stringify(root).length/1024).toLocaleString()+' KB of a ~5,000 KB browser limit. Photos use the most space.</p>'+
@@ -3131,6 +3235,14 @@ function renderSettings(){
     '<div class="card"><label style="margin-top:0">Danger zone</label>'+
       '<div class="btnrow" style="margin-top:10px"><button class="btn danger" id="clrBtn" style="flex:1">Erase all data on this device</button></div>'+
     '</div>';
+  document.getElementById('setLmraSave').onclick=()=>{
+    const v=document.getElementById('setLmraQs').value.split('\n').map(x=>x.trim()).filter(Boolean);
+    if(v.length) s.lmraQs=v; else delete s.lmraQs;
+    save(); toast(v.length?('LMRA checklist saved — '+v.length+' questions'):'Cleared — using the built-in list');
+  };
+  document.getElementById('setLmraDefault').onclick=()=>{
+    document.getElementById('setLmraQs').value=LMRA_QS.join('\n');
+  };
   document.getElementById('setSave').onclick=()=>{
     root.company.name=document.getElementById('setCoName').value.trim();
     s.project=document.getElementById('setProject').value.trim();
@@ -4621,7 +4733,11 @@ function tbmDashboardHtml(items){
 }
 
 function renderToolbox(){
-  if(!TBX) TBX=tbxBlank();
+  if(!TBX){ /* close-and-resume: today's unfinished meeting survives the app closing */
+    let d=null; try{ d=JSON.parse(localStorage.getItem('kkl-tbx-draft')||'null'); }catch(e){}
+    if(d&&d.id&&d.date===today()){ TBX=d; toast('Resumed today’s unfinished toolbox meeting'); }
+    else TBX=tbxBlank();
+  }
   const t=TBX;
   const yl=tbxYesterday();
   const actChips=Object.keys(TBX_ACT).map(a=>'<button type="button" class="tbx-chip'+(t.acts.includes(a)?' on':'')+'" data-act="'+esc(a)+'">'+esc(a)+'</button>').join('');
@@ -4672,6 +4788,7 @@ function renderToolbox(){
      '</div><p class="hint">Workers scan at the physical meeting spot, pick their name and answer one question. Needs signal; use the list below when offline.</p></div>'+
      '<label style="margin-top:14px">Or tick attendance manually</label>'+
      membersHtml({k:'tbxAtt',label:''}, t.attendees).replace('<label></label>','')+
+     '<div id="tbxSigs">'+sigListHtml(t.attendees||[], t.sigs||{}, 'tbxsig')+'</div>'+
    '</div>'+
    '<div class="card"><div class="tbx-step">8 · Point out a hazard — one worker, every day</div><div class="fgrid">'+
      '<div class="fld half"><label>Spotted by</label><input id="tbxSpotBy" value="'+esc(t.spot.by)+'" list="dl-tbxc"></div>'+
@@ -4684,7 +4801,7 @@ function renderToolbox(){
      '<p class="hint">Saved as an open Observation so it gets tracked to closure — and it becomes tomorrow’s "yesterday’s lesson".</p>'+
    '</div>'+
    '<div class="btnrow"><button class="btn" id="tbxSave">Save toolbox meeting</button>'+
-   '<button class="btn ghost" onclick="if(confirm(\'Discard this toolbox meeting?\')){TBX=null;location.hash=\'#/tbm\';}">Discard</button></div>';
+   '<button class="btn ghost" onclick="if(confirm(\'Discard this toolbox meeting?\')){TBX=null;try{localStorage.removeItem(\'kkl-tbx-draft\')}catch(e){};location.hash=\'#/tbm\';}">Discard</button></div>';
 
   /* wire */
   const upd=()=>{ t.date=document.getElementById('tbxDate').value; t.time=document.getElementById('tbxTime').value;
@@ -4692,7 +4809,8 @@ function renderToolbox(){
     t.spot.by=document.getElementById('tbxSpotBy').value; t.spot.action=document.getElementById('tbxSpotAct').value;
     t.spot.desc=document.getElementById('tbxSpotDesc').value;
     const pg=app.querySelector('.pickgrid[data-f="tbxAtt"]');
-    if(pg) t.attendees=[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid); };
+    if(pg) t.attendees=[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid);
+    try{ localStorage.setItem('kkl-tbx-draft', JSON.stringify(t)); }catch(e){} };
   app.querySelectorAll('#tbxDate,#tbxTime,#tbxCond,#tbxPtw,#tbxSpotBy,#tbxSpotAct,#tbxSpotDesc').forEach(el=>el.addEventListener('change',upd));
   const waSel=document.getElementById('tbxWa');
   if(waSel) waSel.addEventListener('change',()=>{ t.waId=waSel.value||null;
@@ -4700,7 +4818,15 @@ function renderToolbox(){
     if(wa){ if(wa.ptw&&!t.ptw){ t.ptw=wa.ptw; }
       if(TBX_ACT[wa.type]&&!t.acts.includes(wa.type)) t.acts.push(wa.type);
       t.briefing=null; t.translations=null; renderToolbox(); } });
-  app.addEventListener('change',e=>{ if(e.target.closest('.pickgrid[data-f="tbxAtt"]')) upd(); });
+  const wireTbxSigs=()=>{ app.querySelectorAll('[data-tbxsig]').forEach(b=>b.onclick=()=>{ upd();
+    const id=b.dataset.tbxsig, m=db.members.find(x=>x.id===id);
+    sigPadOpen(m?m.name:'', d=>{ if(d){ t.sigs=t.sigs||{}; t.sigs[id]=d; upd();
+      const sw=document.getElementById('tbxSigs'); if(sw){ sw.innerHTML=sigListHtml(t.attendees||[], t.sigs, 'tbxsig'); wireTbxSigs(); } } }); }); };
+  wireTbxSigs();
+  if(window._tbxAttH) app.removeEventListener('change', window._tbxAttH);
+  window._tbxAttH=e=>{ if(!e.target.closest||!e.target.closest('.pickgrid[data-f="tbxAtt"]')) return; upd();
+    const sw=document.getElementById('tbxSigs'); if(sw){ sw.innerHTML=sigListHtml(t.attendees||[], t.sigs||{}, 'tbxsig'); wireTbxSigs(); } };
+  app.addEventListener('change', window._tbxAttH);
   app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{ upd();
     const a=b.dataset.act;
     t.acts=t.acts.includes(a)?t.acts.filter(x=>x!==a):[...t.acts,a];
@@ -4768,6 +4894,7 @@ function renderToolbox(){
     if(!t.conductor.trim()){ alert('Enter who conducted the meeting.'); return; }
     if(!t.acts.length){ alert('Select at least one activity.'); return; }
     tbxPersist(true);
+    try{ localStorage.removeItem('kkl-tbx-draft'); }catch(e){}
     TBX=null;
     location.hash='#/tbm';
   };
@@ -4796,7 +4923,7 @@ function tbxPersist(final){
     attendees:t.attendees, others:t.checkins.filter(c=>!c.memberId).map(c=>c.name).join('\n'),
     remarks:auto,
     activities:t.acts, briefing:t.briefing, translations:t.translations, quiz:t.quiz, waId:t.waId||null,
-    qrToken:t.qrToken, checkins:t.checkins, spot:t.spot, weather:t.weather?t.weather.line:null, draft:!final};
+    qrToken:t.qrToken, checkins:t.checkins, sigs:t.sigs||{}, spot:t.spot, weather:t.weather?t.weather.line:null, draft:!final};
   const i=db.tbm.findIndex(x=>x.id===t.id);
   if(i>=0) db.tbm[i]=rec; else db.tbm.push(rec);
   save();
@@ -4836,9 +4963,14 @@ async function renderCheckin(projId, tbmId, token){
     '<label>Company</label><input id="ciCo" placeholder="Your company">'+
     (q?'<div class="tbx-quiz" style="margin-top:14px"><b>'+esc(q.q)+'</b></div>'+
       q.o.map((o,i)=>'<button type="button" class="btn ghost ciAns" data-i="'+i+'" style="display:block;width:100%;text-align:left;margin-top:6px">'+String.fromCharCode(65+i)+') '+esc(o)+'</button>').join(''):'')+
+    '<label style="margin-top:14px">Signature *</label>'+
+    '<canvas id="ciSig" style="width:100%;height:120px;border:1.5px dashed #9aa4b2;border-radius:10px;background:#fff;touch-action:none;display:block"></canvas>'+
+    '<button type="button" class="minor" id="ciSigClr" style="width:auto;padding:4px 12px;margin-top:4px">Clear signature</button>'+
     '<div class="lg-err" id="ciErr"></div>'+
     '<div class="btnrow"><button class="btn" id="ciGo" style="flex:1"'+(q?' disabled':'')+'>Check in</button></div>';
   let ans=null, widM=null;
+  const ciPad=sigWire(document.getElementById('ciSig'));
+  document.getElementById('ciSigClr').onclick=()=>ciPad.clear();
   const widEl=document.getElementById('ciWid'), whoEl=document.getElementById('ciWho');
   widEl.oninput=()=>{
     const v=widEl.value.trim().toUpperCase();
@@ -4858,11 +4990,14 @@ async function renderCheckin(projId, tbmId, token){
     if(!m){ const e=document.getElementById('ciErr');
       e.textContent=widEl.value.trim()?'Worker ID not found in the register — check it, or see your supervisor.':'Enter your worker ID (or pick your registered name).';
       e.style.display='block'; return; }
+    if(!ciPad.drawn()){ const el=document.getElementById('ciErr');
+      el.textContent='Please sign in the signature box above.'; el.style.display='block'; return; }
     const name=m.name;
     const btn=document.getElementById('ciGo'); btn.disabled=true; btn.textContent='Checking in…';
     try{
       const res=await call({action:'submit', name, memberId:m.id, wid:m.wid||'',
-        company:document.getElementById('ciCo').value.trim(), qIdx:q?info.qIdx:null, answer:ans});
+        company:document.getElementById('ciCo').value.trim(), qIdx:q?info.qIdx:null, answer:ans,
+        sig:ciPad.data()});
       card.innerHTML='<div class="lg-brand"><span class="bmark" style="background:'+(res.correct===false?'#e0a030':'#2fbf4f')+'">✓</span>'+
         '<div><div class="lg-t">Checked in</div><div class="lg-s">'+esc(name)+'</div></div></div>'+
         (res.correct===true?'<p style="font-weight:650;color:var(--good-ink)">Correct — stay safe today.</p>':'')+
@@ -6033,6 +6168,58 @@ function openMarkup(imgEl){
   base.src=imgEl.src;
 }
 
+/* ---- signatures: SS679 auditor — get a signature from the person ---- */
+function sigWire(cv){
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  const w=cv.clientWidth||300, h=cv.clientHeight||140;
+  cv.width=w*dpr; cv.height=h*dpr;
+  const ctx=cv.getContext('2d');
+  ctx.scale(dpr,dpr); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+  ctx.strokeStyle='#16305c'; ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.lineJoin='round';
+  let draw=false, drawn=false, px=0, py=0;
+  const pos=e=>{ const r=cv.getBoundingClientRect(); return [e.clientX-r.left, e.clientY-r.top]; };
+  cv.addEventListener('pointerdown',e=>{ e.preventDefault(); try{ cv.setPointerCapture(e.pointerId); }catch(err){} draw=true; const xy=pos(e); px=xy[0]; py=xy[1]; });
+  cv.addEventListener('pointermove',e=>{ if(!draw) return; e.preventDefault(); const xy=pos(e);
+    ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(xy[0],xy[1]); ctx.stroke(); px=xy[0]; py=xy[1]; drawn=true; });
+  ['pointerup','pointercancel'].forEach(ev=>cv.addEventListener(ev,()=>{ draw=false; }));
+  return { drawn:()=>drawn,
+    clear(){ ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); drawn=false; },
+    data(){ const sc=document.createElement('canvas'); sc.width=Math.round(w*0.75); sc.height=Math.round(h*0.75);
+      const c2=sc.getContext('2d'); c2.fillStyle='#fff'; c2.fillRect(0,0,sc.width,sc.height);
+      c2.drawImage(cv,0,0,sc.width,sc.height);
+      return sc.toDataURL('image/jpeg',0.7); } };
+}
+function sigPadOpen(who, cb){
+  const wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;inset:0;background:rgba(10,16,24,.55);z-index:900;display:flex;align-items:center;justify-content:center;padding:16px';
+  wrap.innerHTML='<div style="background:#fff;border-radius:14px;padding:16px;width:100%;max-width:460px">'+
+    '<div style="font-weight:750;margin-bottom:2px;color:#111">Signature</div>'+
+    '<div class="hint" style="margin-bottom:8px">'+esc(who||'')+' — sign in the box below</div>'+
+    '<canvas style="width:100%;height:170px;border:1.5px dashed #9aa4b2;border-radius:10px;background:#fff;touch-action:none;display:block"></canvas>'+
+    '<div class="btnrow" style="margin-top:10px">'+
+      '<button type="button" class="btn ghost" data-sg="clear" style="flex:1">Clear</button>'+
+      '<button type="button" class="btn ghost" data-sg="x" style="flex:1">Cancel</button>'+
+      '<button type="button" class="btn" data-sg="ok" style="flex:1.4">Save signature</button></div></div>';
+  document.body.appendChild(wrap);
+  const pad=sigWire(wrap.querySelector('canvas'));
+  wrap.querySelector('[data-sg="clear"]').onclick=()=>pad.clear();
+  wrap.querySelector('[data-sg="x"]').onclick=()=>{ wrap.remove(); cb(null); };
+  wrap.querySelector('[data-sg="ok"]').onclick=()=>{ if(!pad.drawn()){ alert('Sign in the box first.'); return; }
+    const d=pad.data(); wrap.remove(); cb(d); };
+}
+/* tap-to-sign buttons for a ticked list of workers */
+function sigListHtml(ids, sigs, tag){
+  ids=ids||[]; sigs=sigs||{};
+  if(!ids.length) return '';
+  const nSigned=ids.filter(id=>sigs[id]).length;
+  return '<label style="margin-top:12px">Signatures ('+nSigned+'/'+ids.length+')</label>'+
+    '<div class="hint" style="margin:0 0 6px">SS679: each person signs against their own name — tap a name, hand over the phone.</div>'+
+    '<div style="display:flex;flex-wrap:wrap;gap:6px">'+ids.map(id=>{
+      const m=db.members.find(x=>x.id===id); const nm=m?(m.name||id):id; const ok=!!sigs[id];
+      return '<button type="button" class="btn ghost" data-'+tag+'="'+id+'" style="padding:6px 10px;min-height:34px;font-size:13px'+
+        (ok?';border-color:#1c7d3a;color:#1c7d3a':'')+'">'+(ok?'✓ ':'✎ ')+esc(nm)+'</button>'; }).join('')+'</div>';
+}
+
 /* ---- LMRA: last minute risk assessment at the workface ---- */
 const LMRA_QS=[
  'Everyone here understands the task and has been briefed (toolbox / RA / SWP)',
@@ -6050,6 +6237,8 @@ const LMRA_QS=[
  'Weather, lighting and surrounding activities are acceptable',
  'Everyone knows the emergency arrangements and who to call'
 ];
+/* Safety can revise the base checklist in Settings (auditor item 21) */
+function lmraBaseQs(){ const o=db.settings&&db.settings.lmraQs; return (Array.isArray(o)&&o.length)?o:LMRA_QS; }
 /* extra check lines drawn from this activity's own approved RA controls */
 function lmraRaChecks(waId){
   const wa=db.workActivities.find(w=>w.id===waId); if(!wa) return [];
@@ -6062,12 +6251,12 @@ function lmraRaChecks(waId){
   return out;
 }
 function lmraAllQs(waId){
-  return LMRA_QS.concat(lmraRaChecks(waId).map(r=>'RA control \u2014 '+r.text+(r.hazard?' (for: '+r.hazard+')':'')));
+  return lmraBaseQs().concat(lmraRaChecks(waId).map(r=>'RA control \u2014 '+r.text+(r.hazard?' (for: '+r.hazard+')':'')));
 }
 let LMX=null;
 function renderLmraCheck(){
   geoCapture();
-  if(!LMX) LMX={waId:'', by:'', ans:{}, hazard:'', action:'', crew:[], photos:[]};
+  if(!LMX) LMX={waId:'', by:'', ans:{}, hazard:'', action:'', crew:[], photos:[], locId:'', sigs:{}, bySig:null};
   /* the screen re-renders on every tap — hold what the user already entered */
   const _grab=()=>{
     const pg=app.querySelector('.pickgrid[data-f="lmCrew"]');
@@ -6076,10 +6265,12 @@ function renderLmraCheck(){
     if(pw) LMX.photos=[...pw.querySelectorAll('img')].map(im=>im.src);
     const h=app.querySelector('#lmHaz'), a=app.querySelector('#lmAct');
     if(h) LMX.hazard=h.value; if(a) LMX.action=a.value;
+    const lc=app.querySelector('#lmLoc'); if(lc) LMX.locId=lc.value;
   };
   if(app.querySelector('#lmBy')) _grab();
   const was=db.workActivities.filter(w=>w.status!=='Completed');
   const QS=lmraAllQs(LMX.waId);
+  const BASEN=lmraBaseQs().length;
   const allAnswered=QS.every((q,i)=>LMX.ans[i]);
   const anyNo=QS.some((q,i)=>LMX.ans[i]==='NO');
   app.innerHTML=header('LMRA — Last Minute Risk Assessment', true)+
@@ -6088,9 +6279,19 @@ function renderLmraCheck(){
       '<option value=""></option>'+was.map(w=>'<option value="'+w.id+'"'+(LMX.waId===w.id?' selected':'')+'>'+esc(w.title||w.type)+'</option>').join('')+'</select></div>'+
     '<div class="fld half"><label>Led by *</label><input id="lmBy" value="'+esc(LMX.by)+'" list="dl-lmby" placeholder="Supervisor / foreman conducting">'+
       '<datalist id="dl-lmby">'+safetyPersonnelList().map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'+
+    (function(){ /* zone / location: pick from the site's location tree, or type it */
+      const locs=db.locations.filter(l=>l.status!=='ARCHIVED');
+      if(locs.length)
+        return '<div class="fld half"><label>Zone / location</label><select id="lmLoc"><option value=""></option>'+
+          locs.map(l=>'<option value="'+l.id+'"'+(LMX.locId===l.id?' selected':'')+'>'+esc(locBreadcrumb(l.id))+'</option>').join('')+'</select></div>';
+      return '<div class="fld half"><label>Zone / location</label><input id="lmLoc" value="'+esc(LMX.locId||'')+'" placeholder="e.g. Zone B — Tower 2 L5"></div>';
+    })()+
+    '<div class="fld half"><label>Leader signature</label><button type="button" class="btn ghost" id="lmBySigBtn" style="width:100%;min-height:44px'+
+      (LMX.bySig?';border-color:#1c7d3a;color:#1c7d3a':'')+'">'+(LMX.bySig?'✓ Signed':'✎ Sign — conducted by')+'</button></div>'+
     '</div>'+
     membersHtml({k:'lmCrew',label:'Crew briefed at the workface',
       hint:'Search by name or worker ID, then tick everyone standing in the briefing.'}, LMX.crew||[])+
+    '<div id="lmSigs">'+sigListHtml(LMX.crew||[], LMX.sigs, 'lmsig')+'</div>'+
     photosHtml({k:'lmPhotos',label:'Briefing photo (evidence)',
       hint:'A photo of the crew at the workface. Tap the pencil to mark up the hazard being pointed out.'}, LMX.photos||[])+
     '</div>'+
@@ -6120,8 +6321,8 @@ function renderLmraCheck(){
       return h+'</div>';
     })()+
     '<h2 class="sect">Take 2 minutes — check before you start</h2>'+
-    QS.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px'+(i>=LMRA_QS.length?';border-left:3px solid var(--acc,#e11b12)':'')+'">'+
-      (i===LMRA_QS.length?'<div class="hint" style="margin:-4px 0 8px">From the approved RA for this activity</div>':'')+
+    QS.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px'+(i>=BASEN?';border-left:3px solid var(--acc,#e11b12)':'')+'">'+
+      (i===BASEN?'<div class="hint" style="margin:-4px 0 8px">From the approved RA for this activity</div>':'')+
       '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
       '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+(LMX.ans[i]===a?(a==='NO'?'danger':''):'ghost')+'" data-lm="'+i+'" data-a="'+a+'" style="flex:1;min-height:38px;padding:6px">'+a+'</button>').join('')+'</div></div>').join('')+
     (anyNo?'<div class="card" style="border-color:var(--bad-ink)">'+
@@ -6140,6 +6341,18 @@ function renderLmraCheck(){
   };
   setTimeout(()=>{ try{ mpickInitAll(); }catch(err){} },0);
   document.getElementById('lmBy').oninput=e=>{ LMX.by=e.target.value; };
+  const _ll=document.getElementById('lmLoc'); if(_ll) _ll.onchange=e=>{ LMX.locId=e.target.value; };
+  const _bs=document.getElementById('lmBySigBtn'); if(_bs) _bs.onclick=()=>{ _grab();
+    sigPadOpen(LMX.by||'Conducted by', d=>{ if(d){ LMX.bySig=d; renderLmraCheck(); } }); };
+  const wireLmSigs=()=>{ app.querySelectorAll('[data-lmsig]').forEach(b=>b.onclick=()=>{ _grab();
+    const id=b.dataset.lmsig, m=db.members.find(x=>x.id===id);
+    sigPadOpen(m?m.name:'', d=>{ if(d){ LMX.sigs=LMX.sigs||{}; LMX.sigs[id]=d;
+      const sw=document.getElementById('lmSigs'); if(sw){ sw.innerHTML=sigListHtml(LMX.crew||[], LMX.sigs, 'lmsig'); wireLmSigs(); } } }); }); };
+  wireLmSigs();
+  if(window._lmCrewH) app.removeEventListener('change', window._lmCrewH);
+  window._lmCrewH=e=>{ if(!e.target.closest||!e.target.closest('.pickgrid[data-f="lmCrew"]')) return; _grab();
+    const sw=document.getElementById('lmSigs'); if(sw){ sw.innerHTML=sigListHtml(LMX.crew||[], LMX.sigs||{}, 'lmsig'); wireLmSigs(); } };
+  app.addEventListener('change', window._lmCrewH);
   app.querySelectorAll('[data-lm]').forEach(b=>b.onclick=()=>{
     _grab();
     LMX.ans[b.dataset.lm]=b.dataset.a; renderLmraCheck(); });
@@ -6150,6 +6363,9 @@ function renderLmraCheck(){
     _grab();
     const rec={id:uid(), date:today(), time:new Date().toTimeString().slice(0,5),
       geo:geoStamp(), waId:LMX.waId, by:LMX.by.trim(),
+      locationId:(LMX.locId&&locById(LMX.locId))?LMX.locId:'',
+      locationName:LMX.locId?(locById(LMX.locId)?locBreadcrumb(LMX.locId):LMX.locId):'',
+      bySig:LMX.bySig||null, sigs:LMX.sigs||{},
       crew:LMX.crew||[], crewCount:(LMX.crew||[]).length, photos:LMX.photos||[],
       answers:lmraAllQs(LMX.waId).map((q,i)=>({q, a:LMX.ans[i]||''})),
       hazard:h?h.value.trim():'', action:a?a.value.trim():'',

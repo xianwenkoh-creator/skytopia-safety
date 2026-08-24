@@ -82,9 +82,12 @@ Deno.serve(async (req) => {
       const correct = qIdx !== null && answer !== null ? quiz[qIdx].a === answer : null;
       const geo = (b.geo && typeof b.geo.lat === "number" && typeof b.geo.lng === "number")
         ? { lat: b.geo.lat, lng: b.geo.lng } : null;
+      // SS679 auditor: attendance carries the worker's own signature (small JPEG data URL)
+      const sig = (typeof b.sig === "string" && b.sig.startsWith("data:image/") && b.sig.length < 80000)
+        ? b.sig : null;
       checkins.push({
         name, wid: mem.wid, memberId: mem.id, company: String(b.company || mem.company || "").slice(0, 80),
-        qIdx, answer, correct, geo, at: new Date().toISOString(),
+        qIdx, answer, correct, geo, sig, at: new Date().toISOString(),
       });
       const data = { ...row.data, checkins };
       const { error: upErr } = await admin.from("records").update({ data })
