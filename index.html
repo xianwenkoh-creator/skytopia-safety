@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-0600">
+<meta name="build" content="2026-08-25-0700">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -3436,11 +3436,15 @@ function renderSettings(){
       '<p class="hint">While connected, the app also files a <b>daily automatic backup</b> into Backups, and worker / certificate photos into <b>Worker Documents\\&lt;Worker ID&gt;</b> whenever records are saved on this device.</p>'+
     '</div>')+
     (lite?'':
-    '<div class="card"><label style="margin-top:0">LMRA checklist — your site’s wording</label>'+
-      '<p class="hint">These are the base questions every LMRA asks (this activity’s RA controls are added on top automatically). Revise them in language your workers understand — one question per line. Leave empty to use the built-in list.</p>'+
-      '<textarea id="setLmraQs" rows="8" placeholder="One question per line">'+esc((s.lmraQs||[]).join('\n'))+'</textarea>'+
-      '<div class="btnrow" style="margin-top:8px"><button class="btn ghost" id="setLmraSave">Save checklist</button>'+
-      '<button class="btn ghost" id="setLmraDefault">Load built-in list to edit</button></div>'+
+    '<div class="card"><label style="margin-top:0">LMRA checklists — plain wording, per activity</label>'+
+      '<p class="hint">The checklist workers answer follows the <b>work activity</b> they pick on the LMRA. Choose an activity, press <b>Suggest</b> to build a starting list from the activity library and its approved RA, then rewrite it in words your workers actually use — one question per line, then Save.</p>'+
+      '<div class="fld"><label>Checklist for</label><select id="setLmraAct"><option value="">Base — used when the activity has no list</option>'+
+        (function(){ const ts=Object.keys(LMRA_ACT_QS); db.workActivities.forEach(w=>{ if(w.type&&ts.indexOf(w.type)<0) ts.push(w.type); });
+          return ts.map(t=>'<option value="'+esc(t)+'">'+esc(t)+'</option>').join(''); })()+'</select></div>'+
+      '<textarea id="setLmraQs" rows="10" placeholder="One question per line"></textarea>'+
+      '<p class="hint" id="setLmraSrc" style="margin:6px 0 0"></p>'+
+      '<div class="btnrow" style="margin-top:8px"><button class="btn ghost" id="setLmraSave">Save</button>'+
+      '<button class="btn ghost" id="setLmraSug">Suggest from activity + RA</button></div>'+
     '</div>')+
     (lite?'':'<div class="card"><label style="margin-top:0">Backup &amp; restore</label>'+
       '<p class="hint">Live data syncs to the cloud (see Cloud sync above); this device also keeps a working copy in the browser. Backups export the full dataset as a file — automatic daily when the folder is connected, or manually here.</p>'+
@@ -3453,13 +3457,27 @@ function renderSettings(){
       '<div class="btnrow" style="margin-top:10px"><button class="btn danger" id="clrBtn" style="flex:1">Erase all data on this device</button></div>'+
     '</div>');
   if(!lite){
-  document.getElementById('setLmraSave').onclick=()=>{
-    const v=document.getElementById('setLmraQs').value.split('\n').map(x=>x.trim()).filter(Boolean);
-    if(v.length) s.lmraQs=v; else delete s.lmraQs;
-    save(); toast(v.length?('LMRA checklist saved — '+v.length+' questions'):'Cleared — using the built-in list');
+  const _lmraPaint=()=>{
+    const t=document.getElementById('setLmraAct').value, ta=document.getElementById('setLmraQs'), st=document.getElementById('setLmraSrc');
+    if(!t){ ta.value=(s.lmraQs||LMRA_QS).join('\n');
+      st.textContent=s.lmraQs?'Your site’s base wording.':'Built-in base wording — edit and Save to make it yours.'; }
+    else{ const per=(s.lmraActQs||{})[t];
+      ta.value=(per||lmraSuggestQs(t)).join('\n');
+      st.textContent=per?('Your site’s wording for '+t+'.'):'Suggested from the activity library + approved RA — edit and Save to make it yours.'; }
   };
-  document.getElementById('setLmraDefault').onclick=()=>{
-    document.getElementById('setLmraQs').value=LMRA_QS.join('\n');
+  document.getElementById('setLmraAct').onchange=_lmraPaint; _lmraPaint();
+  document.getElementById('setLmraSug').onclick=()=>{
+    const t=document.getElementById('setLmraAct').value;
+    document.getElementById('setLmraQs').value=(t?lmraSuggestQs(t):LMRA_QS).join('\n');
+  };
+  document.getElementById('setLmraSave').onclick=()=>{
+    const t=document.getElementById('setLmraAct').value;
+    const v=document.getElementById('setLmraQs').value.split('\n').map(x=>x.trim()).filter(Boolean);
+    if(!t){ if(v.length) s.lmraQs=v; else delete s.lmraQs; }
+    else{ s.lmraActQs=s.lmraActQs||{}; if(v.length) s.lmraActQs[t]=v; else delete s.lmraActQs[t];
+      if(!Object.keys(s.lmraActQs).length) delete s.lmraActQs; }
+    save(); toast(v.length?('Saved — '+v.length+' questions'+(t?' for '+t:' (base)')):'Cleared — back to suggested wording');
+    _lmraPaint();
   };
   document.getElementById('setSave').onclick=()=>{
     root.company.name=document.getElementById('setCoName').value.trim();
@@ -6479,24 +6497,138 @@ function sigListHtml(ids, sigs, tag){
 }
 
 /* ---- LMRA: last minute risk assessment at the workface ---- */
-const LMRA_QS=[
- 'Everyone here understands the task and has been briefed (toolbox / RA / SWP)',
- 'Everyone is trained, competent and certified for this task',
- 'The approved RA / SWP for this activity is in force and its controls are in place',
- 'Permit-to-work is approved and displayed where the work needs one',
- 'Access, egress and housekeeping in the work area are safe',
- 'Barricades, signage and exclusion zones are in place',
- 'Tools, plant and equipment are correct, inspected and in good condition',
- 'Lifting gear / scaffold / platform has a valid inspection tag where used',
- 'Required PPE is available, correct and worn by everyone',
- 'Energy sources and services are isolated, locked and tagged where required',
- 'Work at height: anchorage, fall arrest and edge protection are ready',
- 'Confined space / hot work: gas test, ventilation and fire watch are in place',
- 'Weather, lighting and surrounding activities are acceptable',
- 'Everyone knows the emergency arrangements and who to call'
+const LMRA_CORE_QS=[
+ 'Do you know the job you are doing now, and how to do it safely?',
+ 'Did everyone attend today\u2019s toolbox briefing for this work?',
+ 'Is everyone trained and holding the right cert for this job?',
+ 'Is everyone wearing the PPE this job needs?'
 ];
+const LMRA_QS=LMRA_CORE_QS.concat([
+ 'Is the work area tidy, with a safe way in and a safe way out?',
+ 'Are barricades and warning signs up where someone could get hurt?',
+ 'Are your tools and machines checked and working properly?',
+ 'If this work needs a permit \u2014 is it approved and displayed?',
+ 'Is the weather and lighting OK for this work?',
+ 'Does everyone know where to go and who to call if something goes wrong?',
+ 'If anything changes or feels unsafe \u2014 STOP and call your supervisor. Agreed?'
+]);
+/* activity-specific checks, written the way workers talk (auditor items 20+21) */
+const LMRA_ACT_QS={
+ 'Excavation & Trenching':[
+  'Deeper than 1.5 m \u2014 is the trench shored, sloped or benched?',
+  'Are the machine and the soil heap at least 1 m from the edge?',
+  'Did a competent person check the trench today (and after any rain)?',
+  'Are underground cables and pipes marked before you dig?',
+  'Is there a good ladder to climb in and out?',
+  'Water inside the trench? Do NOT enter \u2014 tell your supervisor',
+  'Is the excavation fenced so no one can fall in?'],
+ 'Lifting Operations':[
+  'Is the lifting plan ready and the Lifting Supervisor here?',
+  'Did you check the slings and shackles \u2014 correct colour code, no damage?',
+  'Is the area under the load barricaded \u2014 NOBODY walks below the load?',
+  'Is the crane on firm ground, outriggers fully out on steel plates?',
+  'Do you know the load weight \u2014 is it within the SWL?',
+  'Tag line on the load \u2014 hands off the load itself?',
+  'Can the operator, rigger and signalman all see or hear each other?'],
+ 'Scaffolding':[
+  'Is the scaffold tag GREEN and still valid?',
+  'Guardrails, toe boards and planks all in place \u2014 nothing removed?',
+  'Harness on and hooked where there is no guardrail?',
+  'Is the ladder or stair access safe and tied?',
+  'Tools tied off so they cannot fall on people below?',
+  'Missing tie, brace or plank? STOP \u2014 call the scaffold team, do not fix it yourself'],
+ 'Work at Height':[
+  'Are all floor openings and edges covered or fenced?',
+  'Harness checked \u2014 no cuts, both hooks working?',
+  'Are you hooked on 100% of the time, to a strong anchor point above you?',
+  'Is the area below barricaded so nothing you drop can hit anyone?',
+  'Tools tied with lanyards?',
+  'Ladder tied at the top, on firm ground \u2014 3 points of contact?'],
+ 'Hot Works':[
+  'Is the hot work permit approved and displayed?',
+  'Fire extinguisher beside you \u2014 checked and full?',
+  'Fire watchman here, and staying 30 minutes after the work ends?',
+  'Everything that can burn moved away or covered with a fire blanket?',
+  'Gas hoses, regulators and flashback arrestors checked \u2014 no leaks?',
+  'Face shield, leather gloves and apron on?'],
+ 'Concreting':[
+  'Formwork and props checked and approved before pouring?',
+  'Pump line and boom clear of people and overhead cables?',
+  'Goggles, gloves and boots on \u2014 concrete burns skin?',
+  'Exposed rebar ends capped?',
+  'Safe walkway to the pour \u2014 not stepping on loose rebar?',
+  'Vibrator cables and sockets in good condition, off the wet ground?'],
+ 'Confined Space':[
+  'Is the entry permit approved and displayed?',
+  'Air tested and SAFE before entry \u2014 and re-tested as required?',
+  'Blower / ventilation running the whole time?',
+  'Watchman standing at the entrance ALL the time \u2014 never alone inside?',
+  'Do you know the escape signal and the way out?',
+  'Rescue tripod and equipment ready at the entrance?'],
+ 'Electrical Works':[
+  'Power locked out and tagged before touching any wiring?',
+  'Did you TEST that the line is dead \u2014 never assume?',
+  'Cables, plugs and tools in good condition \u2014 no cut or taped wires?',
+  'DB box has a working ELCB and the cover is closed?',
+  'Hands, gloves and floor dry?',
+  'Live work only by the licensed electrician \u2014 everyone clear on that?'],
+ 'Demolition / Hacking':[
+  'Supervisor confirmed WHAT to hack \u2014 and what must NOT be touched?',
+  'Power, water and gas in the wall or floor cut off first?',
+  'Area around and below barricaded for falling debris?',
+  'Goggles, dust mask and ear plugs on?',
+  'Props in place so nothing collapses on you?',
+  'Clearing debris as you go \u2014 no tripping, no nails?'],
+ 'Piling':[
+  'Ground firm for the rig \u2014 checked again after rain?',
+  'Everyone outside the rig\u2019s exclusion zone?',
+  'Eye contact with the operator before walking near the rig?',
+  'Lifting gear for cages and casings checked?',
+  'Open bores and casings covered or fenced?',
+  'Hand signals agreed between rigger and operator?'],
+ 'Vehicle & Plant Movement':[
+  'Banksman guiding every reversing machine?',
+  'Reflective vest on?',
+  'Eye contact with the operator before you go near \u2014 never in the blind spot?',
+  'People and machines separated \u2014 use the walkway?',
+  'Reverse alarm, horn and lights working?',
+  'Load secured before the lorry moves?'],
+ 'General Housekeeping':[
+  'Materials stacked safely \u2014 nothing can fall or tip?',
+  'Walkways clear of cables, debris and water?',
+  'Nails in old wood removed or bent flat?',
+  'Waste going into the right bin or skip?',
+  'Stairs and access routes clear and lit?',
+  'Standing water cleared \u2014 slips and mosquitoes?']
+};
 /* Safety can revise the base checklist in Settings (auditor item 21) */
 function lmraBaseQs(){ const o=db.settings&&db.settings.lmraQs; return (Array.isArray(o)&&o.length)?o:LMRA_QS; }
+/* map an activity onto a checklist family \u2014 by its type, else by how it is described */
+const LMRA_TYPE_KEYS=[
+ [/lift|crane|rigg/i,'Lifting Operations'],[/excav|trench|\bdig/i,'Excavation & Trenching'],
+ [/scaffold/i,'Scaffolding'],[/height|roof|edge|facade|fa\u00e7ade|gondola/i,'Work at Height'],
+ [/weld|hot ?work|cutting|grind|torch/i,'Hot Works'],[/concret|pour|cast/i,'Concreting'],
+ [/confined|manhole|tank|shaft/i,'Confined Space'],[/electric|cabling|power supply|\bdb\b/i,'Electrical Works'],
+ [/demoli|hack/i,'Demolition / Hacking'],[/\bpil(e|es|ing)\b|bored?\b/i,'Piling'],
+ [/vehicle|plant|tipper|haul|lorr|truck|traffic/i,'Vehicle & Plant Movement'],
+ [/housekeep|clean/i,'General Housekeeping']];
+function lmraGuessType(wa){
+  if(!wa) return '';
+  if(LMRA_ACT_QS[wa.type]) return wa.type;
+  const txt=[wa.type,wa.title,wa.description].filter(Boolean).join(' ');
+  for(const [re,t] of LMRA_TYPE_KEYS) if(re.test(txt)) return t;
+  return '';
+}
+/* which questions this activity gets: site wording > built-in activity list > base */
+function lmraQsFor(waId){
+  const wa=db.workActivities.find(w=>w.id===waId);
+  const per=(db.settings&&db.settings.lmraActQs)||{};
+  if(wa&&wa.type&&Array.isArray(per[wa.type])&&per[wa.type].length) return {qs:per[wa.type],src:'site',type:wa.type};
+  const g=lmraGuessType(wa);
+  if(g&&Array.isArray(per[g])&&per[g].length) return {qs:per[g],src:'site',type:g};
+  if(g) return {qs:LMRA_CORE_QS.concat(LMRA_ACT_QS[g]),src:'suggested',type:g};
+  return {qs:lmraBaseQs(),src:'base',type:''};
+}
 /* extra check lines drawn from this activity's own approved RA controls */
 function lmraRaChecks(waId){
   const wa=db.workActivities.find(w=>w.id===waId); if(!wa) return [];
@@ -6508,8 +6640,35 @@ function lmraRaChecks(waId){
   });
   return out;
 }
+/* RA controls pooled across every activity of a type \u2014 feeds the Settings suggester */
+function lmraRaChecksByType(t){
+  if(typeof waPinnedRaItems!=='function') return [];
+  const out=[], seen=new Set();
+  db.workActivities.filter(w=>w.type===t||lmraGuessType(w)===t).forEach(wa=>{
+    waPinnedRaItems(wa).forEach(x=>{
+      [].concat(x.item.controls||[],x.item.addControls||[]).filter(Boolean).slice(0,2).forEach(c=>{
+        const k=String(c).toLowerCase().trim();
+        if(k&&!seen.has(k)&&out.length<8){ seen.add(k); out.push(String(c)); }
+      });
+    });
+  });
+  return out;
+}
+/* one editable starting list: core + activity library + this type's RA controls */
+function lmraSuggestQs(t){
+  let spec=LMRA_ACT_QS[t];
+  if(!spec){ const g=lmraGuessType({type:t}); spec=g?LMRA_ACT_QS[g]:[]; }
+  return LMRA_CORE_QS.concat(spec||[]).concat(lmraRaChecksByType(t).map(c=>'RA control \u2014 '+c));
+}
 function lmraAllQs(waId){
-  return lmraBaseQs().concat(lmraRaChecks(waId).map(r=>'RA control \u2014 '+r.text+(r.hazard?' (for: '+r.hazard+')':'')));
+  const base=lmraQsFor(waId).qs;
+  const norm=t=>String(t).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const have=base.map(norm);
+  const extra=lmraRaChecks(waId)
+    .map(r=>({line:'RA control \u2014 '+r.text+(r.hazard?' (for: '+r.hazard+')':''), key:norm(r.text)}))
+    .filter(x=>x.key&&!have.some(h=>h.includes(x.key)||x.key.includes(h)))
+    .map(x=>x.line);
+  return base.concat(extra);
 }
 let LMX=null;
 function renderLmraCheck(){
@@ -6527,8 +6686,9 @@ function renderLmraCheck(){
   };
   if(app.querySelector('#lmBy')) _grab();
   const was=db.workActivities.filter(w=>w.status!=='Completed');
+  const QSI=lmraQsFor(LMX.waId);
   const QS=lmraAllQs(LMX.waId);
-  const BASEN=lmraBaseQs().length;
+  const BASEN=QSI.qs.length;
   const allAnswered=QS.every((q,i)=>LMX.ans[i]);
   const anyNo=QS.some((q,i)=>LMX.ans[i]==='NO');
   app.innerHTML=header('LMRA — Last Minute Risk Assessment', true)+
@@ -6579,6 +6739,7 @@ function renderLmraCheck(){
       return h+'</div>';
     })()+
     '<h2 class="sect">Take 2 minutes — check before you start</h2>'+
+    (QSI.type?'<div class="hint" style="margin:0 16px 8px">Checklist: <b>'+esc(QSI.type)+'</b>'+(QSI.src==='site'?' — your site’s wording':' — suggested wording; Safety can rewrite it in Settings')+'</div>':'')+
     QS.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px'+(i>=BASEN?';border-left:3px solid var(--acc,#e11b12)':'')+'">'+
       (i===BASEN?'<div class="hint" style="margin:-4px 0 8px">From the approved RA for this activity</div>':'')+
       '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
