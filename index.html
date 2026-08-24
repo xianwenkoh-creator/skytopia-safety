@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-0500">
+<meta name="build" content="2026-08-25-0600">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1965,7 +1965,8 @@ const MODULES={
    {k:'trade',label:'Trade / role',type:'select',opts:TRADES,half:1},
    {k:'designation',label:'Designation',half:1},
    {k:'passType',label:'Pass type',type:'select',opts:['Work Permit','S Pass','Employment Pass','Singaporean / PR','Others'],half:1},
-   {k:'idno',label:'NRIC / FIN (masked)',half:1,ph:'e.g. ****567A'},
+   {k:'idno',label:'NRIC / FIN (masked)',half:1,ph:'e.g. ****567A',
+    hint:'Full numbers are auto-masked here — keep the full NRIC/FIN in Private (HR), which only Admin/HR can open.'},
    {k:'phone',label:'Phone',type:'tel',half:1},
    {k:'wpExpiry',label:'Work pass expiry',type:'date',half:1},
    {k:'sicDate',label:'Legacy SIC date (use SIC / Induction)',type:'date',half:1},
@@ -1973,6 +1974,8 @@ const MODULES={
    {k:'remarks',label:'Remarks',type:'textarea',rows:2}],
   beforeSave:function(obj){
     if(!obj.status) obj.status='ACTIVE';
+    if(obj.idno){ const masked=maskIdno(obj.idno);
+      if(masked!==obj.idno){ obj.idno=masked; toast('NRIC/FIN masked — the full number belongs in Private (HR)'); } }
     const prev=db.members.find(x=>x.id===obj.id);
     if(prev&&(prev.wpExpiry!==obj.wpExpiry||prev.status!==obj.status))
       audit('member-updated','member',obj.id,{wpExpiry:prev.wpExpiry,status:prev.status},{wpExpiry:obj.wpExpiry,status:obj.status});
@@ -3060,6 +3063,7 @@ function exportModuleCsv(key){
 /* SIC (safety induction) register: the fields induction registration and the
    site induction record normally ask for, one row per worker. */
 function exportSicCsv(){
+  db.members.forEach(m=>{ if(m.idno) m.idno=maskIdno(m.idno); });   /* legacy rows */
   const items=[...db.members].sort((a,b)=>(a.company||'').localeCompare(b.company||'')||(a.name||'').localeCompare(b.name||''));
   const heads=['S/N','Worker ID','Full name','NRIC / FIN (masked)','Company','Trade / designation','Phone',
     'Work pass expiry','SIC date','SIC status','Competency certs (name / no. / expiry)','Remarks'];
@@ -5186,7 +5190,8 @@ async function renderCheckin(projId, tbmId, token){
     '<label>Company</label><input id="ciCo" placeholder="Your company">'+
     (q?'<div class="tbx-quiz" style="margin-top:14px"><b>'+esc(q.q)+'</b></div>'+
       q.o.map((o,i)=>'<button type="button" class="btn ghost ciAns" data-i="'+i+'" style="display:block;width:100%;text-align:left;margin-top:6px">'+String.fromCharCode(65+i)+') '+esc(o)+'</button>').join(''):'')+
-    '<label style="margin-top:14px">Signature *</label>'+
+    '<p class="hint" style="margin:12px 0 0">Your worker ID, signature, and check-in time and location are recorded as attendance evidence for workplace safety records (PDPA notice at the site office).</p>'+
+    '<label style="margin-top:10px">Signature *</label>'+
     '<canvas id="ciSig" style="width:100%;height:120px;border:1.5px dashed #9aa4b2;border-radius:10px;background:#fff;touch-action:none;display:block"></canvas>'+
     '<button type="button" class="minor" id="ciSigClr" style="width:auto;padding:4px 12px;margin-top:4px">Clear signature</button>'+
     '<div class="lg-err" id="ciErr"></div>'+
@@ -5290,6 +5295,15 @@ function compTypeKws(t){ return (t&&t.kws&&t.kws.length)?t.kws:(t?[String(t.name
 function memberComps(mid){ return db.workerCompetencies.filter(c=>c.memberId===mid); }
 function memberLabel(m){ return (m.wid?m.wid+' — ':'')+(m.name||''); }
 function canHR(){ return !SB.profile || ['admin','hr'].includes(SB.profile.role); }
+/* PDPC NRIC guidelines: the shared register never holds a full NRIC/FIN.
+   Any full number typed or imported is masked to its last 4 characters at
+   save time; the full number belongs in Private (HR) only. */
+function maskIdno(v){
+  v=String(v||'').trim();
+  const m=v.replace(/[\s-]/g,'');
+  if(/^[STFGMstfgm][0-9]{7}[A-Za-z]$/.test(m)) return '****'+m.slice(-4).toUpperCase();
+  return v;
+}
 /* Can this account CHANGE records in this store? Mirrors the server's RLS —
    the server stays the authority; this only declutters the screen so nobody
    is shown a button that would silently do nothing. */
@@ -5637,7 +5651,7 @@ function sicPack(rows, prof){
       '<table style="width:100%"><tr><td style="vertical-align:top">'+
       '<h3 style="margin:0">'+esc(r.m.name||'')+'</h3>'+
       '<p style="margin:6px 0">Worker ID: <b>'+esc(r.m.wid||'—')+'</b> · '+esc(r.m.company||'')+' · '+esc(r.m.trade||'')+'<br>'+
-      'NRIC/FIN: '+esc(r.m.idno||'—')+' · Pass expiry: '+esc(r.m.wpExpiry?fmtD(r.m.wpExpiry):'—')+'</p></td>'+
+      'NRIC/FIN: '+esc(maskIdno(r.m.idno)||'—')+' · Pass expiry: '+esc(r.m.wpExpiry?fmtD(r.m.wpExpiry):'—')+'</p></td>'+
       '<td style="width:110px;text-align:right">'+((r.m.photos&&r.m.photos[0])?'<img src="'+r.m.photos[0]+'" style="width:100px;border:1px solid #999">':'<div style="width:100px;height:120px;border:1px dashed #999;display:inline-block;font-size:11px;color:#888">no photo</div>')+'</td></tr></table>'+
       '<table border="1" cellspacing="0" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px;margin-top:8px">'+
       '<tr style="background:#eee"><th style="text-align:left">Requirement</th><th>Status</th><th style="text-align:left">Notes</th></tr>'+
