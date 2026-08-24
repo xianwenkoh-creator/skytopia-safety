@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-24-2100">
+<meta name="build" content="2026-08-24-2200">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -636,6 +636,35 @@ function loadH2P(){
   return H2P;
 }
 /* render a self-contained report HTML offscreen and convert to a PDF blob */
+/* Find a page break that does not cut through a row of text: scan a band just
+   above the ideal break for the horizontal line with the least ink (a gap
+   between rows reads as almost-white; only column borders survive). */
+function cleanBreakH(canvas, y, idealH){
+  const bandH=Math.min(Math.floor(idealH*0.18), Math.max(0, idealH-40));
+  if(bandH<8) return idealH;
+  const yStart=y+idealH-bandH, W2=700;   /* wide enough that text still reads as edges; 140 blurred it into a fake gap */
+  const sc=document.createElement('canvas'); sc.width=W2; sc.height=bandH;
+  const cx=sc.getContext('2d');
+  cx.fillStyle='#ffffff'; cx.fillRect(0,0,W2,bandH);
+  cx.drawImage(canvas, 0, yStart, canvas.width, bandH, 0, 0, W2, bandH);
+  let data; try{ data=cx.getImageData(0,0,W2,bandH).data; }catch(e){ return idealH; }
+  /* Count horizontal EDGES, not dark pixels: a row of text changes brightness
+     many times across the width, while a flat cell fill (the grey label column)
+     or a plain gap changes almost never. Cutting through a fill is fine;
+     cutting through text is not. */
+  let best=-1, bestEdges=Infinity;
+  for(let r=bandH-1; r>=0; r--){          /* nearest the ideal break wins ties */
+    let edges=0, prev=-1;
+    for(let c=0;c<W2;c++){ const i=(r*W2+c)*4;
+      const lum=(data[i]*299+data[i+1]*587+data[i+2]*114)/1000;
+      if(prev>=0 && Math.abs(lum-prev)>28) edges++;
+      prev=lum; }
+    if(edges<bestEdges){ bestEdges=edges; best=r; if(!edges) break; }
+  }
+  if(best<0||bestEdges>8) return idealH;       /* nothing quiet enough — keep it */
+  const h=(idealH-bandH)+best+1;
+  return h<idealH*0.5?idealH:h;                /* never shrink a page dramatically */
+}
 async function htmlToPdfBlob(docHtml){
   if(!await loadH2P()) return null;
   const W=726; /* A4 210mm minus 9mm margins at 96dpi — html2pdf clips, never scales */
@@ -689,7 +718,9 @@ async function htmlToPdfBlob(docHtml){
     const pageHpx=Math.floor(innerHmm*pxPerMm);
     let y=0, first=true;
     while(y<canvas.height){
-      const sliceH=Math.min(pageHpx, canvas.height-y);
+      let sliceH=Math.min(pageHpx, canvas.height-y);
+      /* not the last page: break between rows, never through one */
+      if(y+sliceH<canvas.height) sliceH=cleanBreakH(canvas, y, sliceH);
       const pc=document.createElement('canvas');
       pc.width=canvas.width; pc.height=sliceH;
       const ctx=pc.getContext('2d');
