@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-26-0400">
+<meta name="build" content="2026-08-26-0500">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1497,11 +1497,27 @@ function buildNav(){
     nav.innerHTML='<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'Home</a>'+
       '<div class="sn-group">My workface</div>'+
       '<a class="sn-item" href="#/lmracheck" data-nav="lmracheck">'+ic('lmra')+'Run LMRA</a>'+
-      '<a class="sn-item" href="#/lmra" data-nav="lmra">'+ic('lmra')+'LMRA Records</a>'+
+      '<a class="sn-item" href="#/toolbox" data-nav="toolbox">'+ic('tbm')+'Run Toolbox Meeting</a>'+
+      '<a class="sn-item" href="#/inspections" data-nav="inspections">'+ic('insp')+'Inspections</a>'+
+      '<a class="sn-item" href="#/checklists" data-nav="checklists">'+ic('check')+'Checklists</a>'+
       '<a class="sn-item" href="#/observations/new" data-nav="observations">'+ic('obs')+'Report Near Miss</a>'+
+      '<a class="sn-item" href="#/lmra" data-nav="lmra">'+ic('lmra')+'LMRA Records</a>'+
+      '<a class="sn-item" href="#/tbm" data-nav="tbm">'+ic('tbm')+'Toolbox Records</a>'+
       '<div class="sn-group">Reference</div>'+
-      [['work','Work Activities','work'],['tbm','Toolbox Meetings','tbm'],['members','Workers','members'],
+      [['work','Work Activities','work'],['members','Workers','members'],
        ['matrix','Competency Matrix','cert']]
+        .map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+'</a>').join('')+
+      '<div class="sn-group">Account</div>'+
+      '<a class="sn-item" href="#/settings" data-nav="settings">'+ic('gear')+'Settings</a>';
+    return;
+  }
+  if(SB.profile&&SB.profile.role==='engineer'){
+    nav.innerHTML='<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'Home</a>'+
+      '<div class="sn-group">Planning</div>'+
+      '<a class="sn-item" href="#/work" data-nav="work">'+ic('work')+'Work Activities</a>'+
+      '<div class="sn-group">Reference</div>'+
+      [['tbm','Toolbox Meetings','tbm'],['lmra','LMRA','lmra'],['inspections','Inspections','insp'],
+       ['members','Workers','members'],['matrix','Competency Matrix','cert'],['equipment','Equipment','equip']]
         .map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+'</a>').join('')+
       '<div class="sn-group">Account</div>'+
       '<a class="sn-item" href="#/settings" data-nav="settings">'+ic('gear')+'Settings</a>';
@@ -1585,6 +1601,28 @@ function initShell(){
 }
 
 function renderHome(){
+  if(SB.profile&&SB.profile.role==='engineer'){
+    const tile=(href,label,icon)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+
+      '</span><span class="tl">'+label+'</span></a>';
+    const acts=db.workActivities.filter(w=>w.status==='Active').length;
+    const plan=db.workActivities.filter(w=>w.status==='Planned').length;
+    app.innerHTML=header(esc(db.settings.project||'Site'), false)+
+      '<a class="btn" href="#/work" style="display:block;text-align:center;margin:14px 16px 6px;'+
+        'min-height:52px;line-height:52px;font-size:17px;text-decoration:none">Work Activities — plan the work</a>'+
+      '<p class="hint" style="margin:0 16px 10px;text-align:center">'+acts+' active · '+plan+' planned</p>'+
+      '<h2 class="sect">Reference</h2>'+
+      '<div class="grid">'+
+        tile('tbm','Toolbox Meetings','tbm')+
+        tile('lmra','LMRA','lmra')+
+        tile('inspections','Inspections','insp')+
+        tile('members','Workers','members')+
+        tile('matrix','Competency Matrix','cert')+
+        tile('equipment','Equipment','equip')+
+      '</div>'+
+      '<div class="foot">You keep the work activities right — the jobs, the crew and their roles, the RA, the permit. '+
+        'The LMRA, the toolbox meeting and the eligibility checks all read from what you enter here.</div>';
+    return;
+  }
   if(SB.profile&&SB.profile.role==='supervisor'){
     const tile=(href,label,icon)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+
       '</span><span class="tl">'+label+'</span></a>';
@@ -1596,18 +1634,21 @@ function renderHome(){
       '<p class="hint" style="margin:0 16px 10px;text-align:center">'+mine+' done today · '+acts+' active work activities</p>'+
       '<h2 class="sect">Also yours</h2>'+
       '<div class="grid">'+
+        tile('toolbox','Run Toolbox','tbm')+
+        tile('inspections','Inspections','insp')+
+        tile('checklists','Checklists','check')+
         tile('observations/new','Report Near Miss','obs')+
         tile('lmra','LMRA Records','lmra')+
+        tile('tbm','Toolbox Records','tbm')+
       '</div>'+
       '<h2 class="sect">Reference</h2>'+
       '<div class="grid">'+
         tile('work','Work Activities','work')+
-        tile('tbm','Toolbox Meetings','tbm')+
         tile('members','Workers','members')+
         tile('matrix','Competency Matrix','cert')+
       '</div>'+
-      '<div class="foot">You conduct the LMRA at your workface and report anything unsafe. '+
-        'The rest of the register is readable when you need to check something.</div>';
+      '<div class="foot">You run the LMRA and the toolbox meeting for your crew, keep your checklists, '+
+        'rectify inspection findings, and report anything unsafe. Safety verifies what you close.</div>';
     return;
   }
   if(SB.profile&&SB.profile.role==='hr'){
@@ -1646,7 +1687,7 @@ function renderHome(){
         'Safety registers stay available read-only via search or direct links.</div>';
     return;
   }
-  if(isDesktop()&&!(SB.profile&&['subcon','supervisor'].includes(SB.profile.role))) return renderControlCentre();
+  if(isDesktop()&&!(SB.profile&&['subcon','supervisor','engineer'].includes(SB.profile.role))) return renderControlCentre();
   if(SB.profile&&SB.profile.role==='subcon'){
     const tile=(href,label,icon)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+'</span><span class="tl">'+label+'</span></a>';
     const myObs=db.observations.filter(o=>o.status!=='Closed').length;
@@ -1881,9 +1922,10 @@ function renderEdit(key, id){
       const m={}; memFs.forEach(f=>{ if(obj[f.k]) m[f.k]=obj[f.k]; });
       try{ localStorage.setItem('kkl-mem-'+key, JSON.stringify(m)); }catch(e){}
     }
+    const prevSnap=item?structuredClone(item):null;
     if(item){ Object.assign(item,obj); }
     else{ obj.id=obj.id||uid(); db[mod.store].push(obj); }
-    if(mod.beforeSave) mod.beforeSave(item||obj);
+    if(mod.beforeSave) mod.beforeSave(item||obj, prevSnap);
     save();
     EV.emit('record:changed',{store:mod.store, id:(item||obj).id});
     location.hash='#/'+key;
@@ -1931,7 +1973,7 @@ function route(){
     return renderToolbox();
   }
   if(p[0]==='review'){
-    if(SB.profile && ['subcon','viewer','supervisor'].includes(SB.profile.role)){
+    if(SB.profile && ['subcon','viewer','supervisor','engineer'].includes(SB.profile.role)){
       app.innerHTML=header('Workforce Review', true)+
         '<div class="empty">Workforce review is available to management and HR.</div>'; return; }
     return p[1]?renderWorkerReviewOne(p[1]):renderWorkerReview();
@@ -2345,6 +2387,28 @@ const MODULES={
      {k:'closedDate',label:'Closed on (date)',type:'date'},
      {k:'photos',label:'Photo evidence — tap the pencil on a photo to circle the problem',type:'photos',w:'full'}]},
    {k:'remarks',label:'General remarks',type:'textarea',rows:2}],
+  beforeSave:function(obj, prev){
+    /* two-stage closure: the supervisor RECTIFIES; only safety VERIFIES or
+       CLOSES. Every step is stamped with who and when. */
+    const sup=SB.profile&&SB.profile.role==='supervisor';
+    const pf=(prev&&prev.findings)||[];
+    let demoted=false;
+    (obj.findings||[]).forEach((f,i)=>{
+      const p=pf[i]||{};
+      const was=p.status||'Open', now=f.status||'Open';
+      if(sup && ['Verified','Closed'].includes(now) && !['Verified','Closed'].includes(was)){
+        f.status='Rectified'; demoted=true;          /* safety signs off, not the closer */
+      }
+      if((f.status==='Rectified') && was!=='Rectified' && !f.rectifiedBy){
+        f.rectifiedBy=myDisplayName()||''; f.rectifiedAt=today();
+        if(!f.closedDate) f.closedDate=today();
+      }
+      if(['Verified','Closed'].includes(f.status||'') && !['Verified','Closed'].includes(was)){
+        f.verifiedBy=myDisplayName()||''; f.verifiedAt=today();
+      }
+    });
+    if(demoted) toast('Set to Rectified — safety verifies the closure, not the person who rectified it.');
+  },
   printExtra:function(r){ /* auditor item 19: monitor responding time per finding */
     const fs=(r.findings||[]).filter(f=>f.desc);
     if(!fs.length) return '';
@@ -2354,7 +2418,9 @@ const MODULES={
         const resp=(f.closedDate&&r.date)?Math.max(0,Math.round((new Date(f.closedDate)-new Date(r.date))/864e5)):null;
         return '<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc((f.desc||'').slice(0,90))+'</td>'+
           '<td>'+esc(f.severity||'')+'</td><td>'+esc([fmtD(r.date),r.time].filter(Boolean).join(' '))+'</td>'+
-          '<td>'+(f.due?fmtD(f.due):'&mdash;')+'</td><td>'+esc(f.status||'Open')+'</td>'+
+          '<td>'+(f.due?fmtD(f.due):'&mdash;')+'</td><td>'+esc(f.status||'Open')+
+            (f.rectifiedBy?'<div style="font-size:9.5px;color:var(--sub)">rect. '+esc(f.rectifiedBy)+'</div>':'')+
+            (f.verifiedBy?'<div style="font-size:9.5px;color:var(--sub)">verif. '+esc(f.verifiedBy)+'</div>':'')+'</td>'+
           '<td>'+(f.closedDate?fmtD(f.closedDate):'&mdash;')+'</td>'+
           '<td>'+(resp===null?'<b style="color:#c5221f">open</b>':(resp+(resp===1?' day':' days')))+'</td></tr>'; }).join('')+'</table></div>';
   },
@@ -5860,13 +5926,14 @@ function maskIdno(v){
    the server stays the authority; this only declutters the screen so nobody
    is shown a button that would silently do nothing. */
 /* roles that do NOT manage projects or this device's data */
-function liteRole(){ return !!(SB.profile && ['hr','viewer','subcon','supervisor'].includes(SB.profile.role)); }
+function liteRole(){ return !!(SB.profile && ['hr','viewer','subcon','supervisor','engineer'].includes(SB.profile.role)); }
 function canWrite(store){
   if(!SB.profile) return true;                             /* local device */
   const r=SB.profile.role;
   if(r==='admin') return true;
   if(r==='viewer') return false;
-  if(r==='supervisor') return ['lmra','observations'].includes(store);
+  if(r==='supervisor') return ['lmra','observations','tbm','checklists','inspections'].includes(store);
+  if(r==='engineer') return store==='workActivities';
   if(r==='hr') return ['members','memberPrivate','workerCompetencies','training','organisations'].includes(store);
   if(r==='subcon') return ['observations','defects','members','equipment','training','workerCompetencies'].includes(store);
   if(r==='wsho'){
@@ -9133,7 +9200,7 @@ async function sbTeamCall(body){
   if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status));
   return d;
 }
-const ROLES=['admin','wsho','supervisor','hr','subcon','viewer'];
+const ROLES=['admin','wsho','supervisor','engineer','hr','subcon','viewer'];
 const ROLEHELP={admin:'everything + manage team', wsho:'safety ops (project or HQ)', hr:'workforce & HR records (HQ)', subcon:'only their company’s items', viewer:'read-only'};
 async function renderTeam(){
   if(!SB.profile){
