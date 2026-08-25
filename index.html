@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-1910">
+<meta name="build" content="2026-08-25-2000">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -7156,122 +7156,9 @@ const LMRA_QS=LMRA_CORE_QS.concat([
  'If anything changes or feels unsafe \u2014 STOP and call your supervisor. Agreed?'
 ]);
 /* activity-specific checks, written the way workers talk (auditor items 20+21) */
-const LMRA_ACT_QS={
- 'Excavation & Trenching':[
-  'Deeper than 1.5 m \u2014 is the trench shored, sloped or benched?',
-  'Are the machine and the soil heap at least 1 m from the edge?',
-  'Did a competent person check the trench today (and after any rain)?',
-  'Are underground cables and pipes marked before you dig?',
-  'Is there a good ladder to climb in and out?',
-  'Water inside the trench? Do NOT enter \u2014 tell your supervisor',
-  'Is the excavation fenced so no one can fall in?'],
- 'Lifting Operations':[
-  'Is the lifting plan ready and the Lifting Supervisor here?',
-  'Did you check the slings and shackles \u2014 correct colour code, no damage?',
-  'Is the area under the load barricaded \u2014 NOBODY walks below the load?',
-  'Is the crane on firm ground, outriggers fully out on steel plates?',
-  'Do you know the load weight \u2014 is it within the SWL?',
-  'Tag line on the load \u2014 hands off the load itself?',
-  'Can the operator, rigger and signalman all see or hear each other?'],
- 'Scaffolding':[
-  'Is the scaffold tag GREEN and still valid?',
-  'Guardrails, toe boards and planks all in place \u2014 nothing removed?',
-  'Harness on and hooked where there is no guardrail?',
-  'Is the ladder or stair access safe and tied?',
-  'Tools tied off so they cannot fall on people below?',
-  'Missing tie, brace or plank? STOP \u2014 call the scaffold team, do not fix it yourself'],
- 'Work at Height':[
-  'Are all floor openings and edges covered or fenced?',
-  'Harness checked \u2014 no cuts, both hooks working?',
-  'Are you hooked on 100% of the time, to a strong anchor point above you?',
-  'Is the area below barricaded so nothing you drop can hit anyone?',
-  'Tools tied with lanyards?',
-  'Ladder tied at the top, on firm ground \u2014 3 points of contact?'],
- 'Hot Works':[
-  'Is the hot work permit approved and displayed?',
-  'Fire extinguisher beside you \u2014 checked and full?',
-  'Fire watchman here, and staying 30 minutes after the work ends?',
-  'Everything that can burn moved away or covered with a fire blanket?',
-  'Gas hoses, regulators and flashback arrestors checked \u2014 no leaks?',
-  'Face shield, leather gloves and apron on?'],
- 'Concreting':[
-  'Formwork and props checked and approved before pouring?',
-  'Pump line and boom clear of people and overhead cables?',
-  'Goggles, gloves and boots on \u2014 concrete burns skin?',
-  'Exposed rebar ends capped?',
-  'Safe walkway to the pour \u2014 not stepping on loose rebar?',
-  'Vibrator cables and sockets in good condition, off the wet ground?'],
- 'Confined Space':[
-  'Is the entry permit approved and displayed?',
-  'Air tested and SAFE before entry \u2014 and re-tested as required?',
-  'Blower / ventilation running the whole time?',
-  'Watchman standing at the entrance ALL the time \u2014 never alone inside?',
-  'Do you know the escape signal and the way out?',
-  'Rescue tripod and equipment ready at the entrance?'],
- 'Electrical Works':[
-  'Power locked out and tagged before touching any wiring?',
-  'Did you TEST that the line is dead \u2014 never assume?',
-  'Cables, plugs and tools in good condition \u2014 no cut or taped wires?',
-  'DB box has a working ELCB and the cover is closed?',
-  'Hands, gloves and floor dry?',
-  'Live work only by the licensed electrician \u2014 everyone clear on that?'],
- 'Demolition / Hacking':[
-  'Supervisor confirmed WHAT to hack \u2014 and what must NOT be touched?',
-  'Power, water and gas in the wall or floor cut off first?',
-  'Area around and below barricaded for falling debris?',
-  'Goggles, dust mask and ear plugs on?',
-  'Props in place so nothing collapses on you?',
-  'Clearing debris as you go \u2014 no tripping, no nails?'],
- 'Piling':[
-  'Ground firm for the rig \u2014 checked again after rain?',
-  'Everyone outside the rig\u2019s exclusion zone?',
-  'Eye contact with the operator before walking near the rig?',
-  'Lifting gear for cages and casings checked?',
-  'Open bores and casings covered or fenced?',
-  'Hand signals agreed between rigger and operator?'],
- 'Vehicle & Plant Movement':[
-  'Banksman guiding every reversing machine?',
-  'Reflective vest on?',
-  'Eye contact with the operator before you go near \u2014 never in the blind spot?',
-  'People and machines separated \u2014 use the walkway?',
-  'Reverse alarm, horn and lights working?',
-  'Load secured before the lorry moves?'],
- 'General Housekeeping':[
-  'Materials stacked safely \u2014 nothing can fall or tip?',
-  'Walkways clear of cables, debris and water?',
-  'Nails in old wood removed or bent flat?',
-  'Waste going into the right bin or skip?',
-  'Stairs and access routes clear and lit?',
-  'Standing water cleared \u2014 slips and mosquitoes?']
-};
 /* Safety can revise the base checklist in Settings (auditor item 21) */
 function lmraBaseQs(){ const o=db.settings&&db.settings.lmraQs; return (Array.isArray(o)&&o.length)?o:LMRA_QS; }
 /* map an activity onto a checklist family \u2014 by its type, else by how it is described */
-const LMRA_TYPE_KEYS=[
- [/lift|crane|rigg/i,'Lifting Operations'],[/excav|trench|\bdig/i,'Excavation & Trenching'],
- [/scaffold/i,'Scaffolding'],[/height|roof|edge|facade|fa\u00e7ade|gondola/i,'Work at Height'],
- [/weld|hot ?work|cutting|grind|torch/i,'Hot Works'],[/concret|pour|cast/i,'Concreting'],
- [/confined|manhole|tank|shaft/i,'Confined Space'],[/electric|cabling|power supply|\bdb\b/i,'Electrical Works'],
- [/demoli|hack/i,'Demolition / Hacking'],[/\bpil(e|es|ing)\b|bored?\b/i,'Piling'],
- [/vehicle|plant|tipper|haul|lorr|truck|traffic/i,'Vehicle & Plant Movement'],
- [/housekeep|clean/i,'General Housekeeping']];
-function lmraGuessType(wa){
-  if(!wa) return '';
-  if(LMRA_ACT_QS[wa.type]) return wa.type;
-  const txt=[wa.type,wa.title,wa.description].filter(Boolean).join(' ');
-  for(const [re,t] of LMRA_TYPE_KEYS) if(re.test(txt)) return t;
-  return '';
-}
-/* which questions this activity gets: site wording > built-in activity list > base */
-function lmraQsFor(waId){
-  const wa=db.workActivities.find(w=>w.id===waId);
-  const per=(db.settings&&db.settings.lmraActQs)||{};
-  if(wa&&wa.type&&Array.isArray(per[wa.type])&&per[wa.type].length) return {qs:per[wa.type],src:'site',type:wa.type};
-  const g=lmraGuessType(wa);
-  if(g&&Array.isArray(per[g])&&per[g].length) return {qs:per[g],src:'site',type:g};
-  if(g) return {qs:LMRA_CORE_QS.concat(LMRA_ACT_QS[g]),src:'suggested',type:g};
-  return {qs:lmraBaseQs(),src:'base',type:''};
-}
 /* extra check lines drawn from this activity's own approved RA controls */
 function lmraRaChecks(waId){
   const wa=db.workActivities.find(w=>w.id===waId); if(!wa) return [];
@@ -7283,28 +7170,22 @@ function lmraRaChecks(waId){
   });
   return out;
 }
-/* RA controls pooled across every activity of a type \u2014 feeds the Settings suggester */
-function lmraRaChecksByType(t){
-  if(typeof waPinnedRaItems!=='function') return [];
-  const out=[], seen=new Set();
-  db.workActivities.filter(w=>w.type===t||lmraGuessType(w)===t).forEach(wa=>{
-    waPinnedRaItems(wa).forEach(x=>{
-      [].concat(x.item.controls||[],x.item.addControls||[]).filter(Boolean).slice(0,2).forEach(c=>{
-        const k=String(c).toLowerCase().trim();
-        if(k&&!seen.has(k)&&out.length<8){ seen.add(k); out.push(String(c)); }
-      });
-    });
-  });
-  return out;
+/* what everyone on the job answers, whatever role they hold */
+function lmraEveryoneQs(){
+  const o=db.settings&&db.settings.lmraQs;
+  return (Array.isArray(o)&&o.length)?o:LMRA_QS;
 }
-/* one editable starting list: core + activity library + this type's RA controls */
-function lmraSuggestQs(t){
-  let spec=LMRA_ACT_QS[t];
-  if(!spec){ const g=lmraGuessType({type:t}); spec=g?LMRA_ACT_QS[g]:[]; }
-  return LMRA_CORE_QS.concat(spec||[]).concat(lmraRaChecksByType(t).map(c=>'RA control \u2014 '+c));
+/* how many checks this assessment carries, and from where — it grows with the
+   roles present, which is the whole idea */
+function lmraTally(waId, crew, extra){
+  let roles=0, roleQs=0;
+  (crew||[]).forEach(id=>lmraBlocksFor(waId, id, extra).forEach(ap=>{
+    const n=lmraApptQs(ap.code).qs.length; if(n){ roles++; roleQs+=n; } }));
+  const everyone=lmraAllQs(waId).length;
+  return {roles, roleQs, everyone, total:everyone+roleQs};
 }
 function lmraAllQs(waId){
-  const base=lmraQsFor(waId).qs;
+  const base=lmraEveryoneQs();
   const norm=t=>String(t).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
   const have=base.map(norm);
   const extra=lmraRaChecks(waId)
@@ -7544,9 +7425,8 @@ function renderLmraCheck(){
   };
   if(app.querySelector('#lmBy')) _grab();
   const was=db.workActivities.filter(w=>w.status!=='Completed');
-  const QSI=lmraQsFor(LMX.waId);
   const QS=lmraAllQs(LMX.waId);
-  const BASEN=QSI.qs.length;
+  const BASEN=lmraEveryoneQs().length;
   /* each man answers for every appointment he holds — a rigger who is also the
      signalman answers both sets */
   const roleBlocks=[];
@@ -7615,9 +7495,11 @@ function renderLmraCheck(){
       return h+'</div>';
     })()+
     '<div id="lmLive">'+
-    '<h2 class="sect">Take 2 minutes — check before you start</h2>'+
-    (QSI.type?'<div class="hint" style="margin:0 16px 8px">Checklist: <b>'+esc(QSI.type)+'</b>'+(QSI.src==='site'?' — your site’s wording':' — suggested wording')+
-      ' · <a href="#/lmraqs/'+encodeURIComponent(QSI.type||'')+'">edit these questions</a></div>':'')+
+    (function(){ const T=lmraTally(LMX.waId, LMX.crew, LMX.extra);
+      return '<h2 class="sect">Everyone on this job</h2>'+
+        '<div class="hint" style="margin:0 16px 8px">'+T.total+' check'+(T.total===1?'':'s')+' in all \u2014 '+
+        T.everyone+' for everyone, '+T.roleQs+' from '+T.roles+' role'+(T.roles===1?'':'s')+' on the crew. '+
+        '<a href="#/lmraqs">edit these questions</a></div>'; })()+
     QS.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px'+(i>=BASEN?';border-left:3px solid var(--acc,#e11b12)':'')+'">'+
       (i===BASEN?'<div class="hint" style="margin:-4px 0 8px">From the approved RA for this activity</div>':'')+
       '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
@@ -7638,6 +7520,7 @@ function renderLmraCheck(){
           '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+
             (roleA(b.key)[i]===a?(a==='NO'?'danger':''):'ghost')+'" data-lmr="'+esc(b.key)+'" data-i="'+i+'" data-a="'+a+
             '" style="flex:1;min-height:36px;padding:6px">'+a+'</button>').join('')+'</div></div>').join('')+
+              '<select data-lmadd="'+esc(b.id)+'" style="margin-top:8px"><option value="">+ Add another role for this man\u2026</option>'+Object.keys(LMRA_APPT_QS).map(c=>'<option value="'+c+'">'+esc(lmraApptName(c))+'</option>').join('')+'</select>'+
       '</div>').join('')+
       noAppt.map(id=>{ const m=db.members.find(x=>x.id===id)||{};
         return '<div class="card" style="margin-bottom:8px;border-left:3px solid var(--line,#e3e6ea)">'+
@@ -7659,7 +7542,7 @@ function renderLmraCheck(){
   /* rebuild the live part of the screen without touching the crew picker */
   window._lmRepaint=()=>{
     const host=document.getElementById('lmLive'); if(!host){ renderLmraCheck(); return; }
-    const QS2=lmraAllQs(LMX.waId), BASEN2=lmraQsFor(LMX.waId).qs.length;
+    const QS2=lmraAllQs(LMX.waId), BASEN2=lmraEveryoneQs().length;
     const blocks=[]; const noAp=[];
     (LMX.crew||[]).forEach(id=>{
       const m=db.members.find(x=>x.id===id);
@@ -7672,13 +7555,13 @@ function renderLmraCheck(){
     const rA=k=>LMX.roleAns[k]||{};
     const done2=QS2.every((q,i)=>LMX.ans[i]) && blocks.every(b=>b.qs.every((q,i)=>rA(b.key)[i]));
     const no2=QS2.some((q,i)=>LMX.ans[i]==='NO') || blocks.some(b=>b.qs.some((q,i)=>rA(b.key)[i]==='NO'));
-    const QSI2=lmraQsFor(LMX.waId);
     host.innerHTML=
-      '<h2 class="sect">Take 2 minutes — check before you start</h2>'+
-      (QSI2.type?'<div class="hint" style="margin:0 16px 8px">Checklist: <b>'+esc(QSI2.type)+'</b>'+
-        (QSI2.src==='site'?' — your site’s wording':' — suggested wording')+
-        ' · <a href="#/lmraqs/'+encodeURIComponent(QSI2.type||'')+'">edit these questions</a></div>':'')+
-      QS2.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px'+(i>=BASEN2?';border-left:3px solid var(--acc,#e11b12)':'')+'">'+
+      (function(){ const T=lmraTally(LMX.waId, LMX.crew, LMX.extra);
+      return '<h2 class="sect">Everyone on this job</h2>'+
+        '<div class="hint" style="margin:0 16px 8px">'+T.total+' check'+(T.total===1?'':'s')+' in all \u2014 '+
+        T.everyone+' for everyone, '+T.roleQs+' from '+T.roles+' role'+(T.roles===1?'':'s')+' on the crew. '+
+        '<a href="#/lmraqs">edit these questions</a></div>'; })()+
+    QS2.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px'+(i>=BASEN2?';border-left:3px solid var(--acc,#e11b12)':'')+'">'+
         (i===BASEN2?'<div class="hint" style="margin:-4px 0 8px">From the approved RA for this activity</div>':'')+
         '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
         '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+(LMX.ans[i]===a?(a==='NO'?'danger':''):'ghost')+
@@ -7698,6 +7581,7 @@ function renderLmraCheck(){
             '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+
               (rA(b.key)[i]===a?(a==='NO'?'danger':''):'ghost')+'" data-lmr="'+esc(b.key)+'" data-i="'+i+'" data-a="'+a+
               '" style="flex:1;min-height:36px;padding:6px">'+a+'</button>').join('')+'</div></div>').join('')+
+                '<select data-lmadd="'+esc(b.id)+'" style="margin-top:8px"><option value="">+ Add another role for this man\u2026</option>'+Object.keys(LMRA_APPT_QS).map(c=>'<option value="'+c+'">'+esc(lmraApptName(c))+'</option>').join('')+'</select>'+
         '</div>').join('')+
         noAp.map(id=>{ const m=db.members.find(x=>x.id===id)||{};
           return '<div class="card" style="margin-bottom:8px;border-left:3px solid var(--line,#e3e6ea)">'+
@@ -8207,21 +8091,19 @@ function lmqCurrent(key){
   if(!key) return st.lmraQs||LMRA_QS;
   if(key.indexOf('appt:')===0){ const c=key.slice(5);
     return (st.lmraApptQs||{})[c]||LMRA_APPT_QS[c]||[]; }
-  return (st.lmraActQs||{})[key]||lmraSuggestQs(key);
+  return st.lmraQs||LMRA_QS;
 }
 function lmqBuiltIn(key){
   if(!key) return LMRA_QS;
   if(key.indexOf('appt:')===0) return LMRA_APPT_QS[key.slice(5)]||[];
-  return lmraSuggestQs(key);
+  return LMRA_QS;
 }
 function renderLmraQs(){
   const ro=!canWrite('lmra');
-  const acts=Object.keys(LMRA_ACT_QS);
-  db.workActivities.forEach(w=>{ if(w.type&&acts.indexOf(w.type)<0) acts.push(w.type); });
   const appts=Object.keys(LMRA_APPT_QS);
   const opt=(v,l)=>'<option value="'+esc(v)+'"'+(LMQ.sel===v?' selected':'')+'>'+esc(l)+(lmqIsCustom(v)?'  \u2713':'')+'</option>';
   const cur=lmqCurrent(LMQ.sel), custom=lmqIsCustom(LMQ.sel);
-  const nCustom=[''].concat(acts, appts.map(a=>'appt:'+a)).filter(lmqIsCustom).length;
+  const nCustom=[''].concat(appts.map(a=>'appt:'+a)).filter(lmqIsCustom).length;
   app.innerHTML=header('LMRA Checklists', true)+
     '<div class="card"><p class="hint" style="margin:0">These are the questions your crews answer at the workface. '+
       'Rewrite them in the words your workers actually use \u2014 one question per line. '+
@@ -8229,9 +8111,8 @@ function renderLmraQs(){
       (nCustom?'<div class="hint" style="margin-top:6px"><b>'+nCustom+'</b> list'+(nCustom===1?'':'s')+' reworded by your site so far.</div>':'')+
     '</div>'+
     '<div class="card"><div class="fld"><label>Which checklist</label><select id="lmqSel">'+
-      opt('','Base \u2014 used when an activity has no list of its own')+
-      '<optgroup label="By work activity \u2014 everyone answers these">'+
-        acts.map(a=>opt(a,a)).join('')+'</optgroup>'+
+      opt('','Everyone on the job \u2014 answered whatever the role')+
+
       '<optgroup label="By appointment \u2014 only that man answers these">'+
         appts.map(a=>opt('appt:'+a, lmraApptName(a))).join('')+'</optgroup>'+
     '</select></div>'+
@@ -8247,9 +8128,9 @@ function renderLmraQs(){
         (custom?'<button class="btn ghost" id="lmqReset">Use built-in again</button>':'')+
       '</div>')+
     '</div>'+
-    (LMQ.sel&&LMQ.sel.indexOf('appt:')!==0?'<div class="card"><div class="hint">'+
-      'For a work activity, the controls from its <b>approved RA</b> are added on top of whatever you write here, automatically. '+
-      '\u201cReload suggested\u201d rebuilds the list from the activity library plus those RA controls.</div></div>':'')+
+    '<div class="card"><div class="hint">The assessment is built from the <b>roles on the crew</b>: everyone answers the '+
+      'first list, then each man answers the list for every role he holds. The more roles on the job, the longer the '+
+      'assessment. Controls from the task\u2019s <b>approved RA</b> are still added on top automatically.</div></div>'+
     '<div class="foot">Changing a checklist affects future assessments only. LMRAs already recorded keep the questions '+
       'that were actually asked on the day.</div>';
   document.getElementById('lmqSel').onchange=e=>{ LMQ.sel=e.target.value; renderLmraQs(); };
