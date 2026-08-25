@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-1410">
+<meta name="build" content="2026-08-25-1520">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1461,7 +1461,7 @@ const NAV=[
                           ['contacts','Contacts','contact'],['equipment','Equipment','equip'],
                           ['documents','Documents','doc'],['actions','Actions','act'],['recurringChecks','Recurring Inspections','recur'],['visitors','Visitors','visitor']]},
  {group:'Safety',  items:[['lmra','LMRA','lmra'],['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Near Miss','obs'],
-                          ['checklists','Checklists','check'],['infringements','Infringements','warn'],['rasys','RA / SWP','ra'],
+                          ['checklists','Checklists','check'],['infringements','Infringements','warn'],['approvals','Approvals','check'],['rasys','RA / SWP','ra'],
                           ['meetings','Meetings','meet'],['incidents','Incidents','incid']]},
  {group:'Quality', items:[['defects','Defects','defect']]},
  {group:'Reports', items:[['reports','Report Library','folder'],['stats','Statistics','stats'],['report','Monthly Report','print']]},
@@ -1889,6 +1889,11 @@ function route(){
     if(!canWrite('tbm')){ app.innerHTML=header('Toolbox Meeting', true)+
       '<div class="empty">Your role can view toolbox records under Toolbox Meetings, not conduct them.</div>'; return; }
     return renderToolbox();
+  }
+  if(p[0]==='approvals'){
+    if(SB.profile && SB.profile.role==='subcon'){
+      app.innerHTML=header('Approvals', true)+'<div class="empty">Approvals are handled by the main contractor.</div>'; return; }
+    return renderApprovals();
   }
   if(p[0]==='demerits'){
     if(SB.profile && SB.profile.role==='subcon'){
@@ -2619,9 +2624,9 @@ const MODULES={
    {k:'immediate',label:'Immediate action taken',type:'textarea',rows:2},
    {k:'photos',label:'Evidence photos',type:'photos'},
    {k:'issuedBy',label:'Issued by (WSHO / supervisor)',req:1,half:1,list:safetyPersonnelList,def:myDisplayName},
-   {k:'status',label:'Status',type:'select',half:1,def:'Issued',
-    opts:['Issued','Acknowledged','Charged','Appealed','Waived','Closed'],
-    hint:'Waived removes the points and the charge from the worker\u2019s record.'},
+   {k:'status',label:'Serving status',type:'select',half:1,def:'Issued',
+    opts:['Issued','Acknowledged','Appealed','Charged','Closed'],
+    hint:'Whether the notice has been served on the worker. Whether it counts at all is decided by management, below.'},//\u2019s record.'},
    {k:'retraining',label:'Re-orientation / re-training required',type:'select',half:1,def:'No',opts:['No','Yes']},
    {k:'retrainDate',label:'Re-training completed on',type:'date',half:1},
    {k:'remarks',label:'Remarks / PM decision',type:'textarea',rows:2}],
@@ -2639,13 +2644,95 @@ const MODULES={
     obj.category=L?L.cat:''; obj.categoryName=L?L.catName:''; obj.offenceText=L?L.text:'';
     obj.occurrence=ihPriorFor(obj.offenderId, obj.offenceCode, item?item.id:null).length+1;
     const pen=ihPenalty(obj.offenceCode, obj.occurrence);
-    obj.charge=pen.charge; obj.points=obj.status==='Waived'?0:pen.points; obj.penaltyNote=pen.note;
+    obj.charge=pen.charge; obj.points=pen.points; obj.penaltyNote=pen.note;
+    if(!obj.issuedById && SB.profile) obj.issuedById=SB.profile.id;
     if(!obj.noticeNo){
       const yr=String(obj.date||today()).slice(0,4);
       const tag=(obj.noticeType||'').indexOf('Administrative')>=0?'AC':'IN';
       const n=(db.infringements||[]).filter(r=>r.noticeNo&&r.noticeNo.indexOf(tag+'/'+yr)===0).length+1;
       obj.noticeNo=tag+'/'+yr+'/'+String(n).padStart(3,'0');
     }
+  },
+ afterRender:function(item){
+    if(!item) return;
+    const host=document.querySelector('#app .card'); if(!host) return;
+    const stage=ihStage(item), eff=ihEffective(item), lvl=ihAuthLevel();
+    const mine=SB.profile&&item.issuedById===SB.profile.id;
+    const money=v=>(v===''||v==null)?'\u2014':(typeof v==='number'?('S$'+v.toLocaleString()):String(v));
+    const stageRow=(name,dec,by,at,rem,sig,charge,points)=>
+      '<tr><td style="text-align:left;width:34%"><b>'+esc(name)+'</b></td><td style="text-align:left">'+
+      (dec?esc(dec)+(dec==='Reduced'?' \u2014 '+esc(money(charge))+' \u00b7 '+(+points||0)+' pts':''):'<span class="hint">not yet</span>')+
+      (by?'<div class="hint">'+esc(by)+(at?' \u00b7 '+esc(fmtD(String(at).slice(0,10))):'')+'</div>':'')+
+      (rem?'<div style="font-size:13px;margin-top:3px">'+esc(rem)+'</div>':'')+
+      (sig?'<img src="'+photoSrc(sig)+'"'+phAttr(sig)+' style="height:28px;margin-top:4px">':'')+
+      '</td></tr>';
+    let h='<div class="card" style="border-left:4px solid '+(stage==='CLOSED'?'var(--charcoal,#243140)':'var(--warn-ink,#a96407)')+'">'+
+      '<label style="margin-top:0">Approval \u2014 Project Manager, then GM / Director</label>'+
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">'+ihDecisionChip(item)+
+        '<span class="hint">Proposed by the officer: <b>'+esc(money(item.charge))+'</b> \u00b7 <b>'+(+item.points||0)+'</b> pts</span>'+
+        (eff.live?'<span class="hint">In force: <b>'+esc(money(eff.charge))+'</b> \u00b7 <b>'+eff.points+'</b> pts</span>':'')+
+      '</div>'+
+      '<table class="dtable" style="margin:0">'+
+        stageRow('1 \u00b7 Project Manager', item.pmDecision, item.pmBy, item.pmAt, item.pmRemarks, item.pmSig, item.pmCharge, item.pmPoints)+
+        stageRow('2 \u00b7 GM / Director', item.gmDecision, item.gmBy, item.gmAt, item.gmRemarks, item.gmSig, item.gmCharge, item.gmPoints)+
+      '</table>';
+    const myTurn=(stage==='PM'&&lvl==='pm')||(stage==='GM'&&lvl==='gm')||
+                 (stage!=='CLOSED'&&lvl==='gm');       /* top management may act at any stage */
+    if(!myTurn){
+      h+='<p class="hint" style="margin:10px 0 0">'+
+        (stage==='CLOSED'?'This decision is final. Only the GM / Director may reopen it by issuing a fresh notice.'
+         :stage==='PM'?'With the Project Manager. Nothing counts against the worker until both levels have passed it.'
+         :'With the GM / Director for final approval. Nothing counts against the worker until it is given.')+
+        '</p></div>';
+      host.insertAdjacentHTML('beforebegin', h); return;
+    }
+    const actingAs=(stage==='PM'&&lvl==='gm')?'pm':(stage==='GM'?'gm':lvl);
+    const opts=actingAs==='pm'?IH_PM_DECISIONS:IH_GM_DECISIONS;
+    const curBy=actingAs==='pm'?item.pmBy:item.gmBy;
+    h+='<div class="fgrid" style="margin-top:12px">'+
+        '<div class="fld half"><label>Your decision \u2014 '+(actingAs==='pm'?'Project Manager':'GM / Director')+'</label>'+
+          '<select id="ihDec">'+opts.map(x=>'<option>'+x+'</option>').join('')+'</select></div>'+
+        '<div class="fld half"><label>Your name</label><input id="ihBy" value="'+esc(curBy||myDisplayName()||'')+'"></div>'+
+        '<div class="fld half"><label>Charge if reduced (S$)</label><input id="ihChg" type="number" min="0" placeholder="'+esc(money(item.charge))+'"></div>'+
+        '<div class="fld half"><label>Points if reduced</label><input id="ihPts" type="number" min="0" placeholder="'+(+item.points||0)+'"></div>'+
+      '</div>'+
+      '<div class="fld"><label>Reason / instruction</label><textarea id="ihRem" rows="2" '+
+        'placeholder="Required unless you are passing it as issued."></textarea></div>'+
+      '<div class="btnrow" style="margin-top:8px">'+
+        '<button type="button" class="btn ghost" id="ihSign">\u270e Sign</button>'+
+        '<button type="button" class="btn" id="ihRule" style="flex:1">Record decision</button></div>'+
+      (mine?'<p class="hint" style="margin:8px 0 0;color:var(--warn-ink,#a96407)">You raised this notice. Deciding on your own notice is recorded and printed as such.</p>':'')+
+      '</div>';
+    host.insertAdjacentHTML('beforebegin', h);
+    let sig=null;
+    document.getElementById('ihSign').onclick=()=>{
+      sigPadOpen(document.getElementById('ihBy').value||'Management', d=>{
+        if(d){ sig=d; document.getElementById('ihSign').textContent='\u2713 Signed'; }});
+    };
+    document.getElementById('ihRule').onclick=async()=>{
+      const dec=document.getElementById('ihDec').value;
+      const by=document.getElementById('ihBy').value.trim();
+      const rem=document.getElementById('ihRem').value.trim();
+      if(!by){ alert('Enter your name \u2014 the decision is recorded against it.'); return; }
+      if(dec!=='Endorsed'&&dec!=='Approved'&&!rem){ alert('Give a reason when reducing, waiving or rejecting.'); return; }
+      if(mine && !confirm('You raised this notice. Record your own decision on it?')) return;
+      const rec=db.infringements.find(x=>x.id===item.id); if(!rec) return;
+      const P=actingAs;                                  /* 'pm' or 'gm' */
+      rec[P+'Decision']=dec; rec[P+'By']=by; rec[P+'At']=new Date().toISOString();
+      rec[P+'Remarks']=rem; rec[P+'Self']=!!mine;
+      if(dec==='Reduced'){
+        const c=document.getElementById('ihChg').value, pt=document.getElementById('ihPts').value;
+        rec[P+'Charge']=c===''?(typeof rec.charge==='number'?rec.charge:''):(+c||0);
+        rec[P+'Points']=pt===''?(+rec.points||0):Math.max(0,+pt||0);
+      }else{ delete rec[P+'Charge']; delete rec[P+'Points']; }
+      if(sig) rec[P+'Sig']=sig;
+      const out=await phFlush({id:rec.id, pmSig:rec.pmSig, gmSig:rec.gmSig}, 'infringements');
+      if(out){ if(out.pmSig) rec.pmSig=out.pmSig; if(out.gmSig) rec.gmSig=out.gmSig; }
+      audit('infringement-'+P+'-'+dec.toLowerCase(), 'infringements', rec.id, null, {by, decision:dec, self:!!mine});
+      save(); EV.emit('record:changed',{store:'infringements', id:rec.id});
+      toast(ihStage(rec)==='GM'?'Endorsed \u2014 now with the GM / Director':'Decision recorded \u2014 '+dec);
+      renderEdit('infringements', rec.id);
+    };
   },
   printExtra:function(r){
     const t=ihThresholds(), pts=r.offenderId?ihWorkerPoints(r.offenderId):null;
@@ -2655,9 +2742,27 @@ const MODULES={
       '<tr><td style="text-align:left">Offence</td><td style="text-align:left">'+esc(r.offenceText||'')+'</td></tr>'+
       '<tr><td style="text-align:left">Occurrence</td><td style="text-align:left">'+esc(ihOrdinal(r.occurrence||1))+
         ' occurrence for this worker'+(r.penaltyNote?' \u2014 '+esc(r.penaltyNote):'')+'</td></tr>'+
-      '<tr><td style="text-align:left">Non-compliance charge</td><td style="text-align:left"><b>'+esc(ihChargeText(r.charge))+'</b></td></tr>'+
-      '<tr><td style="text-align:left">Demerit points</td><td style="text-align:left"><b>'+(+r.points||0)+'</b></td></tr>'+
+      '<tr><td style="text-align:left">Charge proposed</td><td style="text-align:left"><b>'+esc(ihChargeText(r.charge))+'</b></td></tr>'+
+      '<tr><td style="text-align:left">Demerit points proposed</td><td style="text-align:left"><b>'+(+r.points||0)+'</b></td></tr>'+
       '</table></div>';
+    const eff=ihEffective(r), st=ihStage(r);
+    const lvlRow=(nm,dec,by,at,rem,sig,self)=>
+      '<tr><td style="text-align:left;width:32%"><b>'+esc(nm)+'</b></td><td style="text-align:left">'+
+      (dec?'<b>'+esc(dec.toUpperCase())+'</b>'+(self?' <span style="color:#a96407">(own notice)</span>':''):'— not yet —')+
+      (by?'<div>'+esc(by)+(at?' · '+esc(fmtD(String(at).slice(0,10))):'')+'</div>':'')+
+      (rem?'<div style="font-size:12px">'+esc(rem)+'</div>':'')+
+      '</td><td style="width:120px;height:34px;text-align:center">'+
+      (sig?'<img src="'+photoSrc(sig)+'"'+phAttr(sig)+' style="height:26px">':'')+'</td></tr>';
+    h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Approval — CP 10.9.1 cl. 5.3</div>'+
+      '<table class="dtable" style="margin:4px 0">'+
+        lvlRow('1 · Project Manager', r.pmDecision, r.pmBy, r.pmAt, r.pmRemarks, r.pmSig, r.pmSelf)+
+        lvlRow('2 · GM / Director', r.gmDecision, r.gmBy, r.gmAt, r.gmRemarks, r.gmSig, r.gmSelf)+
+      '</table>'+
+      '<div style="font-size:12.5px;margin-top:4px">Standing: <b>'+esc(ihStatusText(r).toUpperCase())+'</b>'+
+      (eff.live?' — charge in force <b>'+esc(ihChargeText(eff.charge))+'</b>, <b>'+eff.points+'</b> demerit points'
+        :' — <b>no charge and no demerit points are in force</b>')+'</div>'+
+      (st!=='CLOSED'?'<div style="font-size:11.5px;color:#a96407;margin-top:3px">This notice is not yet approved and does not count against the worker.</div>':'')+
+      '</div>';
     if(pts)
       h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Worker standing after this notice</div>'+
          '<table class="dtable" style="margin:4px 0">'+
@@ -2675,20 +2780,20 @@ const MODULES={
   sort:(a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||'')),
   line1:i=>esc((i.offenderName||'(worker)')+(i.offenderWid?' \u00b7 '+i.offenderWid:'')),
   line2:i=>esc([fmtD(i.date), (i.category||'')+') '+(i.offenceText||''), i.subcon].filter(Boolean).join(' \u00b7 ')),
-  meta:i=>(i.status==='Waived'?'<span class="chip">Waived</span>'
-      :(+i.points?'<span class="chip b">'+i.points+' pts</span> ':'')+
-       (i.charge?'<span class="chip w">'+esc(ihChargeText(i.charge))+'</span>':'')),
+  meta:i=>{ const e=ihEffective(i);
+    return ihDecisionChip(i)+(e.live&&e.points?' <span class="chip b">'+e.points+' pts</span>':'')+
+      (e.live&&e.charge?' <span class="chip w">'+esc(ihChargeText(e.charge))+'</span>':''); },
   listHeader:function(){
     const rs=db.infringements||[];
     if(!rs.length) return '';
     const mk=today().slice(0,7);
     const mo=rs.filter(r=>String(r.date||'').slice(0,7)===mk);
-    const pts=mo.reduce((a,r)=>a+(+r.points||0),0);
-    const open=rs.filter(r=>['Issued','Acknowledged','Appealed'].includes(r.status)).length;
+    const pts=mo.reduce((a,r)=>a+ihEffective(r).points,0);
+    const open=ihPending().length;
     return '<div class="card" style="margin-bottom:10px"><div class="tiles">'+
       '<a class="stile" href="#/demerits"><div class="v">'+mo.length+'</div><div class="l">This month</div></a>'+
       '<a class="stile" href="#/demerits"><div class="v">'+pts+'</div><div class="l">Points this month</div></a>'+
-      '<a class="stile" href="#/demerits"><div class="v'+(open?' w':'')+'">'+open+'</div><div class="l">Not yet closed</div></a>'+
+      '<a class="stile" href="#/approvals"><div class="v'+(open?' w':'')+'">'+open+'</div><div class="l">Awaiting approval</div></a>'+
       '</div><a class="btn ghost" href="#/demerits" style="display:block;text-align:center;margin-top:8px">Demerit register &amp; worker statistics</a></div>';
   }
  },
@@ -3741,7 +3846,22 @@ function renderSettings(){
       '<div class="btnrow" style="margin-top:8px"><button class="btn ghost" id="setLmraSave">Save</button>'+
       '<button class="btn ghost" id="setLmraSug">Suggest from activity + RA</button></div>'+
     '</div>')+
-    (lite?'':'<div class="card"><label style="margin-top:0">Demerit points — company thresholds</label>'+
+    (lite?'':'<div class="card"><label style="margin-top:0">Infringement approval — who decides</label>'+
+      '<p class="hint">A notice raised by a safety officer counts for nothing until the <b>Project Manager</b> endorses it and the '+
+      '<b>GM / Director</b> gives final approval. Name them by the email they sign in with, one per line. '+
+      'Admin accounts hold GM / Director authority by default; an HQ WSHO holds Project Manager authority.</p>'+
+      '<p class="hint"><b>The approver needs an account that can write.</b> A view-only or subcontractor login cannot record a decision, '+
+      'so give your GM / Director an <b>admin</b> account and your Project Manager an <b>HQ WSHO</b> account.</p>'+
+      '<div class="fgrid">'+
+        '<div class="fld half"><label>Project Manager(s)</label><textarea id="setIhPm" rows="3" placeholder="pm@company.com">'+
+          esc((ihAuth().pm||[]).join('\n'))+'</textarea></div>'+
+        '<div class="fld half"><label>GM / Director(s) — final authority</label><textarea id="setIhGm" rows="3" placeholder="director@company.com">'+
+          esc((ihAuth().gm||[]).join('\n'))+'</textarea></div>'+
+      '</div>'+
+      '<div class="btnrow" style="margin-top:8px"><button class="btn ghost" id="setIhAuth">Save approvers</button></div>'+
+      '<p class="hint">You currently hold: <b>'+(ihAuthLevel()==='gm'?'GM / Director':ihAuthLevel()==='pm'?'Project Manager':'no approving authority')+'</b>.</p>'+
+    '</div>'+
+    '<div class="card"><label style="margin-top:0">Demerit points — company thresholds</label>'+
       '<p class="hint">CP 10.9.1 fixes the charge and the demerit points for each offence, but it sets <b>no point limits</b>. '+
       'These thresholds are the company’s own decision — they decide when a worker appears on the watch list, goes to a formal review, or is put up for suspension.</p>'+
       '<div class="fgrid">'+
@@ -3824,6 +3944,12 @@ function renderSettings(){
   } /* end !lite management wiring */
   sbBindSettings();
   if(lite) return;
+  document.getElementById('setIhAuth').onclick=()=>{
+    const g=id=>document.getElementById(id).value.split('\n').map(x=>x.trim().toLowerCase()).filter(Boolean);
+    const pm=g('setIhPm'), gm=g('setIhGm');
+    if(pm.length||gm.length) s.ihAuth={pm, gm}; else delete s.ihAuth;
+    save(); toast('Approvers saved'); renderSettings();
+  };
   document.getElementById('setIhSave').onclick=()=>{
     const g=id=>Math.max(0, +document.getElementById(id).value||0);
     s.ihThresholds={warn:g('setIhWarn'), review:g('setIhReview'), suspend:g('setIhSusp')};
@@ -6853,7 +6979,8 @@ function ihPriorFor(memberId, code, exceptId){
   if(!memberId||!code) return [];
   const out=[];
   root.projects.forEach(pj=>(pj.infringements||[]).forEach(r=>{
-    if(r.id!==exceptId && r.offenderId===memberId && r.offenceCode===code && r.status!=='Waived') out.push(r);
+    if(r.id!==exceptId && r.offenderId===memberId && r.offenceCode===code &&
+       !ihKilled(r.pmDecision) && !ihKilled(r.gmDecision)) out.push(r);
   }));
   return out.sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));
 }
@@ -6867,6 +6994,70 @@ function ihPenalty(code, occurrence){
 }
 function ihOrdinal(n){ return n===1?'1st':n===2?'2nd':n===3?'3rd':n+'th'; }
 function ihChargeText(v){ return (v===''||v==null)?'\u2014':(typeof v==='number'?('S$'+v.toLocaleString()):String(v)); }
+/* ---- two-stage approval: WSHO raises -> PM -> GM/Director (final) ----
+   CP 10.9.1 cl. 5.3 puts the decision with the Project Manager; company policy
+   puts final authority with top management. A notice costs the worker nothing
+   until both have passed it. */
+const IH_PM_DECISIONS=['Endorsed','Reduced','Waived','Rejected'];
+const IH_GM_DECISIONS=['Approved','Reduced','Waived','Rejected'];
+/* Who holds which authority. Admin defaults to GM/Director level, an HQ WSHO to
+   PM level; the admin can name people explicitly in Settings. */
+function ihAuth(){ const a=(db.settings&&db.settings.ihAuth)||{}; return {pm:a.pm||[], gm:a.gm||[]}; }
+function ihAuthLevel(){
+  const pr=SB.profile;
+  if(!pr) return 'gm';                                   /* local / unsigned device */
+  /* an account that cannot write the record cannot record a decision: its ruling
+     would stay on the device and never reach anyone. Offer nothing. */
+  if(typeof canWrite==='function' && !canWrite('infringements')) return null;
+  const em=String(pr.email||'').toLowerCase(), a=ihAuth();
+  const has=(l)=>l.map(x=>String(x||'').toLowerCase().trim()).includes(em);
+  if(has(a.gm)) return 'gm';
+  if(has(a.pm)) return 'pm';
+  if(pr.role==='admin') return 'gm';
+  if(pr.role==='wsho' && pr.hq) return 'pm';
+  return null;
+}
+function ihKilled(d){ return d==='Waived'||d==='Rejected'; }
+/* where the notice stands right now */
+function ihStage(r){
+  const pm=(r&&r.pmDecision)||'', gm=(r&&r.gmDecision)||'';
+  if(!pm) return 'PM';                                   /* waiting on the PM */
+  if(ihKilled(pm)) return 'CLOSED';
+  if(!gm) return 'GM';                                   /* waiting on top management */
+  return 'CLOSED';
+}
+function ihIsLive(r){
+  const pm=(r&&r.pmDecision)||'', gm=(r&&r.gmDecision)||'';
+  return (pm==='Endorsed'||pm==='Reduced') && (gm==='Approved'||gm==='Reduced');
+}
+/* what the worker actually carries: the last level to vary it wins */
+function ihEffective(r){
+  if(!ihIsLive(r)) return {charge:'', points:0, live:false};
+  const pick=(a,b,c)=>a!=null&&a!==''?a:(b!=null&&b!==''?b:c);
+  return {
+    charge: pick(r.gmDecision==='Reduced'?r.gmCharge:null, r.pmDecision==='Reduced'?r.pmCharge:null, r.charge),
+    points: +pick(r.gmDecision==='Reduced'?r.gmPoints:null, r.pmDecision==='Reduced'?r.pmPoints:null, r.points)||0,
+    live:true
+  };
+}
+function ihStatusText(r){
+  const st=ihStage(r);
+  if(st==='PM') return 'Awaiting Project Manager';
+  if(st==='GM') return 'Awaiting GM / Director';
+  if(ihKilled(r.pmDecision)) return r.pmDecision+' by PM';
+  if(ihKilled(r.gmDecision)) return r.gmDecision+' by GM / Director';
+  return r.gmDecision==='Reduced'?'Approved \u00b7 reduced':'Approved';
+}
+function ihDecisionChip(r){
+  const st=ihStage(r);
+  if(st==='PM'||st==='GM') return '<span class="chip w">'+esc(ihStatusText(r))+'</span>';
+  return '<span class="chip'+(ihIsLive(r)?' b':'')+'">'+esc(ihStatusText(r))+'</span>';
+}
+/* notices this signed-in person is the one holding up */
+function ihPendingFor(level){
+  return (db.infringements||[]).filter(r=>ihStage(r)===(level==='gm'?'GM':'PM'));
+}
+function ihPending(){ return (db.infringements||[]).filter(r=>ihStage(r)==='PM'||ihStage(r)==='GM'); }
 /* ---- worker history + statistics (doc 5.5 / 8.4) ---- */
 function ihAllRecords(){
   const out=[];
@@ -6882,12 +7073,13 @@ function ihWorkerPoints(memberId, days){
   const w=days||ihPointsWindowDays();
   const cut=new Date(Date.now()-w*864e5).toISOString().slice(0,10);
   let live=0, life=0;
+  let pending=0;
   ihWorkerHistory(memberId).forEach(r=>{
-    if(r.status==='Waived') return;
-    const pts=+r.points||0; life+=pts;
+    if(!ihIsLive(r)){ if(ihStage(r)!=='CLOSED') pending+=(+r.points||0); return; }
+    const pts=ihEffective(r).points; life+=pts;
     if(String(r.date||'')>=cut) live+=pts;
   });
-  return {live, life, windowDays:w};
+  return {live, life, pending, windowDays:w};
 }
 /* thresholds are a COMPANY decision — CP 10.9.1 sets no point limits */
 function ihThresholds(){
@@ -7333,6 +7525,40 @@ function renderLmraCheck(){
 }
 
 
+/* ---- approvals queue: what is waiting on me ---- */
+function renderApprovals(){
+  const lvl=ihAuthLevel();
+  const all=(db.infringements||[]).filter(r=>ihStage(r)!=='CLOSED')
+    .sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));
+  const mine=all.filter(r=>{ const st=ihStage(r);
+    return lvl==='gm' ? true : (lvl==='pm' && st==='PM'); });
+  const money=v=>(v===''||v==null)?'\u2014':(typeof v==='number'?('S$'+v.toLocaleString()):String(v));
+  const card=r=>{
+    const st=ihStage(r), m=db.members.find(x=>x.id===r.offenderId);
+    return '<a class="pick" href="#/infringements/'+esc(r.id)+'" style="display:block;margin-bottom:8px">'+
+      '<span style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">'+
+        '<b style="flex:1;min-width:130px">'+esc(r.offenderName||(m&&m.name)||'(worker)')+
+          (r.offenderWid?' <span class="hint">'+esc(r.offenderWid)+'</span>':'')+'</b>'+
+        '<span class="chip w">'+esc(st==='PM'?'Project Manager':'GM / Director')+'</span></span>'+
+      '<span class="hint" style="display:block;margin-top:3px">'+
+        esc([r.noticeNo, fmtD(r.date), (r.category||'')+') '+(r.offenceText||'')].filter(Boolean).join(' \u00b7 '))+'</span>'+
+      '<span class="hint" style="display:block">Proposed '+esc(money(r.charge))+' \u00b7 '+(+r.points||0)+' pts'+
+        (r.pmDecision?' \u00b7 PM: '+esc(r.pmDecision):'')+'</span></a>';
+  };
+  app.innerHTML=header('Approvals', true)+
+    (lvl?'':'<div class="card"><p class="hint" style="margin:0">You do not hold approving authority. '+
+      'The admin can name the Project Manager and the GM / Director in Settings.</p></div>')+
+    '<div class="tiles">'+
+      '<div class="stile"><div class="v'+(ihPendingFor('pm').length?' w':'')+'">'+ihPendingFor('pm').length+'</div><div class="l">With the PM</div></div>'+
+      '<div class="stile"><div class="v'+(ihPendingFor('gm').length?' w':'')+'">'+ihPendingFor('gm').length+'</div><div class="l">With the GM / Director</div></div>'+
+    '</div>'+
+    '<h2 class="sect">'+(lvl==='gm'?'Everything outstanding':lvl==='pm'?'Waiting on you':'Outstanding')+'</h2>'+
+    (mine.length?mine.map(card).join(''):'<div class="empty">Nothing waiting for a decision.</div>')+
+    (lvl==='pm'&&all.length>mine.length?
+      '<h2 class="sect">With the GM / Director</h2>'+all.filter(r=>ihStage(r)==='GM').map(card).join(''):'')+
+    '<div class="foot">A notice costs the worker nothing until the Project Manager has endorsed it '+
+      'and the GM / Director has given final approval (CP 10.9.1 cl. 5.3).</div>';
+}
 /* ---- Demerit register: the statistical analysis CP 10.9.1 asks for (cl. 5.5, 8.4) ---- */
 let IHV={scope:'site', months:6, sort:'points'};
 function ihMonthKeys(n){
@@ -7344,14 +7570,15 @@ function renderDemerits(){
   const all=IHV.scope==='company'?ihAllRecords():(db.infringements||[]).map(r=>Object.assign({_pjName:db.settings.project||''},r));
   const months=ihMonthKeys(IHV.months);
   const inWin=all.filter(r=>months.includes(String(r.date||'').slice(0,7)));
-  const live=inWin.filter(r=>r.status!=='Waived');
+  const live=inWin.filter(ihIsLive);          /* only what management passed counts */
   const t=ihThresholds();
 
   /* by worker */
   const byW={};
   live.forEach(r=>{ const k=r.offenderId||('?'+(r.offenderName||'')); (byW[k]=byW[k]||{id:r.offenderId,name:r.offenderName||'(unnamed)',
     wid:r.offenderWid||'',company:r.subcon||'',n:0,pts:0,charge:0,cats:{}}); const w=byW[k];
-    w.n++; w.pts+=(+r.points||0); if(typeof r.charge==='number') w.charge+=r.charge;
+    const e=ihEffective(r);
+    w.n++; w.pts+=e.points; if(typeof e.charge==='number') w.charge+=e.charge;
     w.cats[r.category||'?']=(w.cats[r.category||'?']||0)+1; });
   let workers=Object.values(byW);
   workers.sort(IHV.sort==='count'?(a,b)=>b.n-a.n:(a,b)=>b.pts-a.pts||b.n-a.n);
@@ -7381,6 +7608,7 @@ function renderDemerits(){
       '<div class="stile"><div class="v">'+totPts+'</div><div class="l">Demerit points</div></div>'+
       '<div class="stile"><div class="v">S$'+totChg.toLocaleString()+'</div><div class="l">Charges raised</div></div>'+
       '<div class="stile"><div class="v'+(flagged?' w':'')+'">'+flagged+'</div><div class="l">Workers at or over '+t.warn+' pts</div></div>'+
+      '<a class="stile" href="#/approvals"><div class="v'+(ihPending().length?' w':'')+'">'+ihPending().length+'</div><div class="l">Awaiting approval</div></a>'+
     '</div>'+
     /* trend */
     '<h2 class="sect">By month</h2><div class="card"><div style="display:flex;align-items:flex-end;gap:6px;height:90px">'+
