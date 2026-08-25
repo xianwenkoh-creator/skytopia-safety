@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-1700">
+<meta name="build" content="2026-08-25-1840">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -3903,8 +3903,8 @@ function renderSettings(){
         '<optgroup label="By work activity">'+
         (function(){ const ts=Object.keys(LMRA_ACT_QS); db.workActivities.forEach(w=>{ if(w.type&&ts.indexOf(w.type)<0) ts.push(w.type); });
           return ts.map(t=>'<option value="'+esc(t)+'">'+esc(t)+'</option>').join(''); })()+'</optgroup>'+
-        '<optgroup label="By role — each person’s own checks">'+
-        Object.keys(LMRA_ROLE_QS).map(r=>'<option value="role:'+esc(r)+'">'+esc(r)+'</option>').join('')+
+        '<optgroup label="By appointment — the checks that man alone answers">'+
+        Object.keys(LMRA_APPT_QS).map(c=>'<option value="role:'+esc(c)+'">'+esc(lmraApptName(c))+'</option>').join('')+
         '</optgroup></select></div>'+
       '<textarea id="setLmraQs" rows="10" placeholder="One question per line"></textarea>'+
       '<p class="hint" id="setLmraSrc" style="margin:6px 0 0"></p>'+
@@ -3969,10 +3969,10 @@ function renderSettings(){
     const t=document.getElementById('setLmraAct').value, ta=document.getElementById('setLmraQs'), st=document.getElementById('setLmraSrc');
     if(!t){ ta.value=(s.lmraQs||LMRA_QS).join('\n');
       st.textContent=s.lmraQs?'Your site’s base wording.':'Built-in base wording — edit and Save to make it yours.'; }
-    else if(t.indexOf('role:')===0){ const r=t.slice(5), per=(s.lmraRoleQs||{})[r];
-      ta.value=(per||LMRA_ROLE_QS[r]||[]).join('\n');
-      st.textContent=per?('Your site’s wording for the '+r+'.')
-        :('Suggested wording — only the person doing this role answers these. Edit and Save to make it yours.'); }
+    else if(t.indexOf('role:')===0){ const r=t.slice(5), per=(s.lmraApptQs||{})[r];
+      ta.value=(per||LMRA_APPT_QS[r]||[]).join('\n');
+      st.textContent=per?('Your site’s wording for the '+lmraApptName(r)+'.')
+        :('Suggested wording — only a worker holding this appointment answers these. Edit and Save to make it yours.'); }
     else{ const per=(s.lmraActQs||{})[t];
       ta.value=(per||lmraSuggestQs(t)).join('\n');
       st.textContent=per?('Your site’s wording for '+t+'.'):'Suggested from the activity library + approved RA — edit and Save to make it yours.'; }
@@ -3981,7 +3981,7 @@ function renderSettings(){
   document.getElementById('setLmraSug').onclick=()=>{
     const t=document.getElementById('setLmraAct').value;
     document.getElementById('setLmraQs').value=(!t?LMRA_QS
-      :t.indexOf('role:')===0?(LMRA_ROLE_QS[t.slice(5)]||[])
+      :t.indexOf('role:')===0?(LMRA_APPT_QS[t.slice(5)]||[])
       :lmraSuggestQs(t)).join('\n');
   };
   document.getElementById('setLmraSave').onclick=()=>{
@@ -3989,8 +3989,8 @@ function renderSettings(){
     const v=document.getElementById('setLmraQs').value.split('\n').map(x=>x.trim()).filter(Boolean);
     if(!t){ if(v.length) s.lmraQs=v; else delete s.lmraQs; }
     else if(t.indexOf('role:')===0){ const r=t.slice(5);
-      s.lmraRoleQs=s.lmraRoleQs||{}; if(v.length) s.lmraRoleQs[r]=v; else delete s.lmraRoleQs[r];
-      if(!Object.keys(s.lmraRoleQs).length) delete s.lmraRoleQs; }
+      s.lmraApptQs=s.lmraApptQs||{}; if(v.length) s.lmraApptQs[r]=v; else delete s.lmraApptQs[r];
+      if(!Object.keys(s.lmraApptQs).length) delete s.lmraApptQs; }
     else{ s.lmraActQs=s.lmraActQs||{}; if(v.length) s.lmraActQs[t]=v; else delete s.lmraActQs[t];
       if(!Object.keys(s.lmraActQs).length) delete s.lmraActQs; }
     save(); toast(v.length?('Saved — '+v.length+' questions'+(t?' for '+t.replace('role:',''):' (base)')):'Cleared — back to suggested wording');
@@ -7357,94 +7357,224 @@ function lmraAllQs(waId){
   return base.concat(extra);
 }
 /* ---- role-specific checks: each person answers for their OWN job ---- */
-const LMRA_ROLES=['Worker','Supervisor / Foreman','Lifting Supervisor','Rigger / Signalman',
- 'Banksman','Operator','Scaffolder','Welder','Confined Space Attendant','Others'];
-const LMRA_ROLE_QS={
- 'Banksman':[
-  'Are you wearing the reflective vest that marks you as the banksman?',
-  'Did you agree the hand signals with the operator before he moves?',
-  'Can the operator see you in his mirror from where you are standing?',
-  'Are you standing OUT of the reversing path \u2014 never behind the machine?',
-  'Is your walking route clear of people, cables and holes?',
-  'Do you know to STOP the machine the moment you lose sight of the operator?'],
- 'Operator':[
-  'Do you hold the valid licence / certificate for THIS machine?',
-  'Did you do the pre-use check today and sign the checklist?',
-  'Mirrors, horn, reverse alarm and lights all working?',
-  'Seat belt on before you move?',
-  'Do you know who your banksman is, and can you see him?',
-  'Is the ground firm and clear of people before you swing or reverse?',
-  'Will you switch off and remove the key before leaving the cabin?'],
- 'Rigger / Signalman':[
-  'Do you hold a valid rigger / signalman certificate?',
-  'Did you check every sling, shackle and hook \u2014 colour code current, no damage?',
-  'Do you know the weight of the load and the SWL of the gear?',
-  'Is the load properly slung and balanced before you signal to lift?',
-  'Is the tag line attached \u2014 you control the load with the line, not your hands?',
-  'Is everyone clear of the load path, and nobody under the load?',
-  'Only ONE signalman at a time \u2014 is that agreed?'],
- 'Lifting Supervisor':[
-  'Is the lifting plan for this lift on site, and did you brief the team on it?',
-  'Have you checked the crane\u2019s load chart against this load and radius?',
-  'Are the ground conditions, outriggers and mats checked by you?',
-  'Are the operator, rigger and signalman all certified and named for this lift?',
-  'Is the exclusion zone barricaded and clear of people?',
-  'Are you staying with this lift from start to finish \u2014 not leaving it unsupervised?',
-  'Weather and wind acceptable for lifting right now?'],
- 'Scaffolder':[
-  'Do you hold a valid scaffold erector certificate for this work?',
-  'Harness on and hooked to a sound anchor while erecting or altering?',
-  'Is the base plate, sole board and ground condition checked?',
-  'Are ties and braces going in as you build \u2014 not left for later?',
-  'Is the area below barricaded against falling material?',
-  'Will you tag the scaffold correctly and never leave it part-built untagged?'],
- 'Welder':[
-  'Is the hot work permit approved and displayed for this spot?',
-  'Fire extinguisher at your side and fire watchman present?',
-  'Flashback arrestors fitted, hoses and regulators checked for leaks?',
-  'Everything that can burn moved away or covered?',
-  'Face shield, leather gloves, apron and fire-resistant clothing on?',
-  'Is the area ventilated so you are not breathing the fumes?',
-  'Will you purge the hoses and close the cylinder valves after work?'],
- 'Confined Space Attendant':[
-  'Is the entry permit approved and displayed?',
-  'Do you have the entry log \u2014 do you know exactly who is inside right now?',
-  'Was the air tested SAFE before entry, and are you re-testing as required?',
-  'Is the blower running and the airline clear?',
-  'Will you stay at the entrance the WHOLE time \u2014 never leaving your post?',
-  'Is the rescue tripod and equipment ready, and do you know who to call?',
-  'Do you know you must NEVER enter to rescue \u2014 you raise the alarm?'],
- 'Supervisor / Foreman':[
-  'Did you brief this crew on the RA and the SWP for this task?',
-  'Is everyone here trained and certified for the job you are giving them?',
-  'Are the controls in the RA actually in place on the ground \u2014 you checked?',
-  'Does anyone look unwell, tired or affected by heat today?',
-  'Do you have enough manpower for this task to be done safely?',
-  'Will you stay in the area while this work is going on?'],
- 'Worker':[
-  'Do you know exactly what your part of this job is?',
-  'Do you know the main danger of this job and how you are protected from it?',
-  'Is your PPE on and in good condition?',
-  'Do you know who to tell if something changes or feels unsafe?']
+/* ---- appointment-driven checks: a man answers for what HE is appointed as ----
+   Keyed to the company's competency type codes, so the checklist follows the
+   worker's own certificate rather than anyone's choice on the day. */
+const LMRA_APPT_QS={
+ 'LS':['Is the lifting plan for this lift on site, and did you brief the team on it?',
+   'Have you checked the load chart against this load, this radius, this ground?',
+   'Are the operator, rigger and signalman all certified and named for this lift?',
+   'Is the exclusion zone barricaded and everybody clear of the load path?',
+   'Are you staying with this lift from start to finish?',
+   'Wind and weather acceptable to lift right now?'],
+ 'RIG':['Did you check every sling, shackle and hook \u2014 colour code current, no damage?',
+   'Do you know the weight of this load and the SWL of your gear?',
+   'Is the load slung and balanced before you signal to lift?',
+   'Is the tag line on \u2014 you control the load with the line, never your hands?',
+   'Is everyone clear of the load path, and nobody under the load?'],
+ 'SIG':['Only ONE signalman for this lift \u2014 is everyone clear that it is you?',
+   'Can the operator see you from where you are standing, the whole lift?',
+   'Did you agree the hand signals with the operator before the lift?',
+   'Do you know to STOP the lift the moment you lose sight of the load or the operator?',
+   'Are you standing clear of the load path yourself?'],
+ 'CRA':['Do you hold the valid certificate for THIS crane?',
+   'Pre-use check done and signed today?',
+   'Outriggers fully out on mats, ground checked?',
+   'Load chart on hand \u2014 is this lift within it?',
+   'Can you see your signalman, and do you know to stop if you lose him?',
+   'Will you leave the load unattended? (You must not.)'],
+ 'LCO':['Do you hold the valid lorry crane certificate?',
+   'Pre-use check done, outriggers out on firm ground?',
+   'Is the load within the SWL for this radius?',
+   'Is the area behind and around the lorry clear of people?',
+   'Tag line used, nobody under the load?'],
+ 'EXC':['Do you hold the valid certificate for this excavator?',
+   'Pre-use check done and signed today?',
+   'Mirrors, horn, reverse alarm and lights working?',
+   'Seat belt on before you move?',
+   'Do you know who your banksman is, and can you see him?',
+   'Is the swing radius clear of people before you slew?',
+   'If lifting with the excavator \u2014 is it certified for lifting and rigged properly?'],
+ 'FLB':['Do you hold the valid forklift certificate?',
+   'Pre-use check done \u2014 forks, mast, brakes, horn?',
+   'Seat belt on \u2014 and NO passengers?',
+   'Load within capacity, tilted back and low while travelling?',
+   'Is the route clear of people, and do you sound the horn at corners?'],
+ 'MEWP':['Do you hold the valid MEWP certificate for this machine?',
+   'Pre-use and function check done today?',
+   'Harness on and hooked to the anchor point INSIDE the basket?',
+   'Ground firm and level, outriggers set, no overhead cables?',
+   'Do you know how to use the ground-level emergency lowering?'],
+ 'TC':['Are you wearing the reflective vest that marks you out?',
+   'Did you agree the hand signals with the driver or operator before he moves?',
+   'Can he see you in his mirror from where you are standing?',
+   'Are you OUT of the reversing path \u2014 never behind the machine?',
+   'Is your own walking route clear of holes, cables and materials?',
+   'Do you know to STOP him the moment you lose sight of each other?'],
+ 'TCS':['Is the approved traffic management plan in place on the ground?',
+   'Are the signs, cones and barriers as per the plan?',
+   'Are your traffic controllers briefed and in position?',
+   'Is there a safe separation between the public, vehicles and workers?'],
+ 'FWM':['Is the hot work permit approved and displayed?',
+   'Do you have the correct extinguisher, checked and full, in your hand?',
+   'Is everything that can burn moved away or covered?',
+   'Will you stay watching for the full 30 minutes after the work stops?',
+   'Do you know how to raise the alarm and who to call?'],
+ 'WELD':['Is the hot work permit approved and displayed for this spot?',
+   'Flashback arrestors fitted, hoses and regulators checked for leaks?',
+   'Fire watchman here and extinguisher beside you?',
+   'Face shield, leather gloves, apron and fire-resistant clothing on?',
+   'Is the area ventilated so you are not breathing the fumes?',
+   'Will you purge hoses and close cylinder valves after work?'],
+ 'LEW':['Is the isolation locked out and tagged before you touch anything?',
+   'Did you TEST that the line is dead \u2014 never assume?',
+   'Are your gloves, tools and mat rated and in good condition?',
+   'Is the DB cover closed and the ELCB working before you energise?',
+   'Is anyone else working on this circuit \u2014 do they know what you are doing?'],
+ 'CS':['Is the entry permit approved and displayed?',
+   'Was the air tested SAFE before you enter, and is it being re-tested?',
+   'Is the blower running and the airline clear?',
+   'Is the attendant at the entrance, and does he have your name in the log?',
+   'Do you know the escape signal and your way out?',
+   'Are you wearing the harness with the retrieval line attached?'],
+ 'CSS':['Have you confirmed the entry permit and the gas test results yourself?',
+   'Is the attendant briefed and in position, with the entry log?',
+   'Is rescue equipment ready at the entrance and the rescue plan understood?',
+   'Is everyone entering trained and fit for confined space work?',
+   'Is ventilation running and isolation of the space confirmed?'],
+ 'CSSA':['Did you calibrate the gas detector before testing?',
+   'Did you test at top, middle and bottom of the space?',
+   'Are oxygen, flammable and toxic readings all within limits?',
+   'Have you recorded the results and signed the permit?'],
+ 'SCAF':['Do you hold the valid scaffold erector certificate?',
+   'Harness on and hooked to a sound anchor while erecting or altering?',
+   'Base plates, sole boards and ground condition checked?',
+   'Are ties and braces going in as you build \u2014 not left for later?',
+   'Is the area below barricaded against falling material?',
+   'Will you tag it correctly and never leave it part-built untagged?'],
+ 'SCFS':['Have you inspected this scaffold yourself before tagging it?',
+   'Are the ties, bracing and base as per the approved drawing?',
+   'Guardrails, toe boards and full planking in place?',
+   'Is the tag correct, dated and signed by you?',
+   'Are your erectors certified and wearing harnesses?'],
+ 'GOND':['Is the gondola inspected and certified, with a current tag?',
+   'Are the wire ropes, brakes and secondary device checked today?',
+   'Harness hooked to the INDEPENDENT lifeline, not the gondola?',
+   'Is the area below barricaded?',
+   'Do you know the emergency descent procedure?'],
+ 'WAH':['Is your harness checked \u2014 no cuts, both hooks working?',
+   'Are you hooked on 100% of the time, to an anchor above you?',
+   'Are all openings and edges near you covered or fenced?',
+   'Is the area below barricaded so nothing you drop can hit anyone?',
+   'Tools tied with lanyards?'],
+ 'WAHS':['Is the work-at-height permit approved and the RA briefed?',
+   'Have you checked the anchors and edge protection yourself?',
+   'Is everyone working at height trained and wearing a checked harness?',
+   'Is the area below barricaded and a rescue plan in place?'],
+ 'FW':['Is the formwork erected to the approved drawing?',
+   'Are props, bracing and wedges all in and tight?',
+   'Working platform and access safe, guardrails in place?',
+   'Harness on where there is no edge protection?'],
+ 'FWS':['Has the formwork been inspected and approved before pouring?',
+   'Are props and bracing per the PE design?',
+   'Is the pouring sequence and rate briefed to the crew?',
+   'Is anyone allowed under or near the formwork during the pour?'],
+ 'FA':['Do you know where the first aid box and stretcher are?',
+   'Is the box stocked and in date?',
+   'Do you know the site emergency number and the assembly point?',
+   'Does the crew know that you are the first aider today?'],
+ 'DL3':['Licence and vehicle permit valid and with you?',
+   'Walk-around check done \u2014 tyres, lights, mirrors, brakes?',
+   'Seat belt on, phone away before you move?',
+   'Banksman guiding you when reversing on site?'],
+ 'DL4':['Licence and vehicle permit valid and with you?',
+   'Walk-around check done \u2014 tyres, lights, mirrors, brakes?',
+   'Is the load secured and within limits?',
+   'Wheel chocks placed when stationary and tipping?',
+   'Banksman guiding you when reversing \u2014 never reverse blind?'],
+ 'DL5':['Licence and permit valid for this machine?',
+   'Walk-around check done and recorded?',
+   'Is the route checked for overhead lines and soft ground?',
+   'Banksman guiding you when reversing or manoeuvring?'],
+ 'BCSS':['Did you brief this crew on the RA and the SWP for today\u2019s task?',
+   'Is everyone here trained and certified for the job you are giving them?',
+   'Are the controls in the RA actually in place on the ground \u2014 you checked?',
+   'Does anyone look unwell, tired or affected by the heat?',
+   'Will you stay in the area while this work goes on?'],
+ 'PMC':['Are the permits, RA and SWP for today\u2019s work all in force?',
+   'Are the appointed key personnel present for the work being done?',
+   'Have you walked the area yourself this morning?'],
+ 'WSHC':['Have you walked the work area before it starts?',
+   'Are the RA controls in place and the permits displayed?',
+   'Is anything outstanding from yesterday still open?'],
+ 'ECO':['Are the environmental controls (silt, dust, noise) in place for this work?',
+   'Is there any risk of discharge to the drain from this activity?',
+   'Are chemicals and fuel stored with secondary containment?']
 };
-function lmraRoleQs(role){
-  const per=(db.settings&&db.settings.lmraRoleQs)||{};
-  if(Array.isArray(per[role])&&per[role].length) return {qs:per[role], src:'site'};
-  const b=LMRA_ROLE_QS[role];
+/* what the worker is appointed as, from his own certificate record */
+function lmraApptsFor(memberId){
+  const out=[];
+  (typeof memberComps==='function'?memberComps(memberId):[]).forEach(c=>{
+    const code=c.typeCode; if(!code||!lmraApptQs(code).qs.length) return;
+    if(out.some(x=>x.code===code)) return;
+    const exp=c.expiry||'';
+    out.push({code, name:c.typeName||lmraApptName(code), expiry:exp,
+              expired: !!exp && exp < today()});
+  });
+  return out;
+}
+function lmraApptName(code){
+  const t=(db.competencyTypes||[]).find(x=>x.code===code);
+  return (t&&t.name)||code;
+}
+function lmraApptQs(code){
+  const per=(db.settings&&db.settings.lmraApptQs)||{};
+  if(Array.isArray(per[code])&&per[code].length) return {qs:per[code], src:'site'};
+  const b=LMRA_APPT_QS[code];
   return b?{qs:b, src:'suggested'}:{qs:[], src:''};
 }
-/* the work activity already records who does what \u2014 inherit it */
-function lmraRoleOf(waId, memberId, override){
-  if(override&&override[memberId]) return override[memberId];
-  const wa=db.workActivities.find(w=>w.id===waId);
-  const row=wa&&(wa.crew||[]).find(c=>c.memberId===memberId);
-  return (row&&row.role)||'';
+/* the work activity may put a man in a role — check he actually holds it */
+/* A role on the activity can be satisfied by any one of several appointments:
+   "Operator" is any machine ticket, not specifically an excavator. Only flag a
+   gap when the man holds NONE of them. */
+const LMRA_ROLE_TO_APPT={
+  'Lifting Supervisor':['LS'],
+  'Rigger / Signalman':['RIG','SIG'],
+  'Banksman':['TC','TCS'],
+  'Operator':['CRA','LCO','EXC','FLB','MEWP'],
+  'Scaffolder':['SCAF','SCFS'],
+  'Welder':['WELD'],
+  'Confined Space Attendant':['CS','CSS','CSSA'],
+  'Supervisor / Foreman':['BCSS','PMC','WSHC']};
+function lmraAssignedAppt(waId, memberId){
+  const wa=db.workActivities.find(w=>w.id===waId); if(!wa) return null;
+  const row=(wa.crew||[]).find(c=>c.memberId===memberId);
+  const codes=row&&LMRA_ROLE_TO_APPT[row.role];
+  if(!codes||!codes.length) return null;
+  const held=lmraApptsFor(memberId).map(a=>a.code);
+  if(codes.some(c=>held.includes(c))) return null;      /* he holds one of them */
+  return {code:codes[0], role:row.role};
+}
+/* every block this man must answer today: his appointments, plus anything the
+   activity puts him in, plus anything added by hand at the workface */
+function lmraBlocksFor(waId, memberId, extra){
+  const held=lmraApptsFor(memberId);
+  const out=held.map(h=>Object.assign({}, h, {held:true, gap:false}));
+  const asg=lmraAssignedAppt(waId, memberId);
+  if(asg && !out.some(x=>x.code===asg.code) && lmraApptQs(asg.code).qs.length)
+    out.push({code:asg.code, name:lmraApptName(asg.code), expiry:'', expired:false,
+              held:false, gap:true, role:asg.role});
+  (extra&&extra[memberId]||[]).forEach(code=>{
+    if(!out.some(x=>x.code===code) && lmraApptQs(code).qs.length)
+      out.push({code, name:lmraApptName(code), expiry:'', expired:false, held:false, gap:false, manual:true});
+  });
+  return out;
 }
 let LMX=null;
 function renderLmraCheck(){
   geoCapture();
   if(!LMX) LMX={waId:'', by:'', ans:{}, hazard:'', action:'', crew:[], photos:[], locId:'', sigs:{}, bySig:null, roles:{}, roleAns:{}};
-  LMX.roles=LMX.roles||{}; LMX.roleAns=LMX.roleAns||{};
+  LMX.roles=LMX.roles||{}; LMX.roleAns=LMX.roleAns||{}; LMX.extra=LMX.extra||{};
   /* the screen re-renders on every tap — hold what the user already entered */
   const _grab=()=>{
     const pg=app.querySelector('.pickgrid[data-f="lmCrew"]');
@@ -7460,18 +7590,26 @@ function renderLmraCheck(){
   const QSI=lmraQsFor(LMX.waId);
   const QS=lmraAllQs(LMX.waId);
   const BASEN=QSI.qs.length;
-  /* per-person role checks — built from the crew ticked at the workface */
-  const roleBlocks=(LMX.crew||[]).map(id=>{
+  /* each man answers for every appointment he holds — a rigger who is also the
+     signalman answers both sets */
+  const roleBlocks=[];
+  (LMX.crew||[]).forEach(id=>{
     const m=db.members.find(x=>x.id===id);
-    const role=lmraRoleOf(LMX.waId, id, LMX.roles);
-    const rq=lmraRoleQs(role);
-    return {id, name:m?(m.name||id):id, wid:m?(m.wid||''):'', role, qs:rq.qs, src:rq.src};
-  }).filter(b=>b.qs.length);
-  const roleA=id=>LMX.roleAns[id]||{};
+    lmraBlocksFor(LMX.waId, id, LMX.extra).forEach(ap=>{
+      const rq=lmraApptQs(ap.code);
+      if(!rq.qs.length) return;
+      roleBlocks.push({id, key:id+'|'+ap.code, code:ap.code,
+        name:m?(m.name||id):id, wid:m?(m.wid||''):'',
+        appt:ap.name, expiry:ap.expiry, expired:ap.expired, gap:ap.gap, role:ap.role,
+        qs:rq.qs, src:rq.src});
+    });
+  });
+  const roleA=k=>LMX.roleAns[k]||{};
   const allAnswered=QS.every((q,i)=>LMX.ans[i]) &&
-    roleBlocks.every(b=>b.qs.every((q,i)=>roleA(b.id)[i]));
+    roleBlocks.every(b=>b.qs.every((q,i)=>roleA(b.key)[i]));
   const anyNo=QS.some((q,i)=>LMX.ans[i]==='NO') ||
-    roleBlocks.some(b=>b.qs.some((q,i)=>roleA(b.id)[i]==='NO'));
+    roleBlocks.some(b=>b.qs.some((q,i)=>roleA(b.key)[i]==='NO'));
+  const noAppt=(LMX.crew||[]).filter(id=>!lmraBlocksFor(LMX.waId, id, LMX.extra).length);
   app.innerHTML=header('LMRA — Last Minute Risk Assessment', true)+
     '<div class="card"><div class="fgrid">'+
     '<div class="fld half"><label>Work activity *</label><select id="lmWa">'+
@@ -7519,27 +7657,38 @@ function renderLmraCheck(){
       }
       return h+'</div>';
     })()+
+    '<div id="lmLive">'+
     '<h2 class="sect">Take 2 minutes — check before you start</h2>'+
     (QSI.type?'<div class="hint" style="margin:0 16px 8px">Checklist: <b>'+esc(QSI.type)+'</b>'+(QSI.src==='site'?' — your site’s wording':' — suggested wording; Safety can rewrite it in Settings')+'</div>':'')+
     QS.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px'+(i>=BASEN?';border-left:3px solid var(--acc,#e11b12)':'')+'">'+
       (i===BASEN?'<div class="hint" style="margin:-4px 0 8px">From the approved RA for this activity</div>':'')+
       '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
       '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+(LMX.ans[i]===a?(a==='NO'?'danger':''):'ghost')+'" data-lm="'+i+'" data-a="'+a+'" style="flex:1;min-height:38px;padding:6px">'+a+'</button>').join('')+'</div></div>').join('')+
-    (roleBlocks.length?'<h2 class="sect">Role checks — each person’s own job</h2>'+
-      '<p class="hint" style="margin:0 16px 8px">The role comes from the work activity’s crew list. '+
-      'Change it here if someone is doing a different job today.</p>'+
-      roleBlocks.map(b=>'<div class="card" style="margin-bottom:8px;border-left:3px solid var(--charcoal,#243140)">'+
-        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">'+
-          '<b style="flex:1;min-width:120px">'+esc(b.name)+(b.wid?' <span class="hint">'+esc(b.wid)+'</span>':'')+'</b>'+
-          '<select data-lmrole="'+b.id+'" style="max-width:200px">'+
-            LMRA_ROLES.map(r=>'<option value="'+esc(r)+'"'+(r===b.role?' selected':'')+'>'+esc(r)+'</option>').join('')+
-          '</select></div>'+
+    (roleBlocks.length||noAppt.length?'<h2 class="sect">Appointment checks — each man’s own job</h2>'+
+      '<p class="hint" style="margin:0 16px 8px">Taken from what each person is <b>appointed and certified</b> as. '+
+      'Someone holding two appointments answers both.</p>'+
+      roleBlocks.map(b=>'<div class="card" style="margin-bottom:8px;border-left:3px solid '+
+          (b.gap?'var(--bad-ink,#c5221f)':b.expired?'var(--warn-ink,#a96407)':'var(--charcoal,#243140)')+'">'+
+        '<div style="margin-bottom:8px">'+
+          '<b>'+esc(b.name)+'</b>'+(b.wid?' <span class="hint">'+esc(b.wid)+'</span>':'')+
+          '<div style="font-size:12.5px;font-weight:700;margin-top:2px">'+esc(b.appt)+'</div>'+
+          (b.gap?'<div class="hint" style="color:var(--bad-ink,#c5221f)">⚠ Put on this job by the work activity but <b>no appointment on record</b> — check before he starts.</div>'
+            :b.expired?'<div class="hint" style="color:var(--warn-ink,#a96407)">⚠ Appointment expired '+esc(fmtD(b.expiry))+'</div>':'')+
+        '</div>'+
         b.qs.map((q,i)=>'<div style="padding:8px 0;border-top:1px solid var(--line,#e3e6ea)">'+
           '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
           '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+
-            (roleA(b.id)[i]===a?(a==='NO'?'danger':''):'ghost')+'" data-lmr="'+b.id+'" data-i="'+i+'" data-a="'+a+
+            (roleA(b.key)[i]===a?(a==='NO'?'danger':''):'ghost')+'" data-lmr="'+esc(b.key)+'" data-i="'+i+'" data-a="'+a+
             '" style="flex:1;min-height:36px;padding:6px">'+a+'</button>').join('')+'</div></div>').join('')+
-      '</div>').join(''):'')+
+      '</div>').join('')+
+      noAppt.map(id=>{ const m=db.members.find(x=>x.id===id)||{};
+        return '<div class="card" style="margin-bottom:8px;border-left:3px solid var(--line,#e3e6ea)">'+
+          '<b>'+esc(m.name||id)+'</b>'+(m.wid?' <span class="hint">'+esc(m.wid)+'</span>':'')+
+          '<div class="hint">No appointment on record — general crew. '+
+          'Add one here if he is doing an appointed job today.</div>'+
+          '<select data-lmadd="'+esc(id)+'" style="margin-top:6px"><option value="">+ Add an appointed role…</option>'+
+          Object.keys(LMRA_APPT_QS).map(c=>'<option value="'+c+'">'+esc(lmraApptName(c))+'</option>').join('')+
+          '</select></div>'; }).join(''):'')+
     (anyNo?'<div class="card" style="border-color:var(--bad-ink)">'+
       '<label style="margin-top:0">Something is not right</label>'+
       '<div class="fld"><label>What is the hazard / issue?</label><input id="lmHaz" value="'+esc(LMX.hazard)+'"></div>'+
@@ -7547,7 +7696,67 @@ function renderLmraCheck(){
       '<div class="btnrow" style="margin-top:10px">'+
       '<button class="btn danger" id="lmStop" style="flex:1">STOP WORK — escalate</button>'+
       '<button class="btn" id="lmCtrl" style="flex:1">Controls in place — proceed</button></div></div>'
-     :'<div class="btnrow"><button class="btn" id="lmGo" style="flex:1"'+(allAnswered?'':' disabled')+'>All clear — start work</button></div>');
+     :'<div class="btnrow"><button class="btn" id="lmGo" style="flex:1"'+(allAnswered?'':' disabled')+'>All clear — start work</button></div>')+
+    '</div>';
+  /* rebuild the live part of the screen without touching the crew picker */
+  window._lmRepaint=()=>{
+    const host=document.getElementById('lmLive'); if(!host){ renderLmraCheck(); return; }
+    const QS2=lmraAllQs(LMX.waId), BASEN2=lmraQsFor(LMX.waId).qs.length;
+    const blocks=[]; const noAp=[];
+    (LMX.crew||[]).forEach(id=>{
+      const m=db.members.find(x=>x.id===id);
+      const bs=lmraBlocksFor(LMX.waId, id, LMX.extra);
+      if(!bs.length){ noAp.push(id); return; }
+      bs.forEach(ap=>{ const rq=lmraApptQs(ap.code); if(!rq.qs.length) return;
+        blocks.push({id, key:id+'|'+ap.code, name:m?(m.name||id):id, wid:m?(m.wid||''):'',
+          appt:ap.name, expiry:ap.expiry, expired:ap.expired, gap:ap.gap, qs:rq.qs}); });
+    });
+    const rA=k=>LMX.roleAns[k]||{};
+    const done2=QS2.every((q,i)=>LMX.ans[i]) && blocks.every(b=>b.qs.every((q,i)=>rA(b.key)[i]));
+    const no2=QS2.some((q,i)=>LMX.ans[i]==='NO') || blocks.some(b=>b.qs.some((q,i)=>rA(b.key)[i]==='NO'));
+    const QSI2=lmraQsFor(LMX.waId);
+    host.innerHTML=
+      '<h2 class="sect">Take 2 minutes — check before you start</h2>'+
+      (QSI2.type?'<div class="hint" style="margin:0 16px 8px">Checklist: <b>'+esc(QSI2.type)+'</b>'+
+        (QSI2.src==='site'?' — your site’s wording':' — suggested wording; Safety can rewrite it in Settings')+'</div>':'')+
+      QS2.map((q,i)=>'<div class="card" style="margin-bottom:8px;padding:12px 14px'+(i>=BASEN2?';border-left:3px solid var(--acc,#e11b12)':'')+'">'+
+        (i===BASEN2?'<div class="hint" style="margin:-4px 0 8px">From the approved RA for this activity</div>':'')+
+        '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
+        '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+(LMX.ans[i]===a?(a==='NO'?'danger':''):'ghost')+
+          '" data-lm="'+i+'" data-a="'+a+'" style="flex:1;min-height:38px;padding:6px">'+a+'</button>').join('')+'</div></div>').join('')+
+      (blocks.length||noAp.length?'<h2 class="sect">Appointment checks — each man’s own job</h2>'+
+        '<p class="hint" style="margin:0 16px 8px">Taken from what each person is <b>appointed and certified</b> as. '+
+        'Someone holding two appointments answers both.</p>'+
+        blocks.map(b=>'<div class="card" style="margin-bottom:8px;border-left:3px solid '+
+            (b.gap?'var(--bad-ink,#c5221f)':b.expired?'var(--warn-ink,#a96407)':'var(--charcoal,#243140)')+'">'+
+          '<div style="margin-bottom:8px"><b>'+esc(b.name)+'</b>'+(b.wid?' <span class="hint">'+esc(b.wid)+'</span>':'')+
+            '<div style="font-size:12.5px;font-weight:700;margin-top:2px">'+esc(b.appt)+'</div>'+
+            (b.gap?'<div class="hint" style="color:var(--bad-ink,#c5221f)">⚠ Put on this job by the work activity but <b>no appointment on record</b> — check before he starts.</div>'
+              :b.expired?'<div class="hint" style="color:var(--warn-ink,#a96407)">⚠ Appointment expired '+esc(fmtD(b.expiry))+'</div>':'')+
+          '</div>'+
+          b.qs.map((q,i)=>'<div style="padding:8px 0;border-top:1px solid var(--line,#e3e6ea)">'+
+            '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
+            '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+
+              (rA(b.key)[i]===a?(a==='NO'?'danger':''):'ghost')+'" data-lmr="'+esc(b.key)+'" data-i="'+i+'" data-a="'+a+
+              '" style="flex:1;min-height:36px;padding:6px">'+a+'</button>').join('')+'</div></div>').join('')+
+        '</div>').join('')+
+        noAp.map(id=>{ const m=db.members.find(x=>x.id===id)||{};
+          return '<div class="card" style="margin-bottom:8px;border-left:3px solid var(--line,#e3e6ea)">'+
+            '<b>'+esc(m.name||id)+'</b>'+(m.wid?' <span class="hint">'+esc(m.wid)+'</span>':'')+
+            '<div class="hint">No appointment on record — general crew. Add one here if he is doing an appointed job today.</div>'+
+            '<select data-lmadd="'+esc(id)+'" style="margin-top:6px"><option value="">+ Add an appointed role…</option>'+
+            Object.keys(LMRA_APPT_QS).map(c=>'<option value="'+c+'">'+esc(lmraApptName(c))+'</option>').join('')+
+            '</select></div>'; }).join(''):'')+
+      (no2?'<div class="card" style="border-color:var(--bad-ink)">'+
+        '<label style="margin-top:0">Something is not right</label>'+
+        '<div class="fld"><label>What is the hazard / issue?</label><input id="lmHaz" value="'+esc(LMX.hazard||'')+'"></div>'+
+        '<div class="fld"><label>Control / action taken</label><input id="lmAct" value="'+esc(LMX.action||'')+'"></div>'+
+        '<div class="btnrow" style="margin-top:10px">'+
+        '<button class="btn danger" id="lmStop" style="flex:1">STOP WORK — escalate</button>'+
+        '<button class="btn" id="lmCtrl" style="flex:1">Controls in place — proceed</button></div></div>'
+       :'<div class="btnrow"><button class="btn" id="lmGo" style="flex:1"'+(done2?'':' disabled')+'>All clear — start work</button></div>');
+    _lmWireLive();
+  };
   document.getElementById('lmWa').onchange=e=>{
     _grab();
     LMX.waId=e.target.value;
@@ -7565,19 +7774,26 @@ function renderLmraCheck(){
       const sw=document.getElementById('lmSigs'); if(sw){ sw.innerHTML=sigListHtml(LMX.crew||[], LMX.sigs, 'lmsig'); wireLmSigs(); } } }); }); };
   wireLmSigs();
   if(window._lmCrewH) app.removeEventListener('change', window._lmCrewH);
-  window._lmCrewH=e=>{ if(!e.target.closest||!e.target.closest('.pickgrid[data-f="lmCrew"]')) return; _grab();
-    const sw=document.getElementById('lmSigs'); if(sw){ sw.innerHTML=sigListHtml(LMX.crew||[], LMX.sigs||{}, 'lmsig'); wireLmSigs(); } };
-  app.addEventListener('change', window._lmCrewH);
-  app.querySelectorAll('[data-lm]').forEach(b=>b.onclick=()=>{
+  /* ticking someone changes which appointment blocks must be answered and
+     whether the crew is complete, so the screen is rebuilt, not just the
+     signature strip. The YES/NO buttons already re-render this way. */
+  window._lmCrewH=e=>{ if(!e.target.closest||!e.target.closest('.pickgrid[data-f="lmCrew"]')) return;
     _grab();
-    LMX.ans[b.dataset.lm]=b.dataset.a; renderLmraCheck(); });
-  app.querySelectorAll('[data-lmr]').forEach(b=>b.onclick=()=>{
-    _grab(); const id=b.dataset.lmr;
-    LMX.roleAns[id]=LMX.roleAns[id]||{}; LMX.roleAns[id][b.dataset.i]=b.dataset.a; renderLmraCheck(); });
-  app.querySelectorAll('[data-lmrole]').forEach(sl=>sl.onchange=()=>{
-    _grab(); const id=sl.dataset.lmrole;
-    LMX.roles[id]=sl.value; LMX.roleAns[id]={};   /* different job, different checks */
-    renderLmraCheck(); });
+    const sw=document.getElementById('lmSigs');
+    if(sw){ sw.innerHTML=sigListHtml(LMX.crew||[], LMX.sigs||{}, 'lmsig'); wireLmSigs(); }
+    _lmRepaint();                       /* appointment blocks follow the crew */ };
+  app.addEventListener('change', window._lmCrewH);
+  window._lmWireLive=()=>{
+    app.querySelectorAll('[data-lm]').forEach(b=>b.onclick=()=>{
+      _grab(); LMX.ans[b.dataset.lm]=b.dataset.a; _lmRepaint(); });
+    app.querySelectorAll('[data-lmr]').forEach(b=>b.onclick=()=>{
+      _grab(); const k=b.dataset.lmr;
+      LMX.roleAns[k]=LMX.roleAns[k]||{}; LMX.roleAns[k][b.dataset.i]=b.dataset.a; _lmRepaint(); });
+    app.querySelectorAll('[data-lmadd]').forEach(sl=>sl.onchange=()=>{
+      _grab(); const id=sl.dataset.lmadd; if(!sl.value) return;
+      LMX.extra[id]=(LMX.extra[id]||[]).concat([sl.value]); _lmRepaint(); });
+    if(window._lmBindDecide) _lmBindDecide();
+  };
   const doSave=safe=>{
     if(!LMX.waId){ alert('Select the work activity.'); return; }
     if(!LMX.by.trim()){ alert('Enter who carried out this LMRA.'); return; }
@@ -7590,14 +7806,20 @@ function renderLmraCheck(){
       bySig:LMX.bySig||null, sigs:LMX.sigs||{},
       crew:LMX.crew||[], crewCount:(LMX.crew||[]).length, photos:LMX.photos||[],
       answers:lmraAllQs(LMX.waId).map((q,i)=>({q, a:LMX.ans[i]||''})),
-      roleChecks:(LMX.crew||[]).map(id=>{
-        const m=db.members.find(x=>x.id===id);
-        const role=lmraRoleOf(LMX.waId, id, LMX.roles), rq=lmraRoleQs(role);
-        if(!rq.qs.length) return null;
-        const av=LMX.roleAns[id]||{};
-        return {memberId:id, name:m?(m.name||''):'', wid:m?(m.wid||''):'', role,
-                answers:rq.qs.map((q,i)=>({q, a:av[i]||''}))};
-      }).filter(Boolean),
+      roleChecks:(function(){
+        const out=[];
+        (LMX.crew||[]).forEach(id=>{
+          const m=db.members.find(x=>x.id===id);
+          lmraBlocksFor(LMX.waId, id, LMX.extra).forEach(ap=>{
+            const rq=lmraApptQs(ap.code); if(!rq.qs.length) return;
+            const av=LMX.roleAns[id+'|'+ap.code]||{};
+            out.push({memberId:id, name:m?(m.name||''):'', wid:m?(m.wid||''):'',
+              apptCode:ap.code, role:ap.name, expired:!!ap.expired, gap:!!ap.gap,
+              answers:rq.qs.map((q,i)=>({q, a:av[i]||''}))});
+          });
+        });
+        return out;
+      })(),
       hazard:h?h.value.trim():'', action:a?a.value.trim():'',
       safe, resolved:safe!=='STOP'?'Resolved':'Open'};
     db.lmra.push(rec);
@@ -7607,9 +7829,12 @@ function renderLmraCheck(){
     toast(safe==='STOP'?'STOP WORK recorded — activity is now blocked':'LMRA recorded — safe to start');
     LMX=null; location.hash='#/lmra';
   };
-  const g=document.getElementById('lmGo'); if(g) g.onclick=()=>doSave('YES');
-  const st=document.getElementById('lmStop'); if(st) st.onclick=()=>doSave('STOP');
-  const ct=document.getElementById('lmCtrl'); if(ct) ct.onclick=()=>doSave('CONTROLS');
+  window._lmBindDecide=()=>{
+    const g=document.getElementById('lmGo'); if(g) g.onclick=()=>doSave('YES');
+    const st=document.getElementById('lmStop'); if(st) st.onclick=()=>doSave('STOP');
+    const ct=document.getElementById('lmCtrl'); if(ct) ct.onclick=()=>doSave('CONTROLS');
+  };
+  _lmWireLive();                    /* wires the live block and the decision */
 }
 
 
