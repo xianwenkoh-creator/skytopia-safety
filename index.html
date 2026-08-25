@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-26-0100">
+<meta name="build" content="2026-08-26-0200">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -7161,16 +7161,16 @@ const LMRA_APPT_QS={
    'Is the exclusion zone barricaded and everybody clear of the load path?',
    'Are you staying with this lift from start to finish?',
    'Wind and weather acceptable to lift right now?'],
- 'RIG':['Did you check every sling, shackle and hook — colour code current, no damage?',
+ 'RIG':['Do you hold a valid rigger and signalman certificate (PRST)?',
+   'Did you check every sling, shackle and hook — colour code current, no damage?',
    'Do you know the weight of this load and the SWL of your gear?',
-   'Is the load slung and balanced before you signal to lift?',
+   'Is the load slung and balanced before you give the signal?',
    'Is the tag line on — you control the load with the line, never your hands?',
-   'Is everyone clear of the load path, and nobody under the load?'],
- 'SIG':['Only ONE signalman for this lift — is everyone clear that it is you?',
-   'Can the operator see you from where you are standing, the whole lift?',
+   'Only ONE man signals this lift — is everyone clear that it is you?',
+   'Can the operator see you from where you are standing, for the whole lift?',
    'Did you agree the hand signals with the operator before the lift?',
-   'Do you know to STOP the lift the moment you lose sight of the load or the operator?',
-   'Are you standing clear of the load path yourself?'],
+   'Is everyone clear of the load path, and nobody under the load?',
+   'Do you know to STOP the lift the moment you lose sight of the load or the operator?'],
  'CRA':['Do you hold the valid certificate for THIS crane?',
    'Pre-use check done and signed today?',
    'Outriggers fully out on mats, ground checked?',
@@ -7305,23 +7305,32 @@ const LMRA_APPT_QS={
    'Is there any risk of discharge to the drain from this activity?',
    'Are chemicals and fuel stored with secondary containment?']
 };
+/* PRST covers rigging and signalling together, so an old SIG code resolves to
+   the combined RIG appointment rather than quietly losing its checks */
+const LMRA_APPT_ALIAS={SIG:'RIG'};
+function lmraApptCode(c){ return LMRA_APPT_ALIAS[c]||c; }
 /* what the worker is appointed as, from his own certificate record */
 function lmraApptsFor(memberId){
   const out=[];
   (typeof memberComps==='function'?memberComps(memberId):[]).forEach(c=>{
-    const code=c.typeCode; if(!code||!lmraApptQs(code).qs.length) return;
+    const code=lmraApptCode(c.typeCode); if(!code||!lmraApptQs(code).qs.length) return;
     if(out.some(x=>x.code===code)) return;
     const exp=c.expiry||'';
-    out.push({code, name:c.typeName||lmraApptName(code), expiry:exp,
-              expired: !!exp && exp < today()});
+    /* when a legacy code was folded into another appointment, name the block for
+       the appointment it now is, not the wording on the old certificate */
+    const nm=(c.typeCode!==code)?lmraApptName(code):(c.typeName||lmraApptName(code));
+    out.push({code, name:nm, expiry:exp, expired: !!exp && exp < today()});
   });
   return out;
 }
 function lmraApptName(code){
+  code=(typeof LMRA_APPT_ALIAS!=='undefined'&&LMRA_APPT_ALIAS[code])||code;
+  if(code==='RIG') return 'Rigger & Signalman (PRST)';
   const t=(db.competencyTypes||[]).find(x=>x.code===code);
   return (t&&t.name)||code;
 }
 function lmraApptQs(code){
+  code=(typeof LMRA_APPT_ALIAS!=='undefined'&&LMRA_APPT_ALIAS[code])||code;
   const per=(db.settings&&db.settings.lmraApptQs)||{};
   if(Array.isArray(per[code])&&per[code].length) return {qs:per[code], src:'site'};
   const b=LMRA_APPT_QS[code];
@@ -7333,7 +7342,7 @@ function lmraApptQs(code){
    gap when the man holds NONE of them. */
 const LMRA_ROLE_TO_APPT={
   'Lifting Supervisor':['LS'],
-  'Rigger / Signalman':['RIG','SIG'],
+  'Rigger / Signalman':['RIG'],
   'Banksman':['TC','TCS'],
   'Operator':['CRA','LCO','EXC','FLB','MEWP'],
   'Scaffolder':['SCAF','SCFS'],
