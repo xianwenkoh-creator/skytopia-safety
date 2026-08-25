@@ -36,7 +36,14 @@ supabase functions deploy docapproval --project-ref wrxyajtopaxgdfuxoxxl --no-ve
 
 ## 3. Set the secrets  *(you paste these, not me)*
 
-Dashboard → **Edge Functions → docapproval → Secrets**:
+Secrets are **project-wide**, not stored inside a function — do not go looking
+for them under `docapproval`. Sidebar → **Edge Functions → Secrets**, or go
+straight to:
+
+```
+https://supabase.com/dashboard/project/wrxyajtopaxgdfuxoxxl/functions/secrets
+```
+
 
 | Secret | What to put |
 |---|---|
