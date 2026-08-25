@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-1520">
+<meta name="build" content="2026-08-25-1700">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1455,7 +1455,7 @@ function goBack(){ if(history.length>1) history.back(); else location.hash='#/';
 /* ============ app shell (Procore-style top bar + tool sidebar) ============ */
 const NAV=[
  {group:'Operations', items:[['work','Work Activities','work']]},
- {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic']]},
+ {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic'],['review','Workforce Review','stats']]},
  {group:'Site',    items:[['diary','Site Diary','diary'],['materialRequests','Material Requests','box'],
                           ['layout','Site Layouts','folder'],['locations','Locations','pin'],
                           ['contacts','Contacts','contact'],['equipment','Equipment','equip'],
@@ -1484,7 +1484,8 @@ function buildNav(){
     nav.innerHTML='<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'HR Home</a>'+
       '<div class="sn-group">Workforce</div>'+
       [['members','Workers','members'],['matrix','Competency Matrix','cert'],['training','Training','train'],
-       ['certexp','Cert Expiry','cert'],['finder','Worker Finder','members'],['memberPrivate','Private (HR)','doc']]
+       ['certexp','Cert Expiry','cert'],['finder','Worker Finder','members'],['review','Workforce Review','stats'],
+       ['memberPrivate','Private (HR)','doc']]
         .map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+'</a>').join('')+
       '<div class="sn-group">Company</div>'+
       [['organisations','Companies','contact'],['reports','Report Library','folder'],['audit','Audit Log','doc']]
@@ -1594,6 +1595,7 @@ function renderHome(){
         tile('training','Training','train')+
         tile('certexp','Cert Expiry','cert',nb||'')+
         tile('finder','Worker Finder','members')+
+        tile('review','Workforce Review','stats')+
         tile('memberPrivate','Private (HR)','doc')+
       '</div>'+
       '<h2 class="sect">Company</h2>'+
@@ -1889,6 +1891,12 @@ function route(){
     if(!canWrite('tbm')){ app.innerHTML=header('Toolbox Meeting', true)+
       '<div class="empty">Your role can view toolbox records under Toolbox Meetings, not conduct them.</div>'; return; }
     return renderToolbox();
+  }
+  if(p[0]==='review'){
+    if(SB.profile && ['subcon','viewer'].includes(SB.profile.role)){
+      app.innerHTML=header('Workforce Review', true)+
+        '<div class="empty">Workforce review is available to management and HR.</div>'; return; }
+    return p[1]?renderWorkerReviewOne(p[1]):renderWorkerReview();
   }
   if(p[0]==='approvals'){
     if(SB.profile && SB.profile.role==='subcon'){
@@ -3554,7 +3562,20 @@ function renderStats(){
   const openF=openActionCounts().total;
   const tbmN=db.tbm.filter(r=>inYear(r,yr)).length;
 
+  const ihYr=(db.infringements||[]).filter(r=>ihIsLive(r)&&String(r.date||'').slice(0,4)===String(yr));
+  const ihPtsYr=ihYr.reduce((a,r)=>a+ihEffective(r).points,0);
+  const ihChgYr=ihYr.reduce((a,r)=>a+(typeof ihEffective(r).charge==='number'?ihEffective(r).charge:0),0);
+  const ihOpen=ihPending().length;
   const tile=(v,l)=>'<div class="stile"><div class="v">'+v+'</div><div class="l">'+l+'</div></div>';
+  const secInfr='<h2 class="sect">In-house rules — infringements '+yr+'</h2>'+
+    '<div class="tiles">'+
+      '<a class="stile" href="#/demerits"><div class="v">'+ihYr.length+'</div><div class="l">Approved notices</div></a>'+
+      '<a class="stile" href="#/demerits"><div class="v">'+ihPtsYr+'</div><div class="l">Demerit points</div></a>'+
+      '<a class="stile" href="#/demerits"><div class="v">S$'+ihChgYr.toLocaleString()+'</div><div class="l">Charges in force</div></a>'+
+      '<a class="stile" href="#/approvals"><div class="v'+(ihOpen?' w':'')+'">'+ihOpen+'</div><div class="l">Awaiting approval</div></a>'+
+    '</div>'+
+    '<p class="hint" style="margin:0 16px">Counts only notices passed by the Project Manager and the GM / Director. '+
+      'Notices still in the approval chain are excluded.</p>';
   const actSeries=[
     {name:'TBM',        color:'var(--s1)', values:byMonth(db.tbm,yr)},
     {name:'Inspections',color:'var(--s2)', values:byMonth(db.inspections,yr)},
@@ -3587,6 +3608,11 @@ function renderStats(){
       '<div class="legend">'+actSeries.map(s=>'<span><i style="background:'+s.color+'"></i>'+s.name+'</span>').join('')+'</div>'+
       barChartSVG(MONTHS,actSeries)+dataTable(MONTHS,actSeries)+
       '<div class="hint" style="margin-top:8px">'+tbmN+' TBM conducted in '+yr+'.</div>'+
+    '</div>'+
+    secInfr+
+    '<div class="card"><div class="charthead">Infringements by month — '+yr+'</div>'+
+      barChartSVG(MONTHS,[{name:'Approved notices',color:'var(--s3,#c0392b)',values:ihByMonth(yr)}])+
+      dataTable(MONTHS,[{name:'Approved notices',color:'var(--s3,#c0392b)',values:ihByMonth(yr)}])+
     '</div>'+
     '<div class="card"><details'+(mh?'':' open')+'><summary>Monthly man-hours — needed for LTIFR</summary>'+
       '<div class="mhgrid">'+mhGrid+'</div>'+
@@ -3669,6 +3695,28 @@ function renderReport(){
         '<tr><td style="text-align:left"><b>Total training records</b></td><td><b>'+trainM.length+'</b></td></tr></table>'
       :'<div class="hint">No training records dated this month — completed courses logged under Training appear here with their titles.</div>')+
     '</div>';
+  const ihS=ihStats(mk);
+  const ihMoney=v=>'S$'+(+v||0).toLocaleString();
+  const secInfr='<div class="card"><div class="charthead">In-house rules — infringements this month</div>'+
+    '<table class="dtable"><tr><th style="text-align:left">Measure</th><th>This month</th></tr>'+
+      '<tr><td style="text-align:left">Notices raised</td><td>'+ihS.raised+'</td></tr>'+
+      '<tr><td style="text-align:left">Approved (PM + GM / Director)</td><td><b>'+ihS.approved+'</b></td></tr>'+
+      '<tr><td style="text-align:left">Waived or rejected by management</td><td>'+ihS.dropped+'</td></tr>'+
+      '<tr><td style="text-align:left">Still awaiting approval</td><td>'+ihS.pending+'</td></tr>'+
+      '<tr><td style="text-align:left">Workers involved</td><td>'+ihS.workers+'</td></tr>'+
+      '<tr><td style="text-align:left">Demerit points in force</td><td><b>'+ihS.points+'</b></td></tr>'+
+      '<tr><td style="text-align:left">Non-compliance charges in force</td><td>'+esc(ihMoney(ihS.charges))+'</td></tr>'+
+    '</table>'+
+    (ihS.cats.length?'<table class="dtable" style="margin-top:8px"><tr><th style="text-align:left">Category of offence</th><th>Notices</th><th>Points</th></tr>'+
+      ihS.cats.map(c=>'<tr><td style="text-align:left"><b>'+esc(c[0])+'</b>) '+esc(c[1].name)+'</td><td>'+c[1].n+'</td><td>'+c[1].pts+'</td></tr>').join('')+
+      '</table>':'')+
+    (ihS.subs.length?'<table class="dtable" style="margin-top:8px"><tr><th style="text-align:left">By company</th><th>Notices</th><th>Points</th></tr>'+
+      ihS.subs.map(c=>'<tr><td style="text-align:left">'+esc(c[0])+'</td><td>'+c[1].n+'</td><td>'+c[1].pts+'</td></tr>').join('')+
+      '</table>':'')+
+    (ihS.approved?'':'<div class="hint">No approved infringements dated this month.</div>')+
+    '<div class="hint" style="margin-top:6px">Per CP 10.9.1 cl. 5.5 and 8.4. Only notices passed by the Project Manager '+
+      'and the GM / Director are counted; those still in the approval chain are shown separately and carry no penalty.</div>'+
+    '</div>';
   const kpi=(label,m,y)=>'<tr><td style="text-align:left">'+label+'</td><td>'+m+'</td><td>'+y+'</td></tr>';
   const fmt=v=>v===null||v===undefined?'—':(typeof v==='number'&&v>=1000?v.toLocaleString():v);
   /* header lines vary by client */
@@ -3722,6 +3770,7 @@ function renderReport(){
   if(client==='HDB')            body=secSummary+secPtw+secRanked;          /* Appendix VI shape */
   else if(client==='LTA'||client==='JTC') body=secSummary+secKpi+secRanked; /* contract SHE-stats shape */
   else                          body=secSummary+secKpi+secRanked;          /* generic/private: full picture */
+  body+=secInfr;                                                           /* in-house rules statistics — every format */
   body+=secTrain;                                                          /* training statistics — every format */
   app.innerHTML = header('Monthly Safety Report', true,
       '<select id="repMonth" class="noprint" style="width:auto;min-height:38px;padding:6px 8px">'+mOpts+'</select>')+
@@ -3755,6 +3804,22 @@ function exportReportCsv(){
   L.push(['Breakdown by subcontractor','Count']);
   d.subs.forEach(t=>L.push([t[0], t[1]])); L.push([]);
   const trM={}; db.training.filter(t=>t.date&&t.date.slice(0,7)===mk).forEach(t=>{ const k=(t.course||'(untitled course)').trim(); trM[k]=(trM[k]||0)+1; });
+  const ihC=ihStats(mk);
+  L.push(['In-house rules — infringements','Value']);
+  L.push(['Notices raised', ihC.raised]);
+  L.push(['Approved (PM + GM / Director)', ihC.approved]);
+  L.push(['Waived or rejected', ihC.dropped]);
+  L.push(['Awaiting approval', ihC.pending]);
+  L.push(['Workers involved', ihC.workers]);
+  L.push(['Demerit points in force', ihC.points]);
+  L.push(['Charges in force (S$)', ihC.charges]);
+  L.push([]);
+  L.push(['Infringements by category','Notices','Points']);
+  ihC.cats.forEach(c=>L.push([c[0]+') '+c[1].name, c[1].n, c[1].pts]));
+  L.push([]);
+  L.push(['Infringements by company','Notices','Points']);
+  ihC.subs.forEach(c=>L.push([c[0], c[1].n, c[1].pts]));
+  L.push([]);
   L.push(['Training conducted this month','Workers trained']);
   Object.entries(trM).sort((a,b)=>b[1]-a[1]).forEach(t=>L.push([t[0], t[1]]));
   L.push([]);
@@ -3846,7 +3911,23 @@ function renderSettings(){
       '<div class="btnrow" style="margin-top:8px"><button class="btn ghost" id="setLmraSave">Save</button>'+
       '<button class="btn ghost" id="setLmraSug">Suggest from activity + RA</button></div>'+
     '</div>')+
-    (lite?'':'<div class="card"><label style="margin-top:0">Infringement approval — who decides</label>'+
+    (lite?'':'<div class="card"><label style="margin-top:0">Workforce review — scoring weights</label>'+
+      '<p class="hint">Used on the Workforce Review page to prepare pay, renewal and promotion decisions. '+
+      '<b>These are the company’s own weights, not any standard.</b> Set them so the score reflects what you actually value.</p>'+
+      '<div class="fgrid">'+
+        '<div class="fld half"><label>Starting score</label><input id="wrBase" type="number" value="'+wrWeights().base+'"></div>'+
+        '<div class="fld half"><label>Minus per demerit point</label><input id="wrPt" type="number" step="0.5" value="'+wrWeights().pt+'"></div>'+
+        '<div class="fld half"><label>Plus per course completed</label><input id="wrTrain" type="number" step="0.5" value="'+wrWeights().train+'"></div>'+
+        '<div class="fld half"><label>Plus per valid certificate</label><input id="wrCert" type="number" step="0.5" value="'+wrWeights().cert+'"></div>'+
+        '<div class="fld half"><label>Plus per hazard reported</label><input id="wrRep" type="number" step="0.5" value="'+wrWeights().report+'"></div>'+
+        '<div class="fld half"><label>Plus per toolbox attended</label><input id="wrTbm" type="number" step="0.1" value="'+wrWeights().tbm+'"></div>'+
+        '<div class="fld half"><label>Cap on toolbox bonus</label><input id="wrCap" type="number" value="'+wrWeights().tbmCap+'"></div>'+
+        '<div class="fld half"><label>Window (days)</label><input id="wrWin" type="number" min="30" value="'+wrWindowDays()+'"></div>'+
+      '</div>'+
+      '<div class="btnrow" style="margin-top:8px"><button class="btn ghost" id="wrSave">Save weights</button></div>'+
+      '<p class="hint">Rewarding hazard reporting matters: a worker who reports things looks worse than a quiet one unless you pay for it.</p>'+
+    '</div>'+
+    '<div class="card"><label style="margin-top:0">Infringement approval — who decides</label>'+
       '<p class="hint">A notice raised by a safety officer counts for nothing until the <b>Project Manager</b> endorses it and the '+
       '<b>GM / Director</b> gives final approval. Name them by the email they sign in with, one per line. '+
       'Admin accounts hold GM / Director authority by default; an HQ WSHO holds Project Manager authority.</p>'+
@@ -3944,6 +4025,13 @@ function renderSettings(){
   } /* end !lite management wiring */
   sbBindSettings();
   if(lite) return;
+  document.getElementById('wrSave').onclick=()=>{
+    const n=id=>+document.getElementById(id).value||0;
+    s.wrWeights={base:n('wrBase'), pt:n('wrPt'), train:n('wrTrain'), cert:n('wrCert'),
+                 report:n('wrRep'), tbm:n('wrTbm'), tbmCap:n('wrCap')};
+    const w=n('wrWin'); if(w>=30) s.wrWindow=w; else delete s.wrWindow;
+    save(); toast('Review weights saved');
+  };
   document.getElementById('setIhAuth').onclick=()=>{
     const g=id=>document.getElementById(id).value.split('\n').map(x=>x.trim().toLowerCase()).filter(Boolean);
     const pm=g('setIhPm'), gm=g('setIhGm');
@@ -7525,6 +7613,92 @@ function renderLmraCheck(){
 }
 
 
+/* One roll-up used by the Statistics page, the Monthly Report and its CSV, so
+   the three can never disagree. Only notices approved by BOTH levels count. */
+function ihStats(mk){
+  const all=(db.infringements||[]);
+  const inMonth=all.filter(r=>String(r.date||'').slice(0,7)===mk);
+  const live=inMonth.filter(ihIsLive);
+  const byCat={}, bySub={}, byWorker={};
+  let pts=0, chg=0;
+  live.forEach(r=>{
+    const e=ihEffective(r);
+    pts+=e.points; if(typeof e.charge==='number') chg+=e.charge;
+    const c=r.category||'?';
+    byCat[c]=byCat[c]||{n:0,pts:0,name:(IH_RULES[c]||{}).name||''};
+    byCat[c].n++; byCat[c].pts+=e.points;
+    const co=r.subcon||'(not stated)';
+    bySub[co]=bySub[co]||{n:0,pts:0}; bySub[co].n++; bySub[co].pts+=e.points;
+    const w=r.offenderId||r.offenderName;
+    if(w){ byWorker[w]=byWorker[w]||{name:r.offenderName||'',wid:r.offenderWid||'',n:0,pts:0};
+      byWorker[w].n++; byWorker[w].pts+=e.points; }
+  });
+  return {
+    month:mk, raised:inMonth.length, approved:live.length,
+    pending:inMonth.filter(r=>ihStage(r)!=='CLOSED').length,
+    dropped:inMonth.filter(r=>ihKilled(r.pmDecision)||ihKilled(r.gmDecision)).length,
+    points:pts, charges:chg,
+    workers:Object.keys(byWorker).length,
+    cats:Object.entries(byCat).sort((a,b)=>b[1].n-a[1].n),
+    subs:Object.entries(bySub).sort((a,b)=>b[1].pts-a[1].pts),
+    top:Object.values(byWorker).sort((a,b)=>b.pts-a.pts).slice(0,10)
+  };
+}
+/* approved notices per month of a year, for the trend chart */
+function ihByMonth(yr){
+  return MONTHS.map((_,i)=>(db.infringements||[]).filter(r=>
+    ihIsLive(r) && String(r.date||'').slice(0,7)===yr+'-'+String(i+1).padStart(2,'0')).length);
+}
+/* ---- worker record for review decisions (pay, renewal, promotion) ----
+   Deliberately NOT just demerit points: a review built only on who got caught
+   ignores who turned up, got trained and spoke up. Weights are a company
+   decision and are shown on the page, so the number can always be checked. */
+function wrWeights(){
+  const w=(db.settings&&db.settings.wrWeights)||{};
+  return {base:+w.base||100, pt:+w.pt||1, train:+w.train||2, cert:+w.cert||1,
+          report:+w.report||3, tbm:+w.tbm||0.1, tbmCap:+w.tbmCap||10};
+}
+function wrWindowDays(){ const n=+((db.settings&&db.settings.wrWindow)||365); return n>0?n:365; }
+/* every project, because a worker moves between sites */
+function wrAllProjects(store){
+  const out=[];
+  root.projects.forEach(pj=>(pj[store]||[]).forEach(r=>out.push(r)));
+  return out;
+}
+function wrRecord(m, days){
+  const w=days||wrWindowDays();
+  const cut=new Date(Date.now()-w*864e5).toISOString().slice(0,10);
+  const inWin=d=>String(d||'')>=cut;
+  /* ---- the negative side: only what management approved ---- */
+  const infr=ihWorkerHistory(m.id).filter(r=>ihIsLive(r)&&inWin(r.date));
+  const pts=infr.reduce((a,r)=>a+ihEffective(r).points,0);
+  const chg=infr.reduce((a,r)=>{ const c=ihEffective(r).charge; return a+(typeof c==='number'?c:0); },0);
+  /* ---- turning up ---- */
+  let tbm=0;
+  wrAllProjects('tbm').forEach(t=>{ if(!inWin(t.date)) return;
+    if((t.attendees||[]).includes(m.id)) { tbm++; return; }
+    if((t.checkins||[]).some(c=>c.memberId===m.id)) tbm++; });
+  const lmra=wrAllProjects('lmra').filter(l=>inWin(l.date)&&(l.crew||[]).includes(m.id)).length;
+  /* ---- getting better ---- */
+  const nm=String(m.name||'').trim().toLowerCase();
+  const train=db.training.filter(t=>inWin(t.date)&&
+    (t.memberId?t.memberId===m.id:String(t.name||'').trim().toLowerCase()===nm)).length;
+  const certs=memberComps(m.id).filter(c=>!c.expiry||c.expiry>=today()).length;
+  /* ---- speaking up: reports this worker raised ---- */
+  const reports=wrAllProjects('observations').filter(o=>inWin(o.date)&&
+    String(o.initiator||'').trim().toLowerCase()===nm).length;
+  const W=wrWeights();
+  const bonusTbm=Math.min(W.tbmCap, tbm*W.tbm);
+  const score=Math.round((W.base - pts*W.pt + train*W.train + certs*W.cert + reports*W.report + bonusTbm)*10)/10;
+  return {m, id:m.id, name:m.name||'', wid:m.wid||'', company:m.company||'', trade:m.trade||'',
+          notices:infr.length, pts, chg, tbm, lmra, train, certs, reports,
+          bonusTbm:Math.round(bonusTbm*10)/10, score, windowDays:w,
+          band:ihBand(pts)};
+}
+function wrAll(days){
+  return db.members.filter(m=>!m.mergedInto && m.status!=='INACTIVE')
+    .map(m=>wrRecord(m, days));
+}
 /* ---- approvals queue: what is waiting on me ---- */
 function renderApprovals(){
   const lvl=ihAuthLevel();
@@ -7558,6 +7732,114 @@ function renderApprovals(){
       '<h2 class="sect">With the GM / Director</h2>'+all.filter(r=>ihStage(r)==='GM').map(card).join(''):'')+
     '<div class="foot">A notice costs the worker nothing until the Project Manager has endorsed it '+
       'and the GM / Director has given final approval (CP 10.9.1 cl. 5.3).</div>';
+}
+/* ---- workforce review: the page a manager opens before a pay decision ---- */
+let WRV={sort:'score', months:12, company:'', min:0};
+function renderWorkerReview(){
+  const days=WRV.months*30;
+  let rows=wrAll(days);
+  if(WRV.company) rows=rows.filter(r=>r.company===WRV.company);
+  const cos=[...new Set(wrAll(days).map(r=>r.company).filter(Boolean))].sort();
+  /* a worker with no activity at all tells you nothing — hide the untouched */
+  const active=rows.filter(r=>r.notices||r.tbm||r.train||r.reports||r.certs||r.lmra);
+  const S={score:(a,b)=>b.score-a.score, pts:(a,b)=>b.pts-a.pts,
+           tbm:(a,b)=>b.tbm-a.tbm, train:(a,b)=>b.train-a.train, reports:(a,b)=>b.reports-a.reports,
+           name:(a,b)=>String(a.name).localeCompare(String(b.name))};
+  active.sort(S[WRV.sort]||S.score);
+  const W=wrWeights();
+  const btn=(k,l)=>'<button class="btn '+(WRV.sort===k?'':'ghost')+'" data-wrs="'+k+'" style="flex:1;min-width:78px">'+l+'</button>';
+  const clean=active.filter(r=>!r.pts).length;
+  app.innerHTML=header('Workforce Review', true)+
+    '<div class="card"><p class="hint" style="margin:0 0 8px">Everything one worker did in the window, across every site \u2014 '+
+      'what they were pulled up for <b>and</b> what they turned up to. Use it to prepare a pay or renewal decision; '+
+      'it is a record, not a verdict.</p>'+
+      '<div class="btnrow" style="flex-wrap:wrap">'+
+        [6,12,24].map(m=>'<button class="btn '+(WRV.months===m?'':'ghost')+'" data-wrm="'+m+'" style="flex:1">'+m+' months</button>').join('')+
+      '</div>'+
+      (cos.length>1?'<div class="fld" style="margin-top:8px"><label>Company</label><select id="wrCo">'+
+        '<option value="">All companies</option>'+cos.map(c=>'<option'+(WRV.company===c?' selected':'')+'>'+esc(c)+'</option>').join('')+
+        '</select></div>':'')+
+    '</div>'+
+    '<div class="tiles">'+
+      '<div class="stile"><div class="v">'+active.length+'</div><div class="l">Workers with a record</div></div>'+
+      '<div class="stile"><div class="v">'+clean+'</div><div class="l">No demerit points</div></div>'+
+      '<div class="stile"><div class="v">'+active.reduce((a,r)=>a+r.train,0)+'</div><div class="l">Courses completed</div></div>'+
+      '<div class="stile"><div class="v">'+active.reduce((a,r)=>a+r.reports,0)+'</div><div class="l">Hazards reported</div></div>'+
+    '</div>'+
+    '<div class="card"><div class="btnrow" style="flex-wrap:wrap">'+
+      btn('score','Score')+btn('pts','Demerits')+btn('tbm','Attendance')+btn('train','Training')+btn('reports','Reports')+btn('name','Name')+
+    '</div></div>'+
+    (active.length?'<div class="card" style="overflow-x:auto"><table class="dtable" style="width:100%;min-width:640px">'+
+      '<tr><th style="text-align:left">Worker</th><th style="text-align:left">Company</th>'+
+      '<th>Toolbox</th><th>LMRA</th><th>Training</th><th>Certs</th><th>Reports</th>'+
+      '<th>Notices</th><th>Points</th><th>Score</th></tr>'+
+      active.slice(0,200).map(r=>'<tr class="wrrow" data-wr="'+esc(r.id)+'" style="cursor:pointer">'+
+        '<td style="text-align:left"><b>'+esc(r.name)+'</b>'+(r.wid?'<br><span class="hint">'+esc(r.wid)+'</span>':'')+'</td>'+
+        '<td style="text-align:left">'+esc(r.company)+'</td>'+
+        '<td style="text-align:center">'+r.tbm+'</td><td style="text-align:center">'+r.lmra+'</td>'+
+        '<td style="text-align:center">'+r.train+'</td><td style="text-align:center">'+r.certs+'</td>'+
+        '<td style="text-align:center">'+r.reports+'</td>'+
+        '<td style="text-align:center">'+(r.notices||'')+'</td>'+
+        '<td style="text-align:center">'+(r.pts?'<b style="color:var(--bad-ink,#c5221f)">'+r.pts+'</b>':'\u2014')+'</td>'+
+        '<td style="text-align:center"><b>'+r.score+'</b></td></tr>').join('')+
+      '</table>'+(active.length>200?'<div class="hint" style="margin-top:6px">Showing the first 200 of '+active.length+'.</div>':'')+
+      '</div>'
+      :'<div class="empty">Nothing recorded in this window yet.</div>')+
+    '<div class="card"><label style="margin-top:0">How the score is worked out</label>'+
+      '<div class="hint">Start at <b>'+W.base+'</b>, then \u2212'+W.pt+' per demerit point, +'+W.train+' per course completed, '+
+        '+'+W.cert+' per valid certificate, +'+W.report+' per hazard reported, +'+W.tbm+' per toolbox attended (capped at +'+W.tbmCap+').</div>'+
+      '<div class="hint" style="margin-top:6px"><b>These weights are the company\u2019s own choice</b>, not a standard, and are editable in Settings. '+
+        'Only infringements approved by the Project Manager and the GM / Director count.</div>'+
+      '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="wrCsv" style="flex:1">Export for HR (CSV)</button></div>'+
+    '</div>'+
+    '<div class="foot">A score is a starting point for a conversation, not the decision. Show the worker their own record before it '+
+      'is used against them \u2014 and remember a worker who reports hazards often looks worse on paper than one who stays quiet.</div>';
+  app.querySelectorAll('[data-wrm]').forEach(b=>b.onclick=()=>{ WRV.months=+b.dataset.wrm; renderWorkerReview(); });
+  app.querySelectorAll('[data-wrs]').forEach(b=>b.onclick=()=>{ WRV.sort=b.dataset.wrs; renderWorkerReview(); });
+  const co=document.getElementById('wrCo'); if(co) co.onchange=()=>{ WRV.company=co.value; renderWorkerReview(); };
+  app.querySelectorAll('.wrrow').forEach(r=>r.onclick=()=>{ location.hash='#/review/'+r.dataset.wr; });
+  document.getElementById('wrCsv').onclick=()=>wrExportCsv(active, days);
+}
+function renderWorkerReviewOne(mid){
+  const m=db.members.find(x=>x.id===mid);
+  if(!m){ app.innerHTML=header('Worker',true)+'<div class="empty">Worker not found.</div>'; return; }
+  const r=wrRecord(m, WRV.months*30), W=wrWeights();
+  const line=(l,v,note)=>'<tr><td style="text-align:left">'+l+'</td><td style="text-align:center"><b>'+v+'</b></td>'+
+    '<td style="text-align:left" class="hint">'+(note||'')+'</td></tr>';
+  app.innerHTML=header(esc(m.name||'Worker'), true)+
+    '<div class="card"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:baseline">'+
+      '<div><b style="font-size:30px">'+r.score+'</b><div class="hint">review score</div></div>'+
+      '<div><b style="font-size:20px">'+r.pts+'</b><div class="hint">demerit points</div></div>'+
+      '<div>'+(r.band.k==='ok'?'<span class="hint">Clear standing</span>':'<span class="chip '+r.band.cls+'">'+r.band.label+'</span>')+'</div>'+
+    '</div>'+
+    '<div class="hint" style="margin-top:8px">'+esc([m.wid,m.company,m.trade].filter(Boolean).join(' \u00b7 '))+
+      ' \u00b7 last '+WRV.months+' months, all sites</div></div>'+
+    '<h2 class="sect">The record</h2>'+
+    '<div class="card"><table class="dtable" style="width:100%">'+
+      line('Toolbox meetings attended', r.tbm, '+'+r.bonusTbm+' (capped at +'+W.tbmCap+')')+
+      line('LMRA at the workface', r.lmra, 'not scored \u2014 shown for context')+
+      line('Training courses completed', r.train, '+'+(r.train*W.train))+
+      line('Valid certificates held', r.certs, '+'+(r.certs*W.cert))+
+      line('Hazards / near misses reported', r.reports, '+'+(r.reports*W.report))+
+      line('Infringements upheld', r.notices, r.chg?('S$'+r.chg.toLocaleString()+' charged'):'')+
+      line('Demerit points', r.pts, '\u2212'+(r.pts*W.pt))+
+      '<tr><td style="text-align:left"><b>Score</b></td><td style="text-align:center"><b>'+r.score+'</b></td>'+
+      '<td style="text-align:left" class="hint">from a base of '+W.base+'</td></tr>'+
+    '</table></div>'+
+    '<div class="btnrow">'+
+      '<a class="btn ghost" href="#/demerits/'+esc(m.id)+'" style="flex:1">Infringement history</a>'+
+      '<a class="btn ghost" href="#/passport/'+esc(m.id)+'" style="flex:1">Worker passport</a></div>'+
+    '<div class="foot">Only infringements approved by the Project Manager and the GM / Director are counted. '+
+      'Weights are set by the company in Settings.</div>';
+}
+function wrExportCsv(rows, days){
+  const H=['Worker ID','Name','Company','Trade','Toolbox attended','LMRA','Courses completed',
+           'Valid certificates','Hazards reported','Infringements upheld','Demerit points','Charges (S$)','Review score','Window (days)'];
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const body=rows.map(r=>[r.wid,r.name,r.company,r.trade,r.tbm,r.lmra,r.train,r.certs,r.reports,
+    r.notices,r.pts,r.chg,r.score,days].map(q).join(','));
+  saveOrDownload('Registers','workforce-review-'+today()+'.csv',
+    [H.map(q).join(',')].concat(body).join('\n'),'text/csv');
 }
 /* ---- Demerit register: the statistical analysis CP 10.9.1 asks for (cl. 5.5, 8.4) ---- */
 let IHV={scope:'site', months:6, sort:'points'};
