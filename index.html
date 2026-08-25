@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-1200">
+<meta name="build" content="2026-08-25-1300">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1029,8 +1029,134 @@ function rowsHtml(f, arr){
     (f.hint?'<div class="hint">'+f.hint+'</div>':'')+'</div>';
 }
 
+/* ============ photo store: records hold a key, not the image ============
+   A photo is uploaded to the `reports` bucket and the record keeps
+   "ph:<project>/Photos/<file>.jpg". The relay mirrors it to OneDrive and expires
+   the bucket copy after the retention window. Anything that cannot be uploaded
+   (offline, signed out, refused) stays inline as a data URL, which is exactly
+   how the app behaved before — so a photo is never lost to this. */
+const PH={cache:{}, lazy:{}, failed:0};
+const PH_BLANK='data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
+function phIsKey(v){ return typeof v==='string' && v.slice(0,3)==='ph:'; }
+function phIsData(v){ return typeof v==='string' && v.slice(0,11)==='data:image/'; }
+/* signatures stay inside the record in this phase — they are small and a printed
+   attendance sheet must never be able to come out without them */
+function phSkipKey(k){ return /sig/i.test(k); }
+async function phSession(){
+  if(!SB.client||!SB.profile) return null;
+  try{ return (await SB.client.auth.getSession()).data.session||null; }catch(e){ return null; }
+}
+function phPath(key){ return key.slice(3); }
+function phNewKey(store, recId, i){
+  const proj=repoKeySafe(db.settings.project||root.cur||'Project');
+  return 'ph:'+proj+'/Photos/'+repoKeySafe(store)+'-'+repoKeySafe(String(recId||'x'))+'-'+
+    i+'-'+Math.random().toString(36).slice(2,8)+'.jpg';
+}
+async function phUpload(dataUrl, store, recId, i){
+  const sess=await phSession(); if(!sess) return null;
+  try{
+    const blob=await (await fetch(dataUrl)).blob();
+    const key=phNewKey(store, recId, i);
+    const {error}=await SB.client.storage.from('reports')
+      .upload(phPath(key), blob, {contentType:'image/jpeg', upsert:true});
+    if(error){ PH.failed++; return null; }
+    PH.cache[key]=dataUrl;
+    return key;
+  }catch(e){ PH.failed++; return null; }
+}
+async function phFetch(key){
+  if(PH.cache[key]) return PH.cache[key];
+  const sess=await phSession(); if(!sess) return null;
+  try{
+    const {data,error}=await SB.client.storage.from('reports').download(phPath(key));
+    if(error||!data) return null;
+    const d=await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(data); });
+    PH.cache[key]=d;
+    return d;
+  }catch(e){ return null; }
+}
+/* fetch in the background, then swap every <img> waiting on that key */
+function phLazy(key){
+  if(PH.lazy[key]) return; PH.lazy[key]=1;
+  phFetch(key).then(d=>{
+    if(d) document.querySelectorAll('img[data-ph="'+key+'"]').forEach(im=>{ im.src=d; });
+  }).catch(()=>{}).then(()=>{ delete PH.lazy[key]; });
+}
+/* what every display site calls: inline photos pass straight through */
+function photoSrc(v){
+  if(phIsData(v)) return v;
+  if(phIsKey(v)){ if(PH.cache[v]) return PH.cache[v]; phLazy(v); return PH_BLANK; }
+  return v||PH_BLANK;
+}
+/* attribute so a lazy fetch can find its <img> again, and so reading the DOM
+   back on save recovers the KEY rather than the resolved picture */
+function phAttr(v){ return phIsKey(v)?(' data-ph="'+esc(v)+'"'):''; }
+/* pull every key in a record into the cache — used before building a PDF, so the
+   synchronous print code finds real images */
+async function phPreload(obj){
+  const keys=[];
+  (function walk(v){
+    if(!v) return;
+    if(typeof v==='string'){ if(phIsKey(v)) keys.push(v); return; }
+    if(Array.isArray(v)) return v.forEach(walk);
+    if(typeof v==='object') return Object.values(v).forEach(walk);
+  })(obj);
+  const uniq=[...new Set(keys)].filter(k=>!PH.cache[k]);
+  if(!uniq.length) return 0;
+  await Promise.all(uniq.map(k=>phFetch(k).catch(()=>null)));
+  return uniq.length;
+}
+/* swap inline photos for keys on the way to being saved */
+async function phFlushVal(v, store, id, ctr, key){
+  if(typeof v==='string'){
+    if(!phIsData(v)||phSkipKey(key||'')) return v;
+    const k=await phUpload(v, store, id, ctr.n++);
+    return k||v;                                  /* upload failed -> keep inline */
+  }
+  if(Array.isArray(v)){
+    const out=[]; for(const x of v) out.push(await phFlushVal(x, store, id, ctr, key));
+    return out;
+  }
+  if(v&&typeof v==='object'&&!(v instanceof Date)){
+    const o={}; for(const k in v) o[k]=await phFlushVal(v[k], store, id, ctr, k);
+    return o;
+  }
+  return v;
+}
+async function phFlush(obj, store){
+  const sess=await phSession(); if(!sess) return obj;   /* local / offline: unchanged */
+  const before=PH.failed;
+  const ctr={n:0};
+  const out=await phFlushVal(obj, store, obj.id, ctr, '');
+  if(PH.failed>before)
+    toast('Some photos stayed on this device — they upload on the next sync', true);
+  return out;
+}
+/* records saved while offline still carry inline photos: try again after a sync */
+async function phSweep(){
+  const sess=await phSession(); if(!sess) return;
+  let moved=0;
+  for(const st of PROJECT_STORES.concat(COMPANY_STORES)){
+    const list=db[st]; if(!Array.isArray(list)) continue;
+    for(const rec of list){
+      let has=false;
+      (function walk(v,k){ if(has||!v) return;
+        if(typeof v==='string'){ if(phIsData(v)&&!phSkipKey(k||'')) has=true; return; }
+        if(Array.isArray(v)) return v.forEach(x=>walk(x,k));
+        if(typeof v==='object') return Object.keys(v).forEach(kk=>walk(v[kk],kk));
+      })(rec,'');
+      if(!has) continue;
+      const ctr={n:0};
+      const out=await phFlushVal(rec, st, rec.id, ctr, '');
+      Object.assign(rec, out); moved++;
+      if(moved>=20) break;                        /* a bite at a time, not a stampede */
+    }
+    if(moved>=20) break;
+  }
+  if(moved){ save(); }
+}
 function thumbHtml(dataUrl){
-  return '<div class="thumb"><img src="'+dataUrl+'" alt="photo">'+
+  return '<div class="thumb"><img src="'+photoSrc(dataUrl)+'"'+phAttr(dataUrl)+' alt="photo">'+
     '<button type="button" class="rmp" title="Remove photo" aria-label="Remove photo">&times;</button>'+
     '<button type="button" class="mkp" title="Mark up photo" aria-label="Mark up photo">&#9998;</button></div>';
 }
@@ -1168,7 +1294,7 @@ function collectRows(wrap){
       if(o[k]==='Others' && t) o[k]='Others — '+t;
     });
     sr.querySelectorAll('[data-cphotos]').forEach(pw=>
-      o[pw.dataset.cphotos]=[...pw.querySelectorAll('img')].map(im=>im.src));
+      o[pw.dataset.cphotos]=[...pw.querySelectorAll('img')].map(im=>im.dataset.ph||im.src));
     return o;
   }).filter(o=>Object.values(o).some(v=>Array.isArray(v)?v.length:v!==''));
 }
@@ -1179,7 +1305,7 @@ function collectForm(mod){
     if(f.type==='rows'){ obj[f.k]=collectRows(app.querySelector('[data-rows="'+f.k+'"]')); continue; }
     if(f.type==='photos'){
       const pw=app.querySelector('[data-photos="'+f.k+'"]');
-      obj[f.k]=pw?[...pw.querySelectorAll('img')].map(im=>im.src):[];
+      obj[f.k]=pw?[...pw.querySelectorAll('img')].map(im=>im.dataset.ph||im.src):[];
       continue;
     }
     if(f.type==='members'){
@@ -1214,7 +1340,7 @@ function formSnapshot(mod){
   for(const f of mod.fields){
     if(f.type==='rows'){ obj[f.k]=collectRows(app.querySelector('[data-rows="'+f.k+'"]')); continue; }
     if(f.type==='photos'){ const pw=app.querySelector('[data-photos="'+f.k+'"]');
-      obj[f.k]=pw?[...pw.querySelectorAll('img')].map(im=>im.src):[]; continue; }
+      obj[f.k]=pw?[...pw.querySelectorAll('img')].map(im=>im.dataset.ph||im.src):[]; continue; }
     if(f.type==='members'){ const pg=app.querySelector('.pickgrid[data-f="'+f.k+'"]');
       obj[f.k]=pg?[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid):[];
       if(f.sig){ const ta=app.querySelector('[data-sigstore="'+f.k+'"]');
@@ -1678,8 +1804,16 @@ function renderEdit(key, id){
     toast('Copied from the last entry — adjust and save');
   };
   const _sv=document.getElementById('saveBtn');
-  if(_sv) _sv.onclick=()=>{
-    const obj=collectForm(mod); if(!obj) return;
+  if(_sv) _sv.onclick=async()=>{
+    const obj0=collectForm(mod); if(!obj0) return;
+    _sv.disabled=true; const _lbl=_sv.textContent;
+    let obj=obj0;
+    try{
+      if(!obj.id&&!item) obj.id=uid();          /* photo keys want the id up front */
+      _sv.textContent='Saving…';
+      obj=await phFlush(obj, mod.store);
+    }catch(e){ console.warn('photo upload', e); obj=obj0; }
+    finally{ _sv.disabled=false; _sv.textContent=_lbl; }
     window._draftMute=true;
     try{ localStorage.removeItem('kkl-draft-'+key); }catch(e){}
     const memFs=mod.fields.filter(f=>f.mem);
@@ -1688,7 +1822,7 @@ function renderEdit(key, id){
       try{ localStorage.setItem('kkl-mem-'+key, JSON.stringify(m)); }catch(e){}
     }
     if(item){ Object.assign(item,obj); }
-    else{ obj.id=uid(); db[mod.store].push(obj); }
+    else{ obj.id=obj.id||uid(); db[mod.store].push(obj); }
     if(mod.beforeSave) mod.beforeSave(item||obj);
     save();
     EV.emit('record:changed',{store:mod.store, id:(item||obj).id});
@@ -2513,7 +2647,7 @@ const MODULES={
          ', suspension review '+t.suspend+' points. <b>Set by the company</b> \u2014 CP 10.9.1 prescribes no point limits.</div></div>';
     if((r.photos||[]).length)
       h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Evidence</div>'+
-         r.photos.map(d=>'<img src="'+d+'" style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</div>';
+         r.photos.map(d=>'<img src="'+photoSrc(d)+'"'+phAttr(d)+' style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</div>';
     h+='<div style="margin-top:14px;font-size:10.5px;color:var(--sub)">Issued under CP 10.9.1 In House Rules and Regulations (2026), Element 6 rev 01, effective 03/03/2026. '+
        'The worker may appeal to the Project Manager, who is the overall decision-maker on WSH violations (cl. 5.3).</div>';
     return h;
@@ -2576,7 +2710,7 @@ const MODULES={
     });
     if((r.photos||[]).length)
       h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Briefing photos</div>'+
-         r.photos.map(d=>'<img src="'+d+'" style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</div>';
+         r.photos.map(d=>'<img src="'+photoSrc(d)+'"'+phAttr(d)+' style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</div>';
     if(r.bySig)
       h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Conducted by</div>'+
          '<div style="font-size:14.5px">'+esc(r.by||'')+'</div><img src="'+r.bySig+'" style="height:34px;border-bottom:1px solid #444">'+'</div>';
@@ -2993,7 +3127,7 @@ function recordPrintCard(key, id){
   const val=f=>{
     const v=item[f.k];
     if(v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length)) return '';
-    if(f.type==='photos') return '<div class="thumbs">'+v.map(d=>'<div class="thumb"><img src="'+d+'"></div>').join('')+'</div>';
+    if(f.type==='photos') return '<div class="thumbs">'+v.map(d=>'<div class="thumb"><img src="'+photoSrc(d)+'"'+phAttr(d)+'></div>').join('')+'</div>';
     if(f.type==='members'){
       if(f.sig){ /* auditor SS679: signature against each name */
         const sg=item[sigKeyOf(f)]||{};
@@ -3025,7 +3159,7 @@ function recordPrintCard(key, id){
             const nw=(c.type!=='textarea'&&c.w!=='full'&&cv.length<=16)?';white-space:nowrap':'';
             return '<td style="text-align:left'+nw+'">'+esc(cv)+'</td>'; }).join('')+'</tr>'+
             (imgs.length?'<tr><td colspan="'+cols.length+'" style="text-align:left">'+
-              imgs.map(d=>'<img src="'+d+'" style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</td></tr>':'');
+              imgs.map(d=>'<img src="'+photoSrc(d)+'"'+phAttr(d)+' style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</td></tr>':'');
         }).join('')+'</table>';
     }
     if(f.type==='textarea') return esc(v).replace(/\n/g,'<br>');
@@ -3075,6 +3209,7 @@ async function autoFileRecord(key, id){
   try{
     const mod=MODULES[key];
     const item=db[mod.store].find(x=>x.id===id); if(!item) return;
+    await phPreload(item);                        /* keys -> real images before render */
     const card=recordPrintCard(key, id); if(!card) return;
     const doc=reportDocHtml(mod.title+' Report', card);
     const pdf=await htmlToPdfBlob(doc); if(!pdf) return;
@@ -3085,9 +3220,10 @@ async function autoFileRecord(key, id){
     if(up) toast(mod.title+' report filed to the Report Library');
   }catch(e){ console.warn('auto-file failed', e); }
 }
-function saveRecordHtml(key, id){
+async function saveRecordHtml(key, id){
   const mod=MODULES[key];
   const item=db[mod.store].find(x=>x.id===id); if(!item) return;
+  await phPreload(item);                                   /* keys -> real images first */
   const card=recordPrintCard(key, id); if(!card) return;   /* build from data, not the DOM */
   const name=mod.store+'-'+(item.date||today())+'-'+fileStamp(item.id)+'.html';
   saveOrDownload(DIRMAP[key]||'Registers', name, reportDocHtml(mod.title+' Report', card), 'text/html');
@@ -4013,6 +4149,7 @@ EV.on('record:deleted',({store,id})=>{
   const was=affectedWAs(store,id);
   if(was.length){ was.forEach(recalcWA); save(); }
 });
+EV.on('sync:applied',()=>{ setTimeout(()=>phSweep().catch(()=>{}), 2500); });
 EV.on('sync:applied',()=>{                            /* teammate changed something */
   enforceProjectLock();
   if(SB.profile && !['admin','wsho'].includes(SB.profile.role)) return; /* partial-data roles must not recompute gates */
@@ -5163,7 +5300,7 @@ function renderToolbox(){
        '<div class="hint">Linking satisfies the activity’s “toolbox briefing today” readiness rule and pulls its type into the briefing.</div></div>':'')+
    '</div>'+(t.weather?'<p class="hint" style="margin-top:8px">'+esc(t.weather.line)+'</p>':'')+'</div>'+
    (yl.length?'<div class="card"><div class="tbx-step">2 · Yesterday’s lesson — start with this</div>'+
-     yl.map(y=>'<div class="lrow" style="cursor:default">'+(y.photo?'<div class="thumb" style="width:56px;height:56px"><img src="'+y.photo+'"></div>':'')+
+     yl.map(y=>'<div class="lrow" style="cursor:default">'+(y.photo?'<div class="thumb" style="width:56px;height:56px"><img src="'+photoSrc(y.photo)+'"'+phAttr(y.photo)+'></div>':'')+
        '<div class="lmain"><div class="lt" style="color:var(--ink)">'+esc(y.t)+'</div><div class="ls" style="white-space:normal">'+esc(y.d)+'</div></div></div>').join('')+'</div>':'')+
    '<div class="card"><div class="tbx-step">3 · Today’s work — tap all that apply</div><div class="tbx-chips">'+actChips+'</div></div>'+
    '<div class="card"><div class="tbx-step">4 · Work area photos — "What is wrong here?"</div>'+
@@ -5830,7 +5967,7 @@ function sicPack(rows, prof){
       '<h3 style="margin:0">'+esc(r.m.name||'')+'</h3>'+
       '<p style="margin:6px 0">Worker ID: <b>'+esc(r.m.wid||'—')+'</b> · '+esc(r.m.company||'')+' · '+esc(r.m.trade||'')+'<br>'+
       'NRIC/FIN: '+esc(maskIdno(r.m.idno)||'—')+' · Pass expiry: '+esc(r.m.wpExpiry?fmtD(r.m.wpExpiry):'—')+'</p></td>'+
-      '<td style="width:110px;text-align:right">'+((r.m.photos&&r.m.photos[0])?'<img src="'+r.m.photos[0]+'" style="width:100px;border:1px solid #999">':'<div style="width:100px;height:120px;border:1px dashed #999;display:inline-block;font-size:11px;color:#888">no photo</div>')+'</td></tr></table>'+
+      '<td style="width:110px;text-align:right">'+((r.m.photos&&r.m.photos[0])?'<img src="'+photoSrc(r.m.photos[0])+'"'+phAttr(r.m.photos[0])+' style="width:100px;border:1px solid #999">':'<div style="width:100px;height:120px;border:1px dashed #999;display:inline-block;font-size:11px;color:#888">no photo</div>')+'</td></tr></table>'+
       '<table border="1" cellspacing="0" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:12px;margin-top:8px">'+
       '<tr style="background:#eee"><th style="text-align:left">Requirement</th><th>Status</th><th style="text-align:left">Notes</th></tr>'+
       r.checks.map(c=>'<tr><td>'+esc(c.label)+'</td><td style="text-align:center">'+(c.ok?(c.warn?'&#9888;':'&#10003;'):'&#10007;')+'</td><td>'+esc(c.why||(c.warn?'Unverified':''))+'</td></tr>').join('')+'</table>'+
@@ -5838,7 +5975,7 @@ function sicPack(rows, prof){
       memberAllCerts(r.m).filter(c=>c.name).slice(0,8).map(c=>'<td>'+esc(c.name)+(c.expiry?' (exp '+esc(fmtD(c.expiry))+')':'')+'</td>').join('')+'</tr></table>'+
       (function(){ const imgs=memberComps(r.m.id).flatMap(c=>(c.photos||[]).slice(0,1).map(p=>({p,t:c.typeName||c.typeCode||'Cert'})));
         return imgs.length?'<div style="margin-top:8px">'+imgs.slice(0,4).map(x=>
-          '<div style="display:inline-block;width:47%;margin:1%;vertical-align:top"><img src="'+x.p+'" style="width:100%;border:1px solid #999">'+
+          '<div style="display:inline-block;width:47%;margin:1%;vertical-align:top"><img src="'+photoSrc(x.p)+'"'+phAttr(x.p)+' style="width:100%;border:1px solid #999">'+
           '<div style="font-size:10px;text-align:center">'+esc(x.t)+'</div></div>').join('')+'</div>':''; })()+
       '</div>';
   });
@@ -5970,7 +6107,7 @@ function renderPassport(mid){
     '<div class="hint">'+esc([m.wid,m.company,m.trade,m.designation].filter(Boolean).join(' · '))+'</div>'+
     '<div style="margin-top:8px"><span class="chip '+(m.status==='INACTIVE'?'b':'g')+'">'+(m.status==='INACTIVE'?'INACTIVE':'ACTIVE')+'</span>'+
     (m.passType?' <span class="chip n">'+esc(m.passType)+'</span>':'')+'</div></td>'+
-    '<td style="width:92px;text-align:right">'+((m.photos&&m.photos[0])?'<img src="'+m.photos[0]+'" style="width:84px;border-radius:6px">':'')+'</td></tr></table>'+
+    '<td style="width:92px;text-align:right">'+((m.photos&&m.photos[0])?'<img src="'+photoSrc(m.photos[0])+'"'+phAttr(m.photos[0])+' style="width:84px;border-radius:6px">':'')+'</td></tr></table>'+
     '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" onclick="location.hash=\'#/members/'+m.id+'\'">Edit worker</button>'+
     '<button class="btn ghost" onclick="location.hash=\'#/workerCompetencies/new\'">+ Competency</button>'+
     (canHR()?'<button class="btn ghost" id="ppPriv">Private (HR)</button>':'')+'</div></div>'+
@@ -7004,7 +7141,7 @@ function renderLmraCheck(){
     const pg=app.querySelector('.pickgrid[data-f="lmCrew"]');
     if(pg) LMX.crew=[...pg.querySelectorAll('[data-mid]')].filter(c=>c.checked).map(c=>c.dataset.mid);
     const pw=app.querySelector('[data-photos="lmPhotos"]');
-    if(pw) LMX.photos=[...pw.querySelectorAll('img')].map(im=>im.src);
+    if(pw) LMX.photos=[...pw.querySelectorAll('img')].map(im=>im.dataset.ph||im.src);
     const h=app.querySelector('#lmHaz'), a=app.querySelector('#lmAct');
     if(h) LMX.hazard=h.value; if(a) LMX.action=a.value;
     const lc=app.querySelector('#lmLoc'); if(lc) LMX.locId=lc.value;
@@ -7897,7 +8034,7 @@ const CTX_RENDER={
     b.innerHTML='<div style="margin-bottom:8px"><span class="chip '+(worst==='ELIGIBLE'?'g':worst==='WARNINGS'?'w':'b')+'">'+worst+'</span>'+
       (m.status==='INACTIVE'?'<span class="chip b">INACTIVE</span>':'')+'</div>'+
       '<div class="hint">'+esc([m.wid,m.company,m.trade].filter(Boolean).join(' · '))+'</div>'+
-      ((m.photos&&m.photos[0])?'<img src="'+m.photos[0]+'" style="width:76px;border-radius:10px;margin-top:8px">':'')+
+      ((m.photos&&m.photos[0])?'<img src="'+photoSrc(m.photos[0])+'"'+phAttr(m.photos[0])+' style="width:76px;border-radius:10px;margin-top:8px">':'')+
       '<h3 class="ctx-sect">Status</h3>'+
       ctxRow('Work pass', m.wpExpiry?('expiry '+esc(fmtD(m.wpExpiry))):'no expiry recorded',
         m.wpExpiry?((daysTo(m.wpExpiry)??0)<0?'<span class="chip b">EXPIRED</span>':'<span class="chip g">VALID</span>'):'')+
@@ -7930,7 +8067,7 @@ const CTX_RENDER={
       (o.severity?'<span class="chip n">sev '+esc(o.severity)+'</span>':'')+'</div>'+
       '<div class="hint">'+esc([fmtD(o.date), o.location, o.subcon, o.initiator].filter(Boolean).join(' · '))+'</div>'+
       '<p style="margin:10px 0">'+esc(o.desc||'').replace(/\n/g,'<br>')+'</p>'+
-      ((o.photos&&o.photos[0])?'<img src="'+o.photos[0]+'" style="max-width:100%;border-radius:10px">':'')+
+      ((o.photos&&o.photos[0])?'<img src="'+photoSrc(o.photos[0])+'"'+phAttr(o.photos[0])+' style="max-width:100%;border-radius:10px">':'')+
       (o.action?ctxRow('Corrective action', esc(o.action)+(o.due?' · due '+esc(fmtD(o.due)):''), ''):'')+
       ctxBtns([['Open full page','#/observations/'+id]]);
   },
