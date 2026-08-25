@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-0800">
+<meta name="build" content="2026-08-25-1200">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -567,7 +567,8 @@ function downloadRaw(name, text, mime){
    (OneDrive\Skytopia\Safety), each type into its own subfolder.        */
 const DIRMAP={contacts:'Registers',members:'Registers',equipment:'Registers',documents:'Registers',certexp:'Registers',
   tbm:'Toolbox Meetings',lmra:'LMRA',inspections:'Inspections',observations:'Near Miss Reports',checklists:'Checklists',ra:'RA-SWP',training:'Training',
-  meetings:'Meetings',incidents:'Incidents',defects:'Quality Defects',report:'Monthly Reports',backup:'Backups',work:'Registers'};
+  meetings:'Meetings',incidents:'Incidents',defects:'Quality Defects',report:'Monthly Reports',backup:'Backups',work:'Registers',
+  infringements:'Infringements',demerits:'Infringements'};
 function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open('kkl-cms-fs',1);
   r.onupgradeneeded=()=>r.result.createObjectStore('kv');
   r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
@@ -848,7 +849,7 @@ function compressImage(file, cb){
 const KEY='kkl-cms-v1';    /* legacy flat schema — migrated, never deleted */
 const KEY2='kkl-cms-v2';
 const COMPANY_STORES=['members','equipment','training','raLibrary','raMasters','raMasterVersions','legacyDocs','clientTemplates','auditEvents','competencyTypes','workerCompetencies','sicProfiles','organisations','memberPrivate','companyDocs'];
-const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers','workerProjectAccess','sicSessions','locations','layouts','layoutVersions','locGeoms','spatialZones','zoneGeoms','lmra','recurringChecks','visitors','siteDiary','materialRequests'];
+const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers','workerProjectAccess','sicSessions','locations','layouts','layoutVersions','locGeoms','spatialZones','zoneGeoms','lmra','recurringChecks','visitors','siteDiary','materialRequests','infringements'];
 const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
 function blankProject(name){
   const p={id:uid(), settings:structuredClone(BLANK.settings), manhours:{}, mandays:{}};
@@ -936,6 +937,7 @@ const ICONS={
   train:'<path d="M12 4.5L2.5 9l9.5 4.5L21.5 9z"/><path d="M6.5 11.3v4.4c0 1.6 2.4 2.9 5.5 2.9s5.5-1.3 5.5-2.9v-4.4"/><path d="M21.5 9v4.5"/>',
   meet:'<path d="M3.5 5.5h11.5v7.5H8l-4.5 3.5z"/><path d="M17.5 9.5h3v11l-3.5-2.5H10"/>',
   incid:'<path d="M12 4.2L2.8 19.5h18.4z"/><path d="M12 10v4.4M12 16.9v.4"/>',
+  warn:'<path d="M12 3.6L2.6 20h18.8L12 3.6z"/><path d="M12 9.6v4.6"/><circle cx="12" cy="17.1" r=".9" fill="currentColor" stroke="none"/>',
   stats:'<path d="M4 4v16h16"/><path d="M8.5 16.5v-5M12.5 16.5v-9M16.5 16.5v-6.5M20 16.5V6"/>',
   obs:'<path d="M2.5 12s3.5-6.2 9.5-6.2S21.5 12 21.5 12s-3.5 6.2-9.5 6.2S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
   dl:'<path d="M12 4v11M7.5 11l4.5 4.5L16.5 11"/><path d="M4.5 19.5h15"/>',
@@ -1313,7 +1315,7 @@ const NAV=[
                           ['contacts','Contacts','contact'],['equipment','Equipment','equip'],
                           ['documents','Documents','doc'],['actions','Actions','act'],['recurringChecks','Recurring Inspections','recur'],['visitors','Visitors','visitor']]},
  {group:'Safety',  items:[['lmra','LMRA','lmra'],['tbm','Toolbox Meetings','tbm'],['inspections','Inspections','insp'],['observations','Near Miss','obs'],
-                          ['checklists','Checklists','check'],['rasys','RA / SWP','ra'],
+                          ['checklists','Checklists','check'],['infringements','Infringements','warn'],['rasys','RA / SWP','ra'],
                           ['meetings','Meetings','meet'],['incidents','Incidents','incid']]},
  {group:'Quality', items:[['defects','Defects','defect']]},
  {group:'Reports', items:[['reports','Report Library','folder'],['stats','Statistics','stats'],['report','Monthly Report','print']]},
@@ -1539,6 +1541,7 @@ function renderHome(){
       tile('tbm','Toolbox Meetings','tbm')+
       tile('inspections','Inspections','insp')+
       tile('observations','Near Miss','obs')+
+      tile('infringements','Infringements','warn')+
       tile('checklists','Checklists','check')+
       (canRA()?tile('rasys','RA / SWP','ra'):'')+
       tile('meetings','Meetings','meet')+
@@ -1732,6 +1735,12 @@ function route(){
     if(!canWrite('tbm')){ app.innerHTML=header('Toolbox Meeting', true)+
       '<div class="empty">Your role can view toolbox records under Toolbox Meetings, not conduct them.</div>'; return; }
     return renderToolbox();
+  }
+  if(p[0]==='demerits'){
+    if(SB.profile && SB.profile.role==='subcon'){
+      app.innerHTML=header('Demerit Register', true)+
+        '<div class="empty">The demerit register is kept by the main contractor.</div>'; return; }
+    return p[1]?renderWorkerDemerits(p[1]):renderDemerits();
   }
   if(p[0]==='checkin' && p[3]) return renderCheckin(p[1], p[2], decodeURIComponent(p[3]));
   if(p[0]==='hazard' && p[2]) return renderHazardPublic(p[1], decodeURIComponent(p[2]));
@@ -1940,6 +1949,20 @@ const CHECKTPL={
 };
 
 /* ============ module definitions ============ */
+/* a worker's demerit standing, shown on his own record */
+function ihWorkerStrip(mid){
+  const h=ihWorkerHistory(mid); if(!h.length) return '';
+  const pts=ihWorkerPoints(mid), b=ihBand(pts.live);
+  return '<div class="card" style="border-left:4px solid '+(b.k==='ok'?'var(--charcoal,#243140)':'var(--acc,#e11b12)')+'">'+
+    '<label style="margin-top:0">In-house rules — standing</label>'+
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:baseline">'+
+      '<div><b style="font-size:22px">'+pts.live+'</b> <span class="hint">points · last '+pts.windowDays+' days</span></div>'+
+      '<div><b>'+h.length+'</b> <span class="hint">notice'+(h.length===1?'':'s')+'</span></div>'+
+      (b.k==='ok'?'<span class="hint">Clear</span>':'<span class="chip '+b.cls+'">'+b.label+'</span>')+
+    '</div>'+
+    '<a class="btn ghost" href="#/demerits/'+esc(mid)+'" style="display:block;text-align:center;margin-top:10px">Full history &amp; pattern</a></div>';
+}
+
 const MODULES={
 
  contacts:{ title:'Contacts', store:'contacts',
@@ -1985,6 +2008,9 @@ const MODULES={
     const bar=document.querySelector('#app .btnrow');
     if(bar){ const b=document.createElement('button'); b.type='button'; b.className='btn ghost';
       b.textContent='Passport'; b.onclick=()=>location.hash='#/passport/'+item.id; bar.appendChild(b); }
+    const strip=ihWorkerStrip(item.id);
+    if(strip){ const c=document.querySelector('#app .card');
+      if(c) c.insertAdjacentHTML('beforebegin', strip); }
   },
   baseFilter:m=>!m.mergedInto,
   siteFilter:items=>{ const ids=projectMemberIds(); return items.filter(m=>ids.has(m.id)); },
@@ -2417,6 +2443,101 @@ const MODULES={
   meta:function(i){ return (i.code?'<span class="chip n">'+esc(i.code)+'</span>':'')+(i.status==='ARCHIVED'?'<span class="chip b">ARCHIVED</span>':''); },
   empty:'Logical locations — the stable tree (Project → Zone → Subzone → Asset) that drawings, records and future PTW/observations reference. Draw them on a Site Layout, or add them here.'},
 
+ infringements:{ title:'Infringement', store:'infringements',
+  fields:[
+   {k:'noticeNo',label:'Notice no.',half:1,hint:'Left blank, the app numbers it for you.'},
+   {k:'noticeType',label:'Notice type',type:'select',req:1,half:1,def:'Instruction Notice (IN)',
+    opts:['Instruction Notice (IN)','Administrative Charge (AC)'],
+    hint:'IN = written instruction to comply. AC = charge under the in-house rules.'},
+   {k:'date',label:'Date of offence',type:'date',req:1,def:'today',half:1},
+   {k:'time',label:'Time',type:'time',half:1},
+   {k:'offenceCode',label:'Offence (CP 10.9.1)',type:'select',req:1,opts:ihOffenceOpts,
+    hint:'Pick from the in-house rules \u2014 the charge and demerit points fill in by themselves.'},
+   {k:'offenders',label:'Worker issued to \u2014 tick one, then have him sign',type:'members',sig:1,
+    hint:'Search by name or worker ID. His signature is his acknowledgement that the notice was served.'},
+   {k:'subcon',label:'Company / subcontractor',half:1,list:companyList,
+    hint:'Fills in from the worker\u2019s record.'},
+   {k:'waId',label:'Linked work activity',type:'select',half:1,
+    opts:()=>[['','\u2014 none \u2014']].concat(db.workActivities.map(w=>[w.id,w.title||w.type]))},
+   {k:'locationName',label:'Zone / location',half:1},
+   {k:'details',label:'What happened',type:'textarea',rows:3,req:1,
+    hint:'Plain facts: what was seen, where, and what was said to him.'},
+   {k:'immediate',label:'Immediate action taken',type:'textarea',rows:2},
+   {k:'photos',label:'Evidence photos',type:'photos'},
+   {k:'issuedBy',label:'Issued by (WSHO / supervisor)',req:1,half:1,list:safetyPersonnelList,def:myDisplayName},
+   {k:'status',label:'Status',type:'select',half:1,def:'Issued',
+    opts:['Issued','Acknowledged','Charged','Appealed','Waived','Closed'],
+    hint:'Waived removes the points and the charge from the worker\u2019s record.'},
+   {k:'retraining',label:'Re-orientation / re-training required',type:'select',half:1,def:'No',opts:['No','Yes']},
+   {k:'retrainDate',label:'Re-training completed on',type:'date',half:1},
+   {k:'remarks',label:'Remarks / PM decision',type:'textarea',rows:2}],
+  beforeSave:function(obj, item){
+    /* the offender: one worker, taken from the ticked list */
+    const ids=[].concat(obj.offenders||[]);
+    obj.offenderId=ids[0]||'';
+    const m=db.members.find(x=>x.id===obj.offenderId);
+    obj.offenderName=m?(m.name||''):'';
+    obj.offenderWid=m?(m.wid||''):'';
+    if(m&&!obj.subcon) obj.subcon=m.company||'';
+    if(m&&!obj.trade)  obj.trade=m.trade||'';
+    /* occurrence + penalty come from HIS OWN history, not from typing */
+    const L=ihLookup(obj.offenceCode);
+    obj.category=L?L.cat:''; obj.categoryName=L?L.catName:''; obj.offenceText=L?L.text:'';
+    obj.occurrence=ihPriorFor(obj.offenderId, obj.offenceCode, item?item.id:null).length+1;
+    const pen=ihPenalty(obj.offenceCode, obj.occurrence);
+    obj.charge=pen.charge; obj.points=obj.status==='Waived'?0:pen.points; obj.penaltyNote=pen.note;
+    if(!obj.noticeNo){
+      const yr=String(obj.date||today()).slice(0,4);
+      const tag=(obj.noticeType||'').indexOf('Administrative')>=0?'AC':'IN';
+      const n=(db.infringements||[]).filter(r=>r.noticeNo&&r.noticeNo.indexOf(tag+'/'+yr)===0).length+1;
+      obj.noticeNo=tag+'/'+yr+'/'+String(n).padStart(3,'0');
+    }
+  },
+  printExtra:function(r){
+    const t=ihThresholds(), pts=r.offenderId?ihWorkerPoints(r.offenderId):null;
+    let h='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Offence and penalty</div>'+
+      '<table class="dtable" style="margin:4px 0">'+
+      '<tr><td style="text-align:left;width:38%">Category</td><td style="text-align:left"><b>'+esc((r.category||'')+') '+(r.categoryName||''))+'</b></td></tr>'+
+      '<tr><td style="text-align:left">Offence</td><td style="text-align:left">'+esc(r.offenceText||'')+'</td></tr>'+
+      '<tr><td style="text-align:left">Occurrence</td><td style="text-align:left">'+esc(ihOrdinal(r.occurrence||1))+
+        ' occurrence for this worker'+(r.penaltyNote?' \u2014 '+esc(r.penaltyNote):'')+'</td></tr>'+
+      '<tr><td style="text-align:left">Non-compliance charge</td><td style="text-align:left"><b>'+esc(ihChargeText(r.charge))+'</b></td></tr>'+
+      '<tr><td style="text-align:left">Demerit points</td><td style="text-align:left"><b>'+(+r.points||0)+'</b></td></tr>'+
+      '</table></div>';
+    if(pts)
+      h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Worker standing after this notice</div>'+
+         '<table class="dtable" style="margin:4px 0">'+
+         '<tr><td style="text-align:left;width:38%">Points in the last '+pts.windowDays+' days</td><td style="text-align:left"><b>'+pts.live+'</b> \u2014 '+esc(ihBand(pts.live).label)+'</td></tr>'+
+         '<tr><td style="text-align:left">Lifetime points</td><td style="text-align:left">'+pts.life+'</td></tr>'+
+         '</table><div style="font-size:10.5px;color:var(--sub)">Company thresholds: watch list '+t.warn+', formal review '+t.review+
+         ', suspension review '+t.suspend+' points. <b>Set by the company</b> \u2014 CP 10.9.1 prescribes no point limits.</div></div>';
+    if((r.photos||[]).length)
+      h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Evidence</div>'+
+         r.photos.map(d=>'<img src="'+d+'" style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</div>';
+    h+='<div style="margin-top:14px;font-size:10.5px;color:var(--sub)">Issued under CP 10.9.1 In House Rules and Regulations (2026), Element 6 rev 01, effective 03/03/2026. '+
+       'The worker may appeal to the Project Manager, who is the overall decision-maker on WSH violations (cl. 5.3).</div>';
+    return h;
+  },
+  sort:(a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||'')),
+  line1:i=>esc((i.offenderName||'(worker)')+(i.offenderWid?' \u00b7 '+i.offenderWid:'')),
+  line2:i=>esc([fmtD(i.date), (i.category||'')+') '+(i.offenceText||''), i.subcon].filter(Boolean).join(' \u00b7 ')),
+  meta:i=>(i.status==='Waived'?'<span class="chip">Waived</span>'
+      :(+i.points?'<span class="chip b">'+i.points+' pts</span> ':'')+
+       (i.charge?'<span class="chip w">'+esc(ihChargeText(i.charge))+'</span>':'')),
+  listHeader:function(){
+    const rs=db.infringements||[];
+    if(!rs.length) return '';
+    const mk=today().slice(0,7);
+    const mo=rs.filter(r=>String(r.date||'').slice(0,7)===mk);
+    const pts=mo.reduce((a,r)=>a+(+r.points||0),0);
+    const open=rs.filter(r=>['Issued','Acknowledged','Appealed'].includes(r.status)).length;
+    return '<div class="card" style="margin-bottom:10px"><div class="tiles">'+
+      '<a class="stile" href="#/demerits"><div class="v">'+mo.length+'</div><div class="l">This month</div></a>'+
+      '<a class="stile" href="#/demerits"><div class="v">'+pts+'</div><div class="l">Points this month</div></a>'+
+      '<a class="stile" href="#/demerits"><div class="v'+(open?' w':'')+'">'+open+'</div><div class="l">Not yet closed</div></a>'+
+      '</div><a class="btn ghost" href="#/demerits" style="display:block;text-align:center;margin-top:8px">Demerit register &amp; worker statistics</a></div>';
+  }
+ },
  lmra:{ title:'LMRA', store:'lmra', newRoute:'#/lmracheck',
   fields:[
    {k:'date',label:'Date',type:'date',req:1,half:1},
@@ -2446,6 +2567,13 @@ const MODULES={
       h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Checks ('+ans.length+')</div>'+
          '<table class="dtable" style="margin:4px 0">'+ans.map(a=>'<tr><td style="text-align:left">'+esc(a.q)+'</td>'+
            '<td style="width:60px">'+(a.a==='NO'?'<b style="color:#c5221f">NO</b>':esc(a.a||'\u2014'))+'</td></tr>').join('')+'</table></div>';
+    (r.roleChecks||[]).forEach(rc=>{
+      const qa=(rc.answers||[]).filter(a=>a.q); if(!qa.length) return;
+      h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">'+
+         'Role checks \u2014 '+esc(rc.role||'')+': '+esc(rc.name||'')+(rc.wid?' ('+esc(rc.wid)+')':'')+'</div>'+
+         '<table class="dtable" style="margin:4px 0">'+qa.map(a=>'<tr><td style="text-align:left">'+esc(a.q)+'</td>'+
+           '<td style="width:60px">'+(a.a==='NO'?'<b style="color:#c5221f">NO</b>':esc(a.a||'\u2014'))+'</td></tr>').join('')+'</table></div>';
+    });
     if((r.photos||[]).length)
       h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Briefing photos</div>'+
          r.photos.map(d=>'<img src="'+d+'" style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</div>';
@@ -3436,16 +3564,32 @@ function renderSettings(){
     '</div>')+
     (lite?'':
     '<div class="card"><label style="margin-top:0">LMRA checklists — plain wording, per activity</label>'+
-      '<p class="hint">The checklist workers answer follows the <b>work activity</b> they pick on the LMRA. Choose an activity, press <b>Suggest</b> to build a starting list from the activity library and its approved RA, then rewrite it in words your workers actually use — one question per line, then Save.</p>'+
+      '<p class="hint">The LMRA asks two sets of questions: one for the <b>work activity</b> (everyone answers it) and one for each person’s <b>role</b> — the banksman is asked banksman questions, the operator his own. Pick either from the list, press <b>Suggest</b> for a starting list, then rewrite it in words your workers actually use — one question per line, then Save.</p>'+
       '<div class="fld"><label>Checklist for</label><select id="setLmraAct"><option value="">Base — used when the activity has no list</option>'+
+        '<optgroup label="By work activity">'+
         (function(){ const ts=Object.keys(LMRA_ACT_QS); db.workActivities.forEach(w=>{ if(w.type&&ts.indexOf(w.type)<0) ts.push(w.type); });
-          return ts.map(t=>'<option value="'+esc(t)+'">'+esc(t)+'</option>').join(''); })()+'</select></div>'+
+          return ts.map(t=>'<option value="'+esc(t)+'">'+esc(t)+'</option>').join(''); })()+'</optgroup>'+
+        '<optgroup label="By role — each person’s own checks">'+
+        Object.keys(LMRA_ROLE_QS).map(r=>'<option value="role:'+esc(r)+'">'+esc(r)+'</option>').join('')+
+        '</optgroup></select></div>'+
       '<textarea id="setLmraQs" rows="10" placeholder="One question per line"></textarea>'+
       '<p class="hint" id="setLmraSrc" style="margin:6px 0 0"></p>'+
       '<div class="btnrow" style="margin-top:8px"><button class="btn ghost" id="setLmraSave">Save</button>'+
       '<button class="btn ghost" id="setLmraSug">Suggest from activity + RA</button></div>'+
     '</div>')+
-    (lite?'':'<div class="card"><label style="margin-top:0">Backup &amp; restore</label>'+
+    (lite?'':'<div class="card"><label style="margin-top:0">Demerit points — company thresholds</label>'+
+      '<p class="hint">CP 10.9.1 fixes the charge and the demerit points for each offence, but it sets <b>no point limits</b>. '+
+      'These thresholds are the company’s own decision — they decide when a worker appears on the watch list, goes to a formal review, or is put up for suspension.</p>'+
+      '<div class="fgrid">'+
+        '<div class="fld half"><label>Watch list at</label><input id="setIhWarn" type="number" min="1" value="'+ihThresholds().warn+'"></div>'+
+        '<div class="fld half"><label>Formal review at</label><input id="setIhReview" type="number" min="1" value="'+ihThresholds().review+'"></div>'+
+        '<div class="fld half"><label>Suspension review at</label><input id="setIhSusp" type="number" min="1" value="'+ihThresholds().suspend+'"></div>'+
+        '<div class="fld half"><label>Points counted over (days)</label><input id="setIhWin" type="number" min="30" value="'+ihPointsWindowDays()+'">'+
+          '<div class="hint">Older notices stay in the worker’s history but stop counting towards his live total.</div></div>'+
+      '</div>'+
+      '<div class="btnrow" style="margin-top:8px"><button class="btn ghost" id="setIhSave">Save thresholds</button></div>'+
+    '</div>'+
+    '<div class="card"><label style="margin-top:0">Backup &amp; restore</label>'+
       '<p class="hint">Live data syncs to the cloud (see Cloud sync above); this device also keeps a working copy in the browser. Backups export the full dataset as a file — automatic daily when the folder is connected, or manually here.</p>'+
       '<p class="hint">Storage used: ~'+Math.round(JSON.stringify(root).length/1024).toLocaleString()+' KB of a ~5,000 KB browser limit. Photos use the most space.</p>'+
       '<div class="btnrow" style="margin-top:10px"><button class="btn ghost" id="expBtn">Export backup</button>'+
@@ -3460,6 +3604,10 @@ function renderSettings(){
     const t=document.getElementById('setLmraAct').value, ta=document.getElementById('setLmraQs'), st=document.getElementById('setLmraSrc');
     if(!t){ ta.value=(s.lmraQs||LMRA_QS).join('\n');
       st.textContent=s.lmraQs?'Your site’s base wording.':'Built-in base wording — edit and Save to make it yours.'; }
+    else if(t.indexOf('role:')===0){ const r=t.slice(5), per=(s.lmraRoleQs||{})[r];
+      ta.value=(per||LMRA_ROLE_QS[r]||[]).join('\n');
+      st.textContent=per?('Your site’s wording for the '+r+'.')
+        :('Suggested wording — only the person doing this role answers these. Edit and Save to make it yours.'); }
     else{ const per=(s.lmraActQs||{})[t];
       ta.value=(per||lmraSuggestQs(t)).join('\n');
       st.textContent=per?('Your site’s wording for '+t+'.'):'Suggested from the activity library + approved RA — edit and Save to make it yours.'; }
@@ -3467,15 +3615,20 @@ function renderSettings(){
   document.getElementById('setLmraAct').onchange=_lmraPaint; _lmraPaint();
   document.getElementById('setLmraSug').onclick=()=>{
     const t=document.getElementById('setLmraAct').value;
-    document.getElementById('setLmraQs').value=(t?lmraSuggestQs(t):LMRA_QS).join('\n');
+    document.getElementById('setLmraQs').value=(!t?LMRA_QS
+      :t.indexOf('role:')===0?(LMRA_ROLE_QS[t.slice(5)]||[])
+      :lmraSuggestQs(t)).join('\n');
   };
   document.getElementById('setLmraSave').onclick=()=>{
     const t=document.getElementById('setLmraAct').value;
     const v=document.getElementById('setLmraQs').value.split('\n').map(x=>x.trim()).filter(Boolean);
     if(!t){ if(v.length) s.lmraQs=v; else delete s.lmraQs; }
+    else if(t.indexOf('role:')===0){ const r=t.slice(5);
+      s.lmraRoleQs=s.lmraRoleQs||{}; if(v.length) s.lmraRoleQs[r]=v; else delete s.lmraRoleQs[r];
+      if(!Object.keys(s.lmraRoleQs).length) delete s.lmraRoleQs; }
     else{ s.lmraActQs=s.lmraActQs||{}; if(v.length) s.lmraActQs[t]=v; else delete s.lmraActQs[t];
       if(!Object.keys(s.lmraActQs).length) delete s.lmraActQs; }
-    save(); toast(v.length?('Saved — '+v.length+' questions'+(t?' for '+t:' (base)')):'Cleared — back to suggested wording');
+    save(); toast(v.length?('Saved — '+v.length+' questions'+(t?' for '+t.replace('role:',''):' (base)')):'Cleared — back to suggested wording');
     _lmraPaint();
   };
   document.getElementById('setSave').onclick=()=>{
@@ -3507,6 +3660,12 @@ function renderSettings(){
   } /* end !lite management wiring */
   sbBindSettings();
   if(lite) return;
+  document.getElementById('setIhSave').onclick=()=>{
+    const g=id=>Math.max(0, +document.getElementById(id).value||0);
+    s.ihThresholds={warn:g('setIhWarn'), review:g('setIhReview'), suspend:g('setIhSusp')};
+    const w=g('setIhWin'); if(w>=30) s.ihWindowDays=w; else delete s.ihWindowDays;
+    save(); toast('Demerit thresholds saved');
+  };
   document.getElementById('expBtn').onclick=()=>{
     saveOrDownload('Backups', 'cms-backup-'+today()+'.json', JSON.stringify(root,null,1), 'application/json');
   };
@@ -3847,7 +4006,7 @@ EV.on('record:changed',({store,id})=>{
    just eTBM/LMRA. Every save of a report-type record files (or refreshes) its
    PDF; the name is stable per record so edits overwrite, never duplicate. */
 EV.on('record:changed',({store,id})=>{
-  if(['inspections','observations','incidents','checklists','meetings','defects'].includes(store))
+  if(['inspections','observations','incidents','checklists','meetings','defects','infringements'].includes(store))
     setTimeout(()=>autoFileRecord(store,id), 400);
 });
 EV.on('record:deleted',({store,id})=>{
@@ -6497,6 +6656,86 @@ function sigListHtml(ids, sigs, tag){
         (ok?';border-color:#1c7d3a;color:#1c7d3a':'')+'">'+(ok?'✓ ':'✎ ')+esc(nm)+'</button>'; }).join('')+'</div>';
 }
 
+const IH_RULES={"A":{"name":"General Non-Compliance","escalating":true,"items":[{"t":"Committing / abetting / attempting any Immigration or MOM offence","p":["","",""],"final":"Refer to Police / Termination"},{"t":"Committing / abetting / attempting any criminal offence","p":["","",""],"final":"Refer to Police / Termination"},{"t":"Involved in rioting / affray causing grievous hurt or death","p":["","",""],"final":"Refer to Police / Termination"},{"t":"Possession / consumption / trafficking of a controlled drug","p":["","",""],"final":"Refer to Police / Termination"},{"t":"Attempting to smuggle an unauthorised person / alias into site","p":["","",""],"final":"Refer to Police / Termination"},{"t":"Attempting to cheat or defraud the Company / Site Management","p":["","",""],"final":"Termination"},{"t":"Disobedience of orders","p":["","",""],"final":"Termination"},{"t":"Failure to detect underground services before excavation","p":["","",""],"final":"Termination"},{"t":"Wilful loss of work permit due to negligence","p":[150,300,450],"final":"Termination"},{"t":"Possession / sale of prohibited or contraband items","p":[100,200,400],"final":"Termination"},{"t":"Gambling inside the KKL site office","p":[100,200,400],"final":"Termination"},{"t":"Involved in illegal money lending activities on site","p":[200,300,450],"final":"Termination"},{"t":"Nuisance to others while under the influence of alcohol on or near site","p":[30,100,200],"final":"Termination"},{"t":"Failure to produce work permit when demanded","p":[30,60,120],"final":"Termination"},{"t":"Failure to display site security pass","p":[30,60,120],"final":"Termination"},{"t":"Littering","p":[30,60,120],"final":"Termination"},{"t":"Committing mischief / being a nuisance to others at site","p":[30,60,120],"final":"Termination"},{"t":"Washing of building materials","p":[30,60,120],"final":"Termination"},{"t":"Illegal tapping of electricity causing a fire hazard","p":[30,60,120],"final":"Termination"},{"t":"Malingering during work hours","p":[30,100,120],"final":"Termination"},{"t":"Failure to return to quarters by 2330 hrs","p":[30,100,200],"final":"Termination"},{"t":"Fighting","p":[100,200,300],"final":"Termination"},{"t":"Loitering in the workshop without authorisation","p":[100,200,300],"final":"Termination"},{"t":"Failure to maintain 3-point contact while ascending / descending equipment or vehicle","p":[100,200,300],"final":"Termination"},{"t":"Possession / consumption of alcohol within site premises","p":[500,600,700],"final":"Termination"},{"t":"Failure or delay in reporting accidents, hazards, incidents, near misses or dangerous occurrences","p":[500,600,700],"final":"Termination"},{"t":"Unauthorised capture / sharing of work-related photos or videos on social media","p":[500,600,700],"final":"Termination"},{"t":"Forgery of signatures on official documents","p":[500,600,700],"final":"Termination"}]},"B":{"name":"Excavation Works","escalating":false,"items":[{"t":"Non-provision of effective barricade around the edge of excavation","c":100,"d":10},{"t":"Non-provision of access ladder","c":50,"d":5},{"t":"Non-provision of proper shoring","c":100,"d":10},{"t":"Failure to provide competent operator for excavation","c":100,"d":10},{"t":"Failure to clear debris, materials, soil and equipment away from the excavation edge","c":50,"d":5},{"t":"Unsafe operation of excavator","c":100,"d":10}]},"C":{"name":"Maintenance Regime","escalating":false,"items":[{"t":"Failure to maintain equipment on a regular basis","c":"Cost of damages","d":10},{"t":"Failure to perform pre-use / daily operator check before operating machinery","c":50,"d":5},{"t":"Failure to carry out colour coding for equipment / tools / machinery","c":50,"d":5},{"t":"Failure to provide guarding / fencing, or removal of guarding / fencing","c":50,"d":5}]},"D":{"name":"Fire Safety","escalating":false,"items":[{"t":"Misuse of fire extinguisher or other fire-fighting equipment","c":50,"d":5},{"t":"Storing flammable substances inside the worker's quarters","c":50,"d":5},{"t":"Cooking inside the room / at site","c":50,"d":5},{"t":"Expired or unpressurised fire extinguisher used on site","c":50,"d":5},{"t":"Unauthorised storage of chemicals / exceeding legal storage limits","c":50,"d":5},{"t":"Storing chemicals / materials / paints at undesignated area","c":50,"d":5},{"t":"Blocking of access / passageway / fire-fighting equipment","c":50,"d":5}]},"E":{"name":"Electrical Safety","escalating":false,"items":[{"t":"Electrical wire on ground, or failure to hang wire on insulated support","c":50,"d":5},{"t":"Bare wire inserted into socket to tap electricity","c":50,"d":5},{"t":"Overloaded socket","c":50,"d":5},{"t":"Use of defective or non-approved wire / bare wire","c":50,"d":5},{"t":"Unauthorised modification of electrical layout","c":50,"d":5},{"t":"Use of non-industrial plug and connection","c":50,"d":5},{"t":"ELCB (SOA) not used as required","c":50,"d":5}]},"F":{"name":"Hot Works","escalating":false,"items":[{"t":"Gas cylinder / cutting torch not equipped with flashback arrestor","c":50,"d":5},{"t":"Using defective acetylene / oxygen cylinder tank","c":50,"d":5},{"t":"Welding machine or its components faulty","c":50,"d":5},{"t":"Not providing stand-by fire extinguisher at the working area","c":50,"d":5},{"t":"Failure to secure oxygen / acetylene / LPG cylinders upright with chains in proper storage","c":50,"d":5},{"t":"Failure to use fire blankets during hot works or near combustible materials","c":50,"d":5},{"t":"Failure to purge hoses individually after use","c":50,"d":5},{"t":"Oxygen / acetylene / LPG cylinder has no label or missing valves","c":50,"d":5},{"t":"Failure to segregate storage of oxygen and acetylene cylinders","c":50,"d":5}]},"G":{"name":"Resources and Mandatory Requirements","escalating":false,"items":[{"t":"Deployment of illegal workers at site","c":"5,000 + cost of damages & authority fines","d":50},{"t":"Failure to attend mandatory trainings stipulated in the WSH Act","c":100,"d":10},{"t":"Failure to attend in-house SIC","c":100,"d":10},{"t":"Failure to provide appropriate number of safety personnel on site","c":50,"d":5},{"t":"Failure to provide supervision for persons at work","c":100,"d":10},{"t":"Failure to practise due diligence to ensure safety of personnel at site (PM, PC, SM, SS)","c":50,"d":5},{"t":"Failure to appoint task-related key personnel at site","c":50,"d":5},{"t":"Failure to work safely, leading to incident","c":50,"d":5}]},"H":{"name":"Lifting Operations","escalating":false,"items":[{"t":"Working without qualified operator / lifting supervisor / rigger / signalman","c":100,"d":10},{"t":"Lifting gear not certified / registered / no SWL marking","c":100,"d":10},{"t":"Using faulty or improper lifting gear","c":100,"d":10},{"t":"Suspended load without safety tagline","c":100,"d":10},{"t":"Standing under suspended load","c":100,"d":10},{"t":"Operating forklift without safety belt / carrying passenger","c":100,"d":10},{"t":"Using lifting equipment without a valid colour code","c":100,"d":10}]},"I":{"name":"Machinery / Equipment / Tools","escalating":false,"items":[{"t":"Improper use of air compressor / no safety devices","c":100,"d":10},{"t":"Using grinder or rotating equipment without protective guard","c":100,"d":10},{"t":"Use of defective electrical equipment or tools (damaged wires, faulty plugs, missing guards, exposed wiring, wrong tools)","c":100,"d":10},{"t":"Using electrical equipment without a valid LEW inspection sticker","c":100,"d":10},{"t":"Failure to switch off running machinery / equipment / portable tools during lunchtime","c":100,"d":10},{"t":"Using unsafe ladder or scaffolding","c":100,"d":10},{"t":"Failure to operate machinery safely, or operating without the necessary qualifications","c":300,"d":30},{"t":"Unauthorised operation of machinery","c":500,"d":50},{"t":"Reversing without a banksman during machinery operation","c":500,"d":50}]},"J":{"name":"Housekeeping & Access","escalating":false,"items":[{"t":"Poor housekeeping practice / poor environment","c":50,"d":5},{"t":"Stacking materials in improper manner / no proper protection","c":50,"d":5},{"t":"Obstruction to fire-fighting or life-saving equipment and means of access","c":50,"d":5},{"t":"Failure to provide a drip tray for oil leakage","c":100,"d":10}]},"K":{"name":"Personal Protective Equipment","escalating":false,"items":[{"t":"Failure to wear PPE (safety helmet / shoes / earplug / mask / glove)","c":50,"d":5},{"t":"Wearing army uniform / improper usage of PPE","c":50,"d":5},{"t":"Failure to wear mandatory safety goggles on site","c":100,"d":10},{"t":"Failure to wear a safety harness while working at height above 2 metres","c":100,"d":10},{"t":"Failure to wear a life jacket while working near the sea, shoreline or open water","c":100,"d":10}]},"L":{"name":"Unsafe Acts and Conditions","escalating":false,"items":[{"t":"Smoking during working hours, or during breaks in non-designated smoking areas","c":50,"d":5},{"t":"Sleeping in non-designated areas or in an unsafe manner likely to cause harm","c":50,"d":5},{"t":"Horseplay (e.g. spraying each other with an air hose)","c":50,"d":5},{"t":"Carrying out work without a valid Permit to Work (PTW)","c":100,"d":10},{"t":"Use of mobile phones or audio devices while driving or on site","c":500,"d":50},{"t":"Carrying out work without a valid Permit to Work (PTW) — aggravated","c":500,"d":50}]},"M":{"name":"Environmental","escalating":false,"items":[{"t":"Failure to switch off equipment / vehicle engine during refuelling or before leaving the cabin","c":50,"d":5},{"t":"Failure to take precautions against breeding of pests (mosquitoes, rats etc.)","c":50,"d":5},{"t":"Failure to dispose of general waste properly at all times","c":50,"d":5},{"t":"Unauthorised feeding of birds, cats and dogs","c":50,"d":5}]},"N":{"name":"Traffic Violation","escalating":false,"items":[{"t":"Vehicle parked at non-designated area with obstruction (illegal parking)","c":100,"d":10},{"t":"Exceeding speed limit","c":100,"d":10},{"t":"Vehicle driven in a careless or reckless manner","c":100,"d":10},{"t":"Failure to wear seat belt when driving any equipment or vehicle","c":100,"d":10},{"t":"Failure to switch off the engine / remove the key when the vehicle is not in use","c":100,"d":10},{"t":"Failure to place wheel chocks when the vehicle is stationary","c":100,"d":10},{"t":"Failure to maintain 3-point contact while ascending or descending a vehicle","c":100,"d":10},{"t":"Failure to wind down window before entering any construction site","c":500,"d":50},{"t":"Tampering with vehicle safety devices","c":500,"d":50},{"t":"Reversing truck without a banksman","c":500,"d":50},{"t":"Unauthorised operation of a water jet","c":1000,"d":100},{"t":"Driving without a valid driving licence","c":"1,000 (Termination)","d":100}]},"O":{"name":"Documentation","escalating":false,"items":[{"t":"Failure to submit / obtain approval and comply with approved WSHE plans (Traffic Management, Heat Stress, Respiratory Protection, Ergonomic, Environmental)","c":100,"d":10},{"t":"Failure or delay in submitting, revising, developing, implementing, briefing or following RAs or Safe Work Procedures","c":100,"d":10},{"t":"Failure to inspect, update, submit, display or obtain approval for WSHE records, checklists, registers, tags and PTWs (incl. formwork/scaffold checklists, lifting & WAH equipment, LEW tags, PE design, COS)","c":100,"d":10}]},"P":{"name":"Behaviour","escalating":false,"items":[{"t":"Failure to comply with supervisor's directions during work operations and site procedures","c":100,"d":10},{"t":"Failed to follow the established Safe Work Procedure (SWP) while carrying out work","c":100,"d":10},{"t":"Insubordination — refusing to obey orders","c":100,"d":10}]}};
+/* CP 10.9.1 In House Rules and Regulations (2026), Element 6 rev 01, eff 03/03/2026.
+   Category A escalates by occurrence and carries no demerit points; B-P carry a
+   fixed non-compliance charge and demerit points. */
+const IH_CAT_ORDER=Object.keys(IH_RULES);
+function ihCode(cat,i){ return cat+'|'+i; }
+function ihLookup(code){
+  const [cat,i]=String(code||'').split('|');
+  const c=IH_RULES[cat]; if(!c) return null;
+  const it=c.items[+i]; if(!it) return null;
+  return {cat, idx:+i, catName:c.name, escalating:!!c.escalating, item:it, text:it.t};
+}
+function ihOffenceOpts(){ return ihOptionPairs(); }
+function ihOptionPairs(){
+  const out=[];
+  IH_CAT_ORDER.forEach(cat=>{ const c=IH_RULES[cat];
+    c.items.forEach((it,i)=>out.push([ihCode(cat,i), cat+') '+it.t]));
+  });
+  return out;
+}
+function ihOptions(){
+  return IH_CAT_ORDER.map(cat=>{ const c=IH_RULES[cat];
+    return '<optgroup label="'+esc(cat+') '+c.name)+'">'+
+      c.items.map((it,i)=>'<option value="'+ihCode(cat,i)+'">'+esc(it.t)+'</option>').join('')+'</optgroup>';
+  }).join('');
+}
+/* every infringement this worker already has for the SAME offence, company-wide */
+function ihPriorFor(memberId, code, exceptId){
+  if(!memberId||!code) return [];
+  const out=[];
+  root.projects.forEach(pj=>(pj.infringements||[]).forEach(r=>{
+    if(r.id!==exceptId && r.offenderId===memberId && r.offenceCode===code && r.status!=='Waived') out.push(r);
+  }));
+  return out.sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));
+}
+/* what this offence costs THIS time, given the worker's own history */
+function ihPenalty(code, occurrence){
+  const L=ihLookup(code); if(!L) return {charge:'', points:0, note:''};
+  if(!L.escalating) return {charge:L.item.c, points:L.item.d||0, note:''};
+  const n=Math.max(1, occurrence||1), pay=L.item.p||[];
+  if(n>pay.length||pay[n-1]==='') return {charge:L.item.final||'Termination', points:0, note:'Final \u2014 '+(L.item.final||'Termination')};
+  return {charge:pay[n-1], points:0, note:ihOrdinal(n)+' occurrence'};
+}
+function ihOrdinal(n){ return n===1?'1st':n===2?'2nd':n===3?'3rd':n+'th'; }
+function ihChargeText(v){ return (v===''||v==null)?'\u2014':(typeof v==='number'?('S$'+v.toLocaleString()):String(v)); }
+/* ---- worker history + statistics (doc 5.5 / 8.4) ---- */
+function ihAllRecords(){
+  const out=[];
+  root.projects.forEach(pj=>(pj.infringements||[]).forEach(r=>out.push(Object.assign({_pj:pj.id, _pjName:(pj.settings&&pj.settings.project)||''}, r))));
+  return out;
+}
+function ihWorkerHistory(memberId){
+  return ihAllRecords().filter(r=>r.offenderId===memberId)
+    .sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+}
+function ihPointsWindowDays(){ const n=+((db.settings&&db.settings.ihWindowDays)||365); return n>0?n:365; }
+function ihWorkerPoints(memberId, days){
+  const w=days||ihPointsWindowDays();
+  const cut=new Date(Date.now()-w*864e5).toISOString().slice(0,10);
+  let live=0, life=0;
+  ihWorkerHistory(memberId).forEach(r=>{
+    if(r.status==='Waived') return;
+    const pts=+r.points||0; life+=pts;
+    if(String(r.date||'')>=cut) live+=pts;
+  });
+  return {live, life, windowDays:w};
+}
+/* thresholds are a COMPANY decision — CP 10.9.1 sets no point limits */
+function ihThresholds(){
+  const t=(db.settings&&db.settings.ihThresholds)||{};
+  return {warn:+t.warn||20, review:+t.review||50, suspend:+t.suspend||100};
+}
+function ihBand(points){
+  const t=ihThresholds();
+  if(points>=t.suspend) return {k:'suspend', label:'Suspension review', cls:'b'};
+  if(points>=t.review)  return {k:'review',  label:'Formal review',     cls:'b'};
+  if(points>=t.warn)    return {k:'warn',    label:'Watch list',        cls:'w'};
+  return {k:'ok', label:'Clear', cls:''};
+}
+
 /* ---- LMRA: last minute risk assessment at the workface ---- */
 const LMRA_CORE_QS=[
  'Do you know the job you are doing now, and how to do it safely?',
@@ -6671,10 +6910,95 @@ function lmraAllQs(waId){
     .map(x=>x.line);
   return base.concat(extra);
 }
+/* ---- role-specific checks: each person answers for their OWN job ---- */
+const LMRA_ROLES=['Worker','Supervisor / Foreman','Lifting Supervisor','Rigger / Signalman',
+ 'Banksman','Operator','Scaffolder','Welder','Confined Space Attendant','Others'];
+const LMRA_ROLE_QS={
+ 'Banksman':[
+  'Are you wearing the reflective vest that marks you as the banksman?',
+  'Did you agree the hand signals with the operator before he moves?',
+  'Can the operator see you in his mirror from where you are standing?',
+  'Are you standing OUT of the reversing path \u2014 never behind the machine?',
+  'Is your walking route clear of people, cables and holes?',
+  'Do you know to STOP the machine the moment you lose sight of the operator?'],
+ 'Operator':[
+  'Do you hold the valid licence / certificate for THIS machine?',
+  'Did you do the pre-use check today and sign the checklist?',
+  'Mirrors, horn, reverse alarm and lights all working?',
+  'Seat belt on before you move?',
+  'Do you know who your banksman is, and can you see him?',
+  'Is the ground firm and clear of people before you swing or reverse?',
+  'Will you switch off and remove the key before leaving the cabin?'],
+ 'Rigger / Signalman':[
+  'Do you hold a valid rigger / signalman certificate?',
+  'Did you check every sling, shackle and hook \u2014 colour code current, no damage?',
+  'Do you know the weight of the load and the SWL of the gear?',
+  'Is the load properly slung and balanced before you signal to lift?',
+  'Is the tag line attached \u2014 you control the load with the line, not your hands?',
+  'Is everyone clear of the load path, and nobody under the load?',
+  'Only ONE signalman at a time \u2014 is that agreed?'],
+ 'Lifting Supervisor':[
+  'Is the lifting plan for this lift on site, and did you brief the team on it?',
+  'Have you checked the crane\u2019s load chart against this load and radius?',
+  'Are the ground conditions, outriggers and mats checked by you?',
+  'Are the operator, rigger and signalman all certified and named for this lift?',
+  'Is the exclusion zone barricaded and clear of people?',
+  'Are you staying with this lift from start to finish \u2014 not leaving it unsupervised?',
+  'Weather and wind acceptable for lifting right now?'],
+ 'Scaffolder':[
+  'Do you hold a valid scaffold erector certificate for this work?',
+  'Harness on and hooked to a sound anchor while erecting or altering?',
+  'Is the base plate, sole board and ground condition checked?',
+  'Are ties and braces going in as you build \u2014 not left for later?',
+  'Is the area below barricaded against falling material?',
+  'Will you tag the scaffold correctly and never leave it part-built untagged?'],
+ 'Welder':[
+  'Is the hot work permit approved and displayed for this spot?',
+  'Fire extinguisher at your side and fire watchman present?',
+  'Flashback arrestors fitted, hoses and regulators checked for leaks?',
+  'Everything that can burn moved away or covered?',
+  'Face shield, leather gloves, apron and fire-resistant clothing on?',
+  'Is the area ventilated so you are not breathing the fumes?',
+  'Will you purge the hoses and close the cylinder valves after work?'],
+ 'Confined Space Attendant':[
+  'Is the entry permit approved and displayed?',
+  'Do you have the entry log \u2014 do you know exactly who is inside right now?',
+  'Was the air tested SAFE before entry, and are you re-testing as required?',
+  'Is the blower running and the airline clear?',
+  'Will you stay at the entrance the WHOLE time \u2014 never leaving your post?',
+  'Is the rescue tripod and equipment ready, and do you know who to call?',
+  'Do you know you must NEVER enter to rescue \u2014 you raise the alarm?'],
+ 'Supervisor / Foreman':[
+  'Did you brief this crew on the RA and the SWP for this task?',
+  'Is everyone here trained and certified for the job you are giving them?',
+  'Are the controls in the RA actually in place on the ground \u2014 you checked?',
+  'Does anyone look unwell, tired or affected by heat today?',
+  'Do you have enough manpower for this task to be done safely?',
+  'Will you stay in the area while this work is going on?'],
+ 'Worker':[
+  'Do you know exactly what your part of this job is?',
+  'Do you know the main danger of this job and how you are protected from it?',
+  'Is your PPE on and in good condition?',
+  'Do you know who to tell if something changes or feels unsafe?']
+};
+function lmraRoleQs(role){
+  const per=(db.settings&&db.settings.lmraRoleQs)||{};
+  if(Array.isArray(per[role])&&per[role].length) return {qs:per[role], src:'site'};
+  const b=LMRA_ROLE_QS[role];
+  return b?{qs:b, src:'suggested'}:{qs:[], src:''};
+}
+/* the work activity already records who does what \u2014 inherit it */
+function lmraRoleOf(waId, memberId, override){
+  if(override&&override[memberId]) return override[memberId];
+  const wa=db.workActivities.find(w=>w.id===waId);
+  const row=wa&&(wa.crew||[]).find(c=>c.memberId===memberId);
+  return (row&&row.role)||'';
+}
 let LMX=null;
 function renderLmraCheck(){
   geoCapture();
-  if(!LMX) LMX={waId:'', by:'', ans:{}, hazard:'', action:'', crew:[], photos:[], locId:'', sigs:{}, bySig:null};
+  if(!LMX) LMX={waId:'', by:'', ans:{}, hazard:'', action:'', crew:[], photos:[], locId:'', sigs:{}, bySig:null, roles:{}, roleAns:{}};
+  LMX.roles=LMX.roles||{}; LMX.roleAns=LMX.roleAns||{};
   /* the screen re-renders on every tap — hold what the user already entered */
   const _grab=()=>{
     const pg=app.querySelector('.pickgrid[data-f="lmCrew"]');
@@ -6690,8 +7014,18 @@ function renderLmraCheck(){
   const QSI=lmraQsFor(LMX.waId);
   const QS=lmraAllQs(LMX.waId);
   const BASEN=QSI.qs.length;
-  const allAnswered=QS.every((q,i)=>LMX.ans[i]);
-  const anyNo=QS.some((q,i)=>LMX.ans[i]==='NO');
+  /* per-person role checks — built from the crew ticked at the workface */
+  const roleBlocks=(LMX.crew||[]).map(id=>{
+    const m=db.members.find(x=>x.id===id);
+    const role=lmraRoleOf(LMX.waId, id, LMX.roles);
+    const rq=lmraRoleQs(role);
+    return {id, name:m?(m.name||id):id, wid:m?(m.wid||''):'', role, qs:rq.qs, src:rq.src};
+  }).filter(b=>b.qs.length);
+  const roleA=id=>LMX.roleAns[id]||{};
+  const allAnswered=QS.every((q,i)=>LMX.ans[i]) &&
+    roleBlocks.every(b=>b.qs.every((q,i)=>roleA(b.id)[i]));
+  const anyNo=QS.some((q,i)=>LMX.ans[i]==='NO') ||
+    roleBlocks.some(b=>b.qs.some((q,i)=>roleA(b.id)[i]==='NO'));
   app.innerHTML=header('LMRA — Last Minute Risk Assessment', true)+
     '<div class="card"><div class="fgrid">'+
     '<div class="fld half"><label>Work activity *</label><select id="lmWa">'+
@@ -6745,6 +7079,21 @@ function renderLmraCheck(){
       (i===BASEN?'<div class="hint" style="margin:-4px 0 8px">From the approved RA for this activity</div>':'')+
       '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
       '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+(LMX.ans[i]===a?(a==='NO'?'danger':''):'ghost')+'" data-lm="'+i+'" data-a="'+a+'" style="flex:1;min-height:38px;padding:6px">'+a+'</button>').join('')+'</div></div>').join('')+
+    (roleBlocks.length?'<h2 class="sect">Role checks — each person’s own job</h2>'+
+      '<p class="hint" style="margin:0 16px 8px">The role comes from the work activity’s crew list. '+
+      'Change it here if someone is doing a different job today.</p>'+
+      roleBlocks.map(b=>'<div class="card" style="margin-bottom:8px;border-left:3px solid var(--charcoal,#243140)">'+
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">'+
+          '<b style="flex:1;min-width:120px">'+esc(b.name)+(b.wid?' <span class="hint">'+esc(b.wid)+'</span>':'')+'</b>'+
+          '<select data-lmrole="'+b.id+'" style="max-width:200px">'+
+            LMRA_ROLES.map(r=>'<option value="'+esc(r)+'"'+(r===b.role?' selected':'')+'>'+esc(r)+'</option>').join('')+
+          '</select></div>'+
+        b.qs.map((q,i)=>'<div style="padding:8px 0;border-top:1px solid var(--line,#e3e6ea)">'+
+          '<div style="font-size:14px;margin-bottom:8px">'+esc(q)+'</div>'+
+          '<div class="btnrow">'+['YES','NO','N/A'].map(a=>'<button class="btn '+
+            (roleA(b.id)[i]===a?(a==='NO'?'danger':''):'ghost')+'" data-lmr="'+b.id+'" data-i="'+i+'" data-a="'+a+
+            '" style="flex:1;min-height:36px;padding:6px">'+a+'</button>').join('')+'</div></div>').join('')+
+      '</div>').join(''):'')+
     (anyNo?'<div class="card" style="border-color:var(--bad-ink)">'+
       '<label style="margin-top:0">Something is not right</label>'+
       '<div class="fld"><label>What is the hazard / issue?</label><input id="lmHaz" value="'+esc(LMX.hazard)+'"></div>'+
@@ -6776,6 +7125,13 @@ function renderLmraCheck(){
   app.querySelectorAll('[data-lm]').forEach(b=>b.onclick=()=>{
     _grab();
     LMX.ans[b.dataset.lm]=b.dataset.a; renderLmraCheck(); });
+  app.querySelectorAll('[data-lmr]').forEach(b=>b.onclick=()=>{
+    _grab(); const id=b.dataset.lmr;
+    LMX.roleAns[id]=LMX.roleAns[id]||{}; LMX.roleAns[id][b.dataset.i]=b.dataset.a; renderLmraCheck(); });
+  app.querySelectorAll('[data-lmrole]').forEach(sl=>sl.onchange=()=>{
+    _grab(); const id=sl.dataset.lmrole;
+    LMX.roles[id]=sl.value; LMX.roleAns[id]={};   /* different job, different checks */
+    renderLmraCheck(); });
   const doSave=safe=>{
     if(!LMX.waId){ alert('Select the work activity.'); return; }
     if(!LMX.by.trim()){ alert('Enter who carried out this LMRA.'); return; }
@@ -6788,6 +7144,14 @@ function renderLmraCheck(){
       bySig:LMX.bySig||null, sigs:LMX.sigs||{},
       crew:LMX.crew||[], crewCount:(LMX.crew||[]).length, photos:LMX.photos||[],
       answers:lmraAllQs(LMX.waId).map((q,i)=>({q, a:LMX.ans[i]||''})),
+      roleChecks:(LMX.crew||[]).map(id=>{
+        const m=db.members.find(x=>x.id===id);
+        const role=lmraRoleOf(LMX.waId, id, LMX.roles), rq=lmraRoleQs(role);
+        if(!rq.qs.length) return null;
+        const av=LMX.roleAns[id]||{};
+        return {memberId:id, name:m?(m.name||''):'', wid:m?(m.wid||''):'', role,
+                answers:rq.qs.map((q,i)=>({q, a:av[i]||''}))};
+      }).filter(Boolean),
       hazard:h?h.value.trim():'', action:a?a.value.trim():'',
       safe, resolved:safe!=='STOP'?'Resolved':'Open'};
     db.lmra.push(rec);
@@ -6802,8 +7166,171 @@ function renderLmraCheck(){
   const ct=document.getElementById('lmCtrl'); if(ct) ct.onclick=()=>doSave('CONTROLS');
 }
 
+
+/* ---- Demerit register: the statistical analysis CP 10.9.1 asks for (cl. 5.5, 8.4) ---- */
+let IHV={scope:'site', months:6, sort:'points'};
+function ihMonthKeys(n){
+  const out=[], d=new Date();
+  for(let i=0;i<n;i++){ out.unshift(d.toISOString().slice(0,7)); d.setMonth(d.getMonth()-1); }
+  return out;
+}
+function renderDemerits(){
+  const all=IHV.scope==='company'?ihAllRecords():(db.infringements||[]).map(r=>Object.assign({_pjName:db.settings.project||''},r));
+  const months=ihMonthKeys(IHV.months);
+  const inWin=all.filter(r=>months.includes(String(r.date||'').slice(0,7)));
+  const live=inWin.filter(r=>r.status!=='Waived');
+  const t=ihThresholds();
+
+  /* by worker */
+  const byW={};
+  live.forEach(r=>{ const k=r.offenderId||('?'+(r.offenderName||'')); (byW[k]=byW[k]||{id:r.offenderId,name:r.offenderName||'(unnamed)',
+    wid:r.offenderWid||'',company:r.subcon||'',n:0,pts:0,charge:0,cats:{}}); const w=byW[k];
+    w.n++; w.pts+=(+r.points||0); if(typeof r.charge==='number') w.charge+=r.charge;
+    w.cats[r.category||'?']=(w.cats[r.category||'?']||0)+1; });
+  let workers=Object.values(byW);
+  workers.sort(IHV.sort==='count'?(a,b)=>b.n-a.n:(a,b)=>b.pts-a.pts||b.n-a.n);
+
+  /* by category, by company, by month */
+  const byC={}, byCo={}, byM={};
+  live.forEach(r=>{ const c=r.category||'?';
+    byC[c]=byC[c]||{n:0,pts:0,name:(IH_RULES[c]||{}).name||''}; byC[c].n++; byC[c].pts+=(+r.points||0);
+    const co=r.subcon||'(not stated)'; byCo[co]=byCo[co]||{n:0,pts:0}; byCo[co].n++; byCo[co].pts+=(+r.points||0);
+    const mk=String(r.date||'').slice(0,7); byM[mk]=byM[mk]||{n:0,pts:0}; byM[mk].n++; byM[mk].pts+=(+r.points||0);
+  });
+  const cats=Object.entries(byC).sort((a,b)=>b[1].n-a[1].n);
+  const cos=Object.entries(byCo).sort((a,b)=>b[1].pts-a[1].pts);
+  const maxM=Math.max(1,...months.map(m=>(byM[m]||{n:0}).n));
+  const totPts=live.reduce((a,r)=>a+(+r.points||0),0);
+  const totChg=live.reduce((a,r)=>a+(typeof r.charge==='number'?r.charge:0),0);
+  const flagged=workers.filter(w=>w.pts>=t.warn).length;
+
+  app.innerHTML=header('Demerit Register', true)+
+    '<div class="card"><div class="btnrow" style="flex-wrap:wrap">'+
+      '<button class="btn '+(IHV.scope==='site'?'':'ghost')+'" data-ihs="site" style="flex:1">This site</button>'+
+      '<button class="btn '+(IHV.scope==='company'?'':'ghost')+'" data-ihs="company" style="flex:1">All sites</button>'+
+      [3,6,12].map(m=>'<button class="btn '+(IHV.months===m?'':'ghost')+'" data-ihm="'+m+'" style="flex:1">'+m+' mth</button>').join('')+
+    '</div></div>'+
+    '<div class="tiles">'+
+      '<div class="stile"><div class="v">'+live.length+'</div><div class="l">Infringements</div></div>'+
+      '<div class="stile"><div class="v">'+totPts+'</div><div class="l">Demerit points</div></div>'+
+      '<div class="stile"><div class="v">S$'+totChg.toLocaleString()+'</div><div class="l">Charges raised</div></div>'+
+      '<div class="stile"><div class="v'+(flagged?' w':'')+'">'+flagged+'</div><div class="l">Workers at or over '+t.warn+' pts</div></div>'+
+    '</div>'+
+    /* trend */
+    '<h2 class="sect">By month</h2><div class="card"><div style="display:flex;align-items:flex-end;gap:6px;height:90px">'+
+      months.map(m=>{ const v=(byM[m]||{n:0}).n, h=Math.round(v/maxM*72);
+        return '<div style="flex:1;text-align:center"><div style="height:72px;display:flex;align-items:flex-end"><div style="width:100%;background:var(--acc,#e11b12);opacity:.85;border-radius:3px 3px 0 0;height:'+Math.max(v?4:0,h)+'px"></div></div>'+
+          '<div class="hint" style="font-size:10px;margin-top:3px">'+m.slice(5)+'<br><b>'+v+'</b></div></div>'; }).join('')+
+    '</div></div>'+
+    /* workers */
+    '<h2 class="sect">Workers \u2014 who to look at</h2>'+
+    '<div class="card"><div class="btnrow" style="margin-bottom:8px">'+
+      '<button class="btn '+(IHV.sort==='points'?'':'ghost')+'" data-ihsort="points" style="flex:1">By points</button>'+
+      '<button class="btn '+(IHV.sort==='count'?'':'ghost')+'" data-ihsort="count" style="flex:1">By number</button></div>'+
+    (workers.length?'<div style="overflow-x:auto"><table class="dtable" style="width:100%">'+
+      '<tr><th style="text-align:left">Worker</th><th style="text-align:left">Company</th><th>Notices</th><th>Points</th><th style="text-align:left">Standing</th></tr>'+
+      workers.slice(0,50).map(w=>{ const b=ihBand(w.pts);
+        return '<tr'+(w.id?' class="ihrow" data-ihw="'+w.id+'" style="cursor:pointer"':'')+'>'+
+          '<td style="text-align:left"><b>'+esc(w.name)+'</b>'+(w.wid?'<br><span class="hint">'+esc(w.wid)+'</span>':'')+'</td>'+
+          '<td style="text-align:left">'+esc(w.company)+'</td>'+
+          '<td style="text-align:center">'+w.n+'</td>'+
+          '<td style="text-align:center"><b>'+w.pts+'</b></td>'+
+          '<td style="text-align:left">'+(b.k==='ok'?'<span class="hint">Clear</span>':'<span class="chip '+b.cls+'">'+b.label+'</span>')+'</td></tr>'; }).join('')+
+      '</table></div>'+(workers.length>50?'<div class="hint" style="margin-top:6px">Showing the top 50 of '+workers.length+' workers.</div>':'')
+      :'<div class="empty">No infringements in this window.</div>')+
+    '</div>'+
+    /* categories */
+    '<h2 class="sect">Where it keeps happening</h2><div class="card">'+
+    (cats.length?'<table class="dtable" style="width:100%"><tr><th style="text-align:left">Category</th><th>Notices</th><th>Points</th></tr>'+
+      cats.map(([c,v])=>'<tr><td style="text-align:left"><b>'+esc(c)+'</b>) '+esc(v.name)+'</td>'+
+        '<td style="text-align:center">'+v.n+'</td><td style="text-align:center">'+v.pts+'</td></tr>').join('')+'</table>'
+      :'<div class="empty">Nothing yet.</div>')+'</div>'+
+    /* companies */
+    '<h2 class="sect">By company</h2><div class="card">'+
+    (cos.length?'<table class="dtable" style="width:100%"><tr><th style="text-align:left">Company</th><th>Notices</th><th>Points</th></tr>'+
+      cos.map(([c,v])=>'<tr><td style="text-align:left">'+esc(c)+'</td><td style="text-align:center">'+v.n+'</td>'+
+        '<td style="text-align:center">'+v.pts+'</td></tr>').join('')+'</table>'
+      :'<div class="empty">Nothing yet.</div>')+'</div>'+
+    '<div class="card"><label style="margin-top:0">Send to HQ</label>'+
+      '<p class="hint">CP 10.9.1 cl. 4.1 \u2014 the WSHO submits the IN and AC registers to HQ QS &amp; QESH monthly.</p>'+
+      '<div class="btnrow"><button class="btn ghost" id="ihCsv" style="flex:1">Export register (CSV)</button>'+
+      '<button class="btn ghost" id="ihPdf" style="flex:1">Monthly register (PDF)</button></div></div>'+
+    '<div class="foot">Demerit points are a company scheme. CP 10.9.1 sets the charge and the points per offence; '+
+      'the thresholds that decide what happens next (watch list '+t.warn+', formal review '+t.review+', suspension review '+t.suspend+') '+
+      'are <b>set by the company</b> in Settings, not by the document.</div>';
+
+  app.querySelectorAll('[data-ihs]').forEach(b=>b.onclick=()=>{ IHV.scope=b.dataset.ihs; renderDemerits(); });
+  app.querySelectorAll('[data-ihm]').forEach(b=>b.onclick=()=>{ IHV.months=+b.dataset.ihm; renderDemerits(); });
+  app.querySelectorAll('[data-ihsort]').forEach(b=>b.onclick=()=>{ IHV.sort=b.dataset.ihsort; renderDemerits(); });
+  app.querySelectorAll('.ihrow').forEach(r=>r.onclick=()=>{ location.hash='#/demerits/'+r.dataset.ihw; });
+  document.getElementById('ihCsv').onclick=()=>ihExportCsv(live, months);
+  document.getElementById('ihPdf').onclick=()=>ihMonthlyPdf(live, months);
+}
+/* one worker's whole story — the thing a manager opens before a decision */
+function renderWorkerDemerits(mid){
+  const m=db.members.find(x=>x.id===mid);
+  const hist=ihWorkerHistory(mid), pts=ihWorkerPoints(mid), b=ihBand(pts.live), t=ihThresholds();
+  if(!m&&!hist.length){ app.innerHTML=header('Worker',true)+'<div class="empty">Worker not found.</div>'; return; }
+  const byC={}; hist.filter(r=>r.status!=='Waived').forEach(r=>{ const c=r.category||'?'; byC[c]=(byC[c]||0)+1; });
+  const repeat=Object.entries(byC).sort((a,b2)=>b2[1]-a[1]);
+  const charges=hist.filter(r=>r.status!=='Waived'&&typeof r.charge==='number').reduce((a,r)=>a+r.charge,0);
+  app.innerHTML=header((m?m.name:hist[0].offenderName)||'Worker', true)+
+    '<div class="card"><div class="tiles">'+
+      '<div class="stile"><div class="v'+(b.k!=='ok'?' w':'')+'">'+pts.live+'</div><div class="l">Points \u00b7 last '+pts.windowDays+' days</div></div>'+
+      '<div class="stile"><div class="v">'+pts.life+'</div><div class="l">Lifetime points</div></div>'+
+      '<div class="stile"><div class="v">'+hist.length+'</div><div class="l">Notices</div></div>'+
+      '<div class="stile"><div class="v">S$'+charges.toLocaleString()+'</div><div class="l">Charged</div></div>'+
+    '</div>'+
+    '<div style="margin-top:10px">'+(b.k==='ok'?'<span class="hint">Standing: clear (watch list starts at '+t.warn+' points).</span>'
+      :'<span class="chip '+b.cls+'">'+b.label+'</span> <span class="hint">at '+pts.live+' points.</span>')+'</div>'+
+    (m?'<div class="btnrow" style="margin-top:10px"><a class="btn ghost" href="#/members/'+esc(m.id)+'" style="flex:1">Open worker record</a></div>':'')+
+    '</div>'+
+    (repeat.length?'<h2 class="sect">Repeat pattern</h2><div class="card"><table class="dtable" style="width:100%">'+
+      '<tr><th style="text-align:left">Category</th><th>Times</th></tr>'+
+      repeat.map(([c,n])=>'<tr><td style="text-align:left"><b>'+esc(c)+'</b>) '+esc((IH_RULES[c]||{}).name||'')+'</td>'+
+        '<td style="text-align:center">'+n+'</td></tr>').join('')+'</table></div>':'')+
+    '<h2 class="sect">History</h2>'+
+    (hist.length?hist.map(r=>'<a class="pick" href="#/infringements/'+esc(r.id)+'" style="display:block;margin-bottom:6px">'+
+      '<span style="display:block;font-weight:650">'+esc((r.category||'')+') '+(r.offenceText||''))+'</span>'+
+      '<span class="hint">'+esc([fmtD(r.date), r._pjName, r.noticeNo, ihOrdinal(r.occurrence||1)+' occurrence'].filter(Boolean).join(' \u00b7 '))+'</span>'+
+      '<span class="hint">'+(r.status==='Waived'?'Waived':(+r.points||0)+' pts \u00b7 '+esc(ihChargeText(r.charge)))+
+        ' \u00b7 '+esc(r.status||'')+'</span></a>').join('')
+      :'<div class="empty">No infringements on record.</div>');
+}
+function ihExportCsv(rows, months){
+  const H=['Notice no.','Type','Date','Project','Worker ID','Name','Company','Category','Offence','Occurrence','Charge (S$)','Demerit points','Status','Issued by'];
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const body=rows.slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))).map(r=>[
+    r.noticeNo,r.noticeType,r.date,r._pjName||db.settings.project||'',r.offenderWid,r.offenderName,r.subcon,
+    (r.category||'')+') '+(r.categoryName||''),r.offenceText,ihOrdinal(r.occurrence||1),
+    typeof r.charge==='number'?r.charge:(r.charge||''),(+r.points||0),r.status,r.issuedBy].map(q).join(','));
+  saveOrDownload('Infringements','infringement-register-'+months[months.length-1]+'.csv',
+    [H.map(q).join(',')].concat(body).join('\n'),'text/csv');
+}
+async function ihMonthlyPdf(rows, months){
+  const mk=months[months.length-1];
+  const mo=rows.filter(r=>String(r.date||'').slice(0,7)===mk);
+  const byW={}; mo.forEach(r=>{ const k=r.offenderId||r.offenderName; byW[k]=byW[k]||{name:r.offenderName,wid:r.offenderWid,co:r.subcon,n:0,p:0};
+    byW[k].n++; byW[k].p+=(+r.points||0); });
+  const body='<div class="doctitle">Infringement register \u2014 '+esc(mk)+'</div>'+
+    '<table class="dtable" style="width:100%"><tr><th>S/N</th><th style="text-align:left">Notice</th><th style="text-align:left">Date</th>'+
+    '<th style="text-align:left">Worker</th><th style="text-align:left">Company</th><th style="text-align:left">Offence</th><th>Charge</th><th>Pts</th><th style="text-align:left">Status</th></tr>'+
+    mo.map((r,i)=>'<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(r.noticeNo||'')+'</td>'+
+      '<td style="text-align:left">'+esc(fmtD(r.date))+'</td><td style="text-align:left">'+esc((r.offenderName||'')+(r.offenderWid?' ('+r.offenderWid+')':''))+'</td>'+
+      '<td style="text-align:left">'+esc(r.subcon||'')+'</td><td style="text-align:left">'+esc((r.category||'')+') '+(r.offenceText||''))+'</td>'+
+      '<td style="text-align:center">'+esc(ihChargeText(r.charge))+'</td><td style="text-align:center">'+(+r.points||0)+'</td>'+
+      '<td style="text-align:left">'+esc(r.status||'')+'</td></tr>').join('')+'</table>'+
+    '<div style="margin-top:14px;font-size:11px">Total notices: <b>'+mo.length+'</b> \u00b7 Total demerit points: <b>'+
+      mo.reduce((a,r)=>a+(+r.points||0),0)+'</b> \u00b7 Total charges: <b>S$'+
+      mo.reduce((a,r)=>a+(typeof r.charge==='number'?r.charge:0),0).toLocaleString()+'</b></div>'+
+    '<div style="margin-top:12px;font-size:10.5px;color:#555">Submitted under CP 10.9.1 In House Rules and Regulations (2026) cl. 4.1 \u2014 '+
+      'WSHE (IN) and (AC) registers are submitted to HQ QS &amp; QESH Department monthly.</div>';
+  saveOrDownload(DIRMAP.infringements, 'infringement-register-'+mk+'.html',
+    reportDocHtml('Infringement Register', body), 'text/html');
+}
+
 /* ---- Report Library: browse and download everything ever generated ---- */
-const REPORT_CATS=['Monthly Reports','Site Diary','Toolbox Meetings','LMRA','Incidents','Inspections','Near Miss Reports','SIC Packs','Checklists','Registers','Expiry Alerts','Quality Defects','Meetings','RA-SWP','Training'];
+const REPORT_CATS=['Monthly Reports','Site Diary','Toolbox Meetings','LMRA','Incidents','Inspections','Near Miss Reports','Infringements','SIC Packs','Checklists','Registers','Expiry Alerts','Quality Defects','Meetings','RA-SWP','Training'];
 async function renderReports(){
   const folderUrl=(db.settings.reportFolderUrl||'').trim();
   app.innerHTML=header('Report Library', true)+
