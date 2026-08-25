@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-26-0500">
+<meta name="build" content="2026-08-26-0610">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -513,6 +513,9 @@
     .lrow,.card,.stile,.tile,.mxt{box-shadow:none !important; transform:none !important;}
   }
 
+  /* no control ever wider than its box - long option text ellipsises */
+  select{max-width:100%;text-overflow:ellipsis}
+  .btnrow .btn{min-width:0}
 </style>
 </head>
 <body>
@@ -1954,6 +1957,27 @@ function renderEdit(key, id){
 }
 
 /* ============ router ============ */
+/* What each focused role may OPEN. Everything else gets a polite block.
+   These mirror the database read rules - the lockdown is presentation, the
+   enforcement is the server. Public routes (checkin, hazard) stay open. */
+const ROLE_ROUTES={
+  /* aligned with the access matrix: everything marked R or better is openable;
+     RA/SWP stays out of the UI for both (their database read exists so LMRA
+     control lines work, but the register itself is Safety's workspace) */
+  supervisor:['','home','lmracheck','lmra','toolbox','tbm','inspections','checklists',
+              'observations','incidents','defects','demerits','infringements','work',
+              'members','matrix','passport','finder','certexp','training','equipment',
+              'reports','settings','setpw','checkin','hazard','hazardqr','eq','connect'],
+  engineer:  ['','home','work','tbm','lmra','inspections','checklists','observations',
+              'incidents','defects','demerits','infringements','members','matrix',
+              'passport','finder','certexp','training','equipment','reports','settings',
+              'setpw','checkin','hazard','hazardqr','eq','connect']
+};
+function roleBlocked(key){
+  const pr=SB.profile; if(!pr) return false;
+  const list=ROLE_ROUTES[pr.role]; if(!list) return false;
+  return !list.includes(key||'');
+}
 function route(){
   if(typeof GATED!=='undefined' && GATED) return; /* sign-in landing owns the screen */
   setTimeout(()=>{ try{ mpickInitAll(); }catch(e){} },0);
@@ -1964,6 +1988,12 @@ function route(){
   if(/^#access_token=|^#error/.test(location.hash)){ /* Supabase invite/recovery link landing */
     app.innerHTML='<div class="empty" style="margin-top:60px">Completing sign-in&hellip;</div>';
     return;
+  }
+  if(roleBlocked(p[0])){
+    app.innerHTML=header('Not part of your role', true)+
+      '<div class="empty">This screen is not part of what your account does.<br>'+
+      'If you need it, ask the admin to change your role.</div>';
+    buildNav(); return;
   }
   if(p[0]==='setpw') return renderSetPw();
   if(p[0]==='team') return renderTeam();
@@ -7890,7 +7920,7 @@ function renderWorkerReview(){
            name:(a,b)=>String(a.name).localeCompare(String(b.name))};
   active.sort(S[WRV.sort]||S.score);
   const W=wrWeights();
-  const btn=(k,l)=>'<button class="btn '+(WRV.sort===k?'':'ghost')+'" data-wrs="'+k+'" style="flex:1;min-width:78px">'+l+'</button>';
+  const btn=(k,l)=>'<button class="btn '+(WRV.sort===k?'':'ghost')+'" data-wrs="'+k+'" style="flex:1;min-width:0">'+l+'</button>';
   const clean=active.filter(r=>!r.pts).length;
   app.innerHTML=header('Workforce Review', true)+
     '<div class="card"><p class="hint" style="margin:0 0 8px">Everything one worker did in the window, across every site — '+
@@ -8043,7 +8073,7 @@ function renderDemerits(){
     '</div></div>'+
     /* workers */
     '<h2 class="sect">Workers — who to look at</h2>'+
-    '<div class="card"><div class="btnrow" style="margin-bottom:8px">'+
+    '<div class="card"><div class="btnrow" style="margin-bottom:8px;flex-wrap:wrap">'+
       '<button class="btn '+(IHV.sort==='points'?'':'ghost')+'" data-ihsort="points" style="flex:1">By points</button>'+
       '<button class="btn '+(IHV.sort==='count'?'':'ghost')+'" data-ihsort="count" style="flex:1">By number</button></div>'+
     (workers.length?'<div style="overflow-x:auto"><table class="dtable" style="width:100%">'+
@@ -8174,7 +8204,9 @@ function lmqBuiltIn(key){
   return LMRA_QS;
 }
 function renderLmraQs(){
-  const ro=!canWrite('lmra');
+  /* wording is a Safety decision: supervisors run LMRAs but do not rewrite
+     the questions their crews answer */
+  const ro=SB.profile?!['admin','wsho'].includes(SB.profile.role):false;
   const appts=Object.keys(LMRA_APPT_QS);
   const opt=(v,l)=>'<option value="'+esc(v)+'"'+(LMQ.sel===v?' selected':'')+'>'+esc(l)+(lmqIsCustom(v)?'  ✓':'')+'</option>';
   const cur=lmqCurrent(LMQ.sel), custom=lmqIsCustom(LMQ.sel);
