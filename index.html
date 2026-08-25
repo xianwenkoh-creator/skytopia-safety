@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-26-0610">
+<meta name="build" content="2026-08-26-0700">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -855,7 +855,7 @@ function compressImage(file, cb){
 /* ============ storage (v2: company level + projects + subcon tags) ============ */
 const KEY='kkl-cms-v1';    /* legacy flat schema — migrated, never deleted */
 const KEY2='kkl-cms-v2';
-const COMPANY_STORES=['members','equipment','training','raLibrary','raMasters','raMasterVersions','legacyDocs','clientTemplates','auditEvents','competencyTypes','workerCompetencies','sicProfiles','organisations','memberPrivate','companyDocs'];
+const COMPANY_STORES=['members','equipment','training','raLibrary','raMasters','raMasterVersions','legacyDocs','clientTemplates','auditEvents','competencyTypes','workerCompetencies','sicProfiles','organisations','memberPrivate','companyDocs','docRequests'];
 const PROJECT_STORES=['contacts','documents','tbm','inspections','observations','checklists','ra','meetings','incidents','defects','workActivities','raAdoptions','raProjectVersions','reviewTriggers','workerProjectAccess','sicSessions','locations','layouts','layoutVersions','locGeoms','spatialZones','zoneGeoms','lmra','recurringChecks','visitors','siteDiary','materialRequests','infringements'];
 const BLANK={contacts:[],members:[],equipment:[],documents:[],tbm:[],inspections:[],observations:[],checklists:[],ra:[],training:[],meetings:[],incidents:[],defects:[],manhours:{},mandays:{},settings:{project:'',company:'',hdbContract:'',siteRef:'',estate:'',neighbourhood:'',precinct:''}};
 function blankProject(name){
@@ -1457,7 +1457,7 @@ function goBack(){ if(history.length>1) history.back(); else location.hash='#/';
 /* ============ app shell (Procore-style top bar + tool sidebar) ============ */
 const NAV=[
  {group:'Operations', items:[['work','Work Activities','work']]},
- {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic'],['review','Workforce Review','stats']]},
+ {group:'Workforce', items:[['members','Workers','members'],['matrix','Competency Matrix','cert'],['sic','SIC / Induction','sic'],['docreq','Document Requests','doc'],['review','Workforce Review','stats']]},
  {group:'Site',    items:[['diary','Site Diary','diary'],['materialRequests','Material Requests','box'],
                           ['layout','Site Layouts','folder'],['locations','Locations','pin'],
                           ['contacts','Contacts','contact'],['equipment','Equipment','equip'],
@@ -1487,7 +1487,7 @@ function buildNav(){
       '<div class="sn-group">Workforce</div>'+
       [['members','Workers','members'],['matrix','Competency Matrix','cert'],['training','Training','train'],
        ['certexp','Cert Expiry','cert'],['finder','Worker Finder','members'],['review','Workforce Review','stats'],
-       ['memberPrivate','Private (HR)','doc']]
+       ['memberPrivate','Private (HR)','doc'],['docreq','Document Requests','doc']]
         .map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+'</a>').join('')+
       '<div class="sn-group">Company</div>'+
       [['organisations','Companies','contact'],['reports','Report Library','folder'],['audit','Audit Log','doc']]
@@ -2014,6 +2014,8 @@ function route(){
     return renderApprovals();
   }
   if(p[0]==='lmraqs'){ if(p[1]) LMQ.sel=decodeURIComponent(p[1]); return renderLmraQs(); }
+  if(p[0]==='pack') return renderWorkerPack();
+  if(p[0]==='docreq') return p[1]?renderDocReq(p[1]):renderDocReqs();
   if(p[0]==='demerits'){
     if(SB.profile && SB.profile.role==='subcon'){
       app.innerHTML=header('Demerit Register', true)+
@@ -2294,7 +2296,8 @@ const MODULES={
   siteFilter:items=>{ const ids=projectMemberIds(); return items.filter(m=>ids.has(m.id)); },
   sort:(a,b)=>(a.name||'').localeCompare(b.name||''),
   listHeader:items=>items.length?'<div style="margin:0 0 10px">'+
-    '<button class="btn ghost" onclick="exportSicCsv()">SIC register export</button>'+
+    '<button class="btn ghost" onclick="location.hash=\'#/pack\'">Request documents</button>'+
+    '<button class="btn ghost" style="margin-left:6px" onclick="exportSicCsv()">SIC register export</button>'+
     (isHQ()?'<button class="btn ghost" style="margin-left:6px" onclick="location.hash=\'#/dupes\'">Duplicates'+(dupPairs().length?' ('+dupPairs().length+')':'')+'</button>':'')+
     '</div>':'',
   line1:i=>esc(i.name),
@@ -8268,6 +8271,351 @@ function renderLmraQs(){
     save(); toast(v.length?('Saved — '+v.length+' question'+(v.length===1?'':'s')):'Cleared — back to the built-in list');
     renderLmraQs();
   };
+}
+/* ---- worker document requests: pick the men, HR approves, then download ----
+   Personal records do not leave the company on one officer's say-so. Every
+   request names a purpose and a recipient, the HR manager decides, and the
+   decision plus the eventual download are both written to the audit log. That
+   is what a PDPA disclosure record looks like in practice. */
+const DR_PURPOSES=['SIC submission to client','Client or consultant request',
+  'MOM / authority inspection','Internal audit','Insurance or claim','Other'];
+const DR_VALID_DAYS=14;
+function drDatePlus(n){ const d=new Date(); d.setDate(d.getDate()+n);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+let WPK={sel:[]};
+function drCanRequest(){ const r=SB.profile?SB.profile.role:'admin';
+  return ['admin','wsho','hr'].includes(r); }
+function drCanDecide(){ const r=SB.profile?SB.profile.role:'admin';
+  return ['admin','hr'].includes(r); }
+function drMine(r){ return !SB.profile || r.requestedBy===SB.profile.id; }
+function drVisible(){ return db.docRequests.filter(r=>drCanDecide()||drMine(r))
+  .sort((a,b)=>String(b.requestedAt||'').localeCompare(String(a.requestedAt||''))); }
+function drPendingCount(){ return db.docRequests.filter(r=>r.status==='Pending').length; }
+function drExpired(r){ return r.status==='Approved' && r.expiresAt && daysTo(r.expiresAt)<0; }
+function drState(r){ return drExpired(r)?'Expired':(r.status||'Pending'); }
+function drNextNo(){
+  const y=String(today()).slice(0,4);
+  const n=db.docRequests.filter(r=>String(r.no||'').indexOf('DR-'+y)===0).length+1;
+  return 'DR-'+y+'-'+String(n).padStart(3,'0');
+}
+function drStateChip(r){
+  const st=drState(r);
+  const col={Pending:'#b06000', Approved:'#0a7a3d', Declined:'#c5221f',
+             Collected:'#555', Expired:'#c5221f'}[st]||'#555';
+  return '<span class="chip" style="border-color:'+col+';color:'+col+'">'+st+'</span>';
+}
+function drMembers(r){ return (r.memberIds||[]).map(id=>db.members.filter(m=>m.id===id)[0]).filter(Boolean); }
+
+/* one tap for a whole crew, company, or the men whose certs are running out */
+function wpkQuickSets(){
+  const sets=[];
+  db.workActivities.filter(w=>w.status==='Active').forEach(function(w){
+    const ids=(w.crew||[]).map(c=>c.memberId).filter(Boolean);
+    if(ids.length) sets.push({key:'wa:'+w.id, label:'Crew \u2014 '+(w.title||w.type||'work activity'), n:ids.length, ids:ids});
+  });
+  db.tbm.filter(x=>x.date===today()).forEach(function(x){
+    const ids=(x.attendees||[]).filter(Boolean);
+    if(ids.length) sets.push({key:'tbm:'+x.id, label:'Toolbox today \u2014 '+(x.topic||'briefing'), n:ids.length, ids:ids});
+  });
+  const cos={};
+  db.members.filter(m=>!m.mergedInto).forEach(function(m){ const c=(m.company||'').trim();
+    if(c){ (cos[c]=cos[c]||[]).push(m.id); } });
+  Object.keys(cos).map(k=>[k,cos[k]]).sort((a,b)=>b[1].length-a[1].length).slice(0,6)
+    .forEach(e=>sets.push({key:'co:'+e[0], label:e[0], n:e[1].length, ids:e[1]}));
+  const soon=db.members.filter(m=>!m.mergedInto&&memberComps(m.id).some(function(c){
+    if(!c.expiry) return false; const d=daysTo(c.expiry); return d!==null&&d<=60; })).map(m=>m.id);
+  if(soon.length) sets.push({key:'exp', label:'Certificates expiring within 60 days', n:soon.length, ids:soon});
+  return sets;
+}
+function renderWorkerPack(){
+  if(!drCanRequest()){
+    app.innerHTML=header('Request Worker Documents', true)+
+      '<div class="empty">Worker document packs are requested by Safety and released by HR.</div>';
+    return;
+  }
+  const sets=wpkQuickSets();
+  app.innerHTML=header('Request Worker Documents', true)+
+    '<div class="card"><p class="hint" style="margin:0">Pick the men, say what the records are for, and send it to the '+
+      'HR manager. He releases it \u2014 then you download one document with every man\u2019s identity, appointments, '+
+      'expiry dates and training.</p></div>'+
+    (drPendingCount()&&drCanDecide()?'<div class="card" style="border-color:#b06000"><b>'+drPendingCount()+
+      ' request'+(drPendingCount()===1?'':'s')+' waiting for your decision</b>'+
+      '<div class="btnrow" style="margin-top:8px"><button class="btn" onclick="location.hash=\'#/docreq\'">Review now</button></div></div>':'')+
+    (sets.length?'<h2 class="sect">One tap for a whole group</h2>'+
+      '<div class="card"><div class="btnrow" style="flex-wrap:wrap">'+
+        sets.map(g=>'<button class="btn ghost" data-wpkset="'+esc(g.key)+'" style="flex:1;min-width:150px;text-align:left">'+
+          esc(g.label)+' <span class="hint">('+g.n+')</span></button>').join('')+
+      '</div></div>':'')+
+    '<h2 class="sect">Or pick them yourself</h2>'+
+    membersHtml({k:'wpkMen', label:'Workers in this request',
+      hint:'Search by name or worker ID. Tick as many as you need.'}, WPK.sel)+
+    '<h2 class="sect">What the records are for</h2>'+
+    '<div class="card">'+
+      '<div class="fld"><label>Purpose</label><select id="drPurpose">'+
+        DR_PURPOSES.map(x=>'<option>'+esc(x)+'</option>').join('')+'</select>'+
+        '<div class="hint">HR needs to know why personal records are leaving the company.</div></div>'+
+      '<div class="fld"><label>Who receives it</label>'+
+        '<input id="drRecipient" placeholder="e.g. Obayashi safety team, MOM inspector, Client QS">'+
+        '<div class="hint">Name the company or officer the pack is going to.</div></div>'+
+      '<div class="fld"><label>Notes for HR <span class="hint">(optional)</span></label>'+
+        '<textarea id="drNote" rows="2" placeholder="Anything he should know before releasing it"></textarea></div>'+
+    '</div>'+
+    '<div class="card" id="wpkLive">'+wpkLiveHtml()+'</div>'+
+    '<div class="foot">Even a single worker needs HR\u2019s approval. Once released you have '+DR_VALID_DAYS+
+      ' days to download it. Certificate scans stay in the document library \u2014 the pack lists what each man '+
+      'holds and when it expires. <a href="#/docreq">See your requests</a></div>';
+  setTimeout(function(){ try{ mpickInitAll(); }catch(e){} wpkSync(); },0);
+  if(window._wpkH) app.removeEventListener('change', window._wpkH);
+  window._wpkH=function(e){
+    if(!e.target.closest||!e.target.closest('.pickgrid[data-f="wpkMen"]')) return;
+    wpkSync(); };
+  app.addEventListener('change', window._wpkH);
+  const keep=function(){ return {p:(document.getElementById('drPurpose')||{}).value,
+    r:(document.getElementById('drRecipient')||{}).value, n:(document.getElementById('drNote')||{}).value}; };
+  const restore=function(v){ if(!v) return;
+    const a=document.getElementById('drPurpose'), b=document.getElementById('drRecipient'), c=document.getElementById('drNote');
+    if(a&&v.p) a.value=v.p; if(b) b.value=v.r||''; if(c) c.value=v.n||''; };
+  /* a quick-set replaces the selection wholesale, so the picker is rebuilt -
+     but the officer's purpose and recipient must survive it */
+  app.querySelectorAll('[data-wpkset]').forEach(b=>b.onclick=function(){
+    wpkGrab();
+    const g=sets.filter(x=>x.key===b.dataset.wpkset)[0]; if(!g) return;
+    const all={}; WPK.sel.forEach(i=>all[i]=1); g.ids.forEach(i=>all[i]=1);
+    WPK.sel=Object.keys(all);
+    const v=keep(); renderWorkerPack(); restore(v); });
+}
+/* the ticked boxes are the only authority on who is in the request - the
+   number on screen is derived from them, never the other way round */
+function wpkGrab(){
+  const pg=app.querySelector('.pickgrid[data-f="wpkMen"]');
+  if(pg) WPK.sel=[].slice.call(pg.querySelectorAll('[data-mid]')).filter(c=>c.checked).map(c=>c.dataset.mid);
+  return WPK.sel;
+}
+function wpkLiveHtml(){
+  const n=WPK.sel.length;
+  return '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">'+
+      '<b style="font-size:22px">'+n+'</b>'+
+      '<span class="hint">worker'+(n===1?'':'s')+' selected</span>'+
+      (n?'<button class="btn ghost" id="wpkClear" style="margin-left:auto">Clear</button>':'')+
+    '</div>'+
+    '<div class="btnrow" style="margin-top:10px">'+
+      '<button class="btn" id="wpkSend" style="flex:1"'+(n?'':' disabled')+
+        '>Send to HR for approval</button>'+
+    '</div>';
+}
+function wpkSync(){
+  wpkGrab();
+  const live=document.getElementById('wpkLive');
+  if(!live) return;
+  live.innerHTML=wpkLiveHtml();
+  const cl=document.getElementById('wpkClear');
+  if(cl) cl.onclick=function(){
+    const pg=app.querySelector('.pickgrid[data-f="wpkMen"]');
+    if(pg) pg.querySelectorAll('[data-mid]').forEach(function(c){
+      if(c.checked){ c.checked=false; c.dispatchEvent(new Event('change',{bubbles:true})); } });
+    wpkSync();
+  };
+  const sd=document.getElementById('wpkSend');
+  if(sd) sd.onclick=function(){ wpkGrab(); drSubmit(); };
+}
+async function drSubmit(){
+  if(!WPK.sel.length){ alert('Pick at least one worker.'); return; }
+  const recip=(document.getElementById('drRecipient').value||'').trim();
+  if(!recip){ alert('Name who the pack is going to \u2014 HR needs it to decide.');
+    document.getElementById('drRecipient').focus(); return; }
+  const rec={ id:uid(), no:drNextNo(),
+    requestedBy:SB.profile?SB.profile.id:'local',
+    requestedByName:myDisplayName()||'Local user',
+    requestedAt:new Date().toISOString(),
+    purpose:document.getElementById('drPurpose').value,
+    recipient:recip,
+    note:(document.getElementById('drNote').value||'').trim(),
+    memberIds:WPK.sel.slice(), status:'Pending' };
+  db.docRequests.push(rec);
+  audit('REQUEST','docRequests',rec.id,null,null,
+    rec.memberIds.length+' worker(s) for '+rec.purpose+' \u2192 '+rec.recipient);
+  save();
+  WPK.sel=[];
+  toast('Sent to HR \u2014 '+rec.no);
+  location.hash='#/docreq/'+rec.id;
+}
+
+/* ---- the request list, and one request in full ---- */
+function renderDocReqs(){
+  if(!drCanRequest()){
+    app.innerHTML=header('Document Requests', true)+'<div class="empty">Not part of your role.</div>'; return; }
+  const rs=drVisible();
+  const pend=rs.filter(r=>drState(r)==='Pending');
+  const rest=rs.filter(r=>drState(r)!=='Pending');
+  const card=function(r){
+    const ms=drMembers(r);
+    return '<a class="row" href="#/docreq/'+r.id+'">'+
+      '<div class="rw"><div class="l1">'+esc(r.no||'')+' \u2014 '+ms.length+' worker'+(ms.length===1?'':'s')+'</div>'+
+      '<div class="l2">'+esc(r.purpose||'')+' \u00b7 '+esc(r.recipient||'')+'</div>'+
+      '<div class="l2">'+esc(r.requestedByName||'')+' \u00b7 '+esc(fmtD(String(r.requestedAt||'').slice(0,10)))+'</div></div>'+
+      '<div class="rm">'+drStateChip(r)+'</div></a>'; };
+  app.innerHTML=header('Document Requests', true)+
+    '<div class="card"><div class="btnrow">'+
+      '<button class="btn" style="flex:1" onclick="location.hash=\'#/pack\'">New request</button></div></div>'+
+    (pend.length?'<h2 class="sect">'+(drCanDecide()?'Waiting for your decision':'Waiting for HR')+
+      ' ('+pend.length+')</h2><div class="list">'+pend.map(card).join('')+'</div>':'')+
+    (rest.length?'<h2 class="sect">Decided</h2><div class="list">'+rest.map(card).join('')+'</div>':'')+
+    (rs.length?'':'<div class="empty">No document requests yet.</div>');
+}
+function renderDocReq(id){
+  const r=db.docRequests.filter(x=>x.id===id)[0];
+  if(!r){ app.innerHTML=header('Document Request', true)+'<div class="empty">Not found.</div>'; return; }
+  if(!drCanDecide() && !drMine(r)){
+    app.innerHTML=header('Document Request', true)+'<div class="empty">This request is not yours.</div>'; return; }
+  const ms=drMembers(r), st=drState(r);
+  const row=(a,b)=>'<tr><td style="text-align:left;width:36%">'+a+'</td><td style="text-align:left">'+b+'</td></tr>';
+  app.innerHTML=header(r.no||'Document Request', true)+
+    '<div class="card"><div style="margin-bottom:8px">'+drStateChip(r)+'</div>'+
+      '<table class="dtable" style="width:100%">'+
+        row('Purpose', esc(r.purpose||''))+
+        row('Goes to', esc(r.recipient||''))+
+        row('Requested by', esc(r.requestedByName||''))+
+        row('Requested on', esc(fmtD(String(r.requestedAt||'').slice(0,10))))+
+        (r.note?row('Notes', esc(r.note)):'')+
+        (r.decidedAt?row(st==='Declined'?'Declined by':'Released by',
+          esc(r.decidedByName||'')+' on '+esc(fmtD(String(r.decidedAt).slice(0,10)))):'')+
+        (r.decisionNote?row('HR\u2019s note', esc(r.decisionNote)):'')+
+        (r.status==='Approved'&&r.expiresAt?row('Download closes', esc(fmtD(r.expiresAt))+
+          (drExpired(r)?' <b style="color:#c5221f">(expired)</b>':' ('+daysTo(r.expiresAt)+' days left)')):'')+
+        (r.collectedAt?row('Downloaded', esc(r.collectedByName||'')+' on '+
+          esc(fmtD(String(r.collectedAt).slice(0,10)))):'')+
+      '</table></div>'+
+    '<h2 class="sect">Workers in this request ('+ms.length+')</h2>'+
+    '<div class="list">'+ms.map(m=>'<div class="row"><div class="rw">'+
+      '<div class="l1">'+esc(m.name||'')+'</div>'+
+      '<div class="l2">'+esc([m.wid,m.company,m.trade].filter(Boolean).join(' \u00b7 '))+'</div></div>'+
+      '<div class="rm"><span class="chip">'+memberComps(m.id).length+' cert</span></div></div>').join('')+'</div>'+
+    (st==='Pending'&&drCanDecide()?
+      '<h2 class="sect">Your decision</h2><div class="card">'+
+        '<div class="fld"><label>Note <span class="hint">(optional \u2014 shown to the requester)</span></label>'+
+          '<textarea id="drDNote" rows="2"></textarea></div>'+
+        '<div class="btnrow"><button class="btn" id="drOk" style="flex:1">Release the records</button>'+
+        '<button class="btn ghost" id="drNo" style="flex:1">Decline</button></div></div>':'')+
+    (st==='Pending'&&!drCanDecide()?'<div class="foot">Waiting on the HR manager.</div>':'')+
+    (st==='Approved'?'<h2 class="sect">Download</h2><div class="card"><div class="btnrow" style="flex-wrap:wrap">'+
+      '<button class="btn" id="drPdf" style="flex:1;min-width:150px">Download pack (PDF)</button>'+
+      '<button class="btn ghost" id="drCsv" style="flex:1;min-width:150px">Spreadsheet (CSV)</button>'+
+      '</div><div class="hint" style="margin-top:8px">Every download is recorded against this request.</div></div>':'')+
+    (st==='Expired'?'<div class="foot">The release window has closed. Raise a new request if you still need it.</div>':'');
+  const ok=document.getElementById('drOk'), no=document.getElementById('drNo');
+  if(ok) ok.onclick=function(){ drDecide(r.id,'Approved'); };
+  if(no) no.onclick=function(){ drDecide(r.id,'Declined'); };
+  const pdf=document.getElementById('drPdf'), csv=document.getElementById('drCsv');
+  if(pdf) pdf.onclick=function(){ drBuild(r.id,'pdf'); };
+  if(csv) csv.onclick=function(){ drBuild(r.id,'csv'); };
+}
+async function drDecide(id, verdict){
+  const r=db.docRequests.filter(x=>x.id===id)[0];
+  if(!r || !drCanDecide()) return;
+  if(verdict==='Declined' && !confirm('Decline this request?')) return;
+  r.status=verdict;
+  r.decidedBy=SB.profile?SB.profile.id:'local';
+  r.decidedByName=myDisplayName()||'Local user';
+  r.decidedAt=new Date().toISOString();
+  r.decisionNote=((document.getElementById('drDNote')||{}).value||'').trim();
+  if(verdict==='Approved') r.expiresAt=drDatePlus(DR_VALID_DAYS);
+  audit(verdict==='Approved'?'RELEASE':'DECLINE','docRequests',r.id,null,null,
+    (r.no||'')+' \u00b7 '+(r.memberIds||[]).length+' worker(s) \u2192 '+(r.recipient||''));
+  save();
+  toast(verdict==='Approved'?'Records released':'Request declined');
+  renderDocReq(id);
+}
+
+/* one page per man, built from the index on the officer's own device - so
+   several officers can pull their own packs at once without queueing */
+function wpkPageHtml(m){
+  const comps=memberComps(m.id);
+  const train=db.training.filter(t=>t.memberId===m.id);
+  const acc=memberAccess(m.id);
+  const row=(a,b)=>'<tr><td style="text-align:left;width:34%">'+a+'</td><td style="text-align:left">'+b+'</td></tr>';
+  const certRows=comps.length
+    ? comps.slice().sort((a,b)=>String(a.typeName||'').localeCompare(String(b.typeName||'')))
+        .map(function(c){ const d=c.expiry?daysTo(c.expiry):null;
+          const st=!c.expiry?'\u2014':(d<0?'EXPIRED':(d<=60?d+' days left':'valid'));
+          return '<tr><td style="text-align:left">'+esc(c.typeName||c.typeCode||'')+'</td>'+
+            '<td>'+esc(c.typeCode||'')+'</td><td>'+esc(c.certNo||'')+'</td>'+
+            '<td>'+(c.expiry?esc(fmtD(c.expiry)):'\u2014')+'</td>'+
+            '<td>'+(d!==null&&d<0?'<b style="color:#c5221f">EXPIRED</b>':esc(st))+'</td>'+
+            '<td>'+esc(c.verification==='VERIFIED'?'Verified':(c.verification==='LEGACY'?'Legacy':'Unverified'))+'</td></tr>'; }).join('')
+    : '<tr><td colspan="6" style="text-align:left">No certificates on record.</td></tr>';
+  return '<div style="page-break-inside:avoid;margin-bottom:16px">'+
+    '<div class="doctitle">'+esc(m.name||'')+'</div>'+
+    '<table class="dtable" style="width:100%;margin-bottom:8px">'+
+      row('Worker ID', '<b>'+esc(m.wid||'')+'</b>')+
+      row('Company', esc(m.company||''))+
+      row('Trade / designation', esc([m.trade,m.designation].filter(Boolean).join(' \u00b7 ')))+
+      row('Work permit expiry', m.wpExpiry?esc(fmtD(m.wpExpiry)):'\u2014')+
+      row('Status', esc(m.status||'ACTIVE'))+
+      (acc&&acc.sicStatus?row('Site access', esc(acc.sicStatus)+(acc.sicDate?' \u00b7 SIC '+esc(fmtD(acc.sicDate)):'')):'')+
+    '</table>'+
+    '<div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#666">Appointments and certificates ('+comps.length+')</div>'+
+    '<table class="dtable" style="width:100%;margin:4px 0 8px">'+
+      '<tr><th style="text-align:left">Certificate</th><th>Code</th><th>Cert no.</th><th>Expiry</th><th>Standing</th><th>Checked</th></tr>'+
+      certRows+'</table>'+
+    (train.length?'<div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#666">Training ('+train.length+')</div>'+
+      '<table class="dtable" style="width:100%;margin:4px 0">'+train.map(t=>'<tr><td style="text-align:left">'+
+      esc(t.course||'')+'</td><td>'+(t.date?esc(fmtD(t.date)):'')+'</td></tr>').join('')+'</table>':'')+
+    '</div>';
+}
+async function drBuild(id, kind){
+  const r=db.docRequests.filter(x=>x.id===id)[0];
+  if(!r) return;
+  if(drState(r)!=='Approved'){ alert('This request has not been released by HR.'); return; }
+  const men=drMembers(r);
+  if(!men.length){ alert('No workers left in this request.'); return; }
+  const btn=document.getElementById(kind==='csv'?'drCsv':'drPdf');
+  const label=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Building \u2026'; }
+  try{
+    if(kind==='csv'){
+      const H=['Worker ID','Name','Company','Trade','WP expiry','Certificate','Code','Cert no.','Expiry','Days left','Checked'];
+      const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+      const lines=[H.map(q).join(',')];
+      men.forEach(function(m){
+        const cs=memberComps(m.id);
+        if(!cs.length) lines.push([m.wid,m.name,m.company,m.trade,m.wpExpiry,'(none)','','','','',''].map(q).join(','));
+        cs.forEach(c=>lines.push([m.wid,m.name,m.company,m.trade,m.wpExpiry,c.typeName,c.typeCode,c.certNo,
+          c.expiry,(c.expiry?daysTo(c.expiry):''),c.verification||'UNVERIFIED'].map(q).join(',')));
+      });
+      await saveOrDownload('Registers', (r.no||'worker-pack')+'.csv', lines.join('\n'), 'text/csv');
+    }else{
+      const body='<div class="doctitle">Worker records \u2014 '+men.length+' worker'+(men.length===1?'':'s')+'</div>'+
+        '<table class="dtable" style="width:100%;margin-bottom:10px">'+
+          '<tr><td style="text-align:left;width:30%">Released under</td><td style="text-align:left"><b>'+esc(r.no||'')+'</b></td></tr>'+
+          '<tr><td style="text-align:left">Purpose</td><td style="text-align:left">'+esc(r.purpose||'')+'</td></tr>'+
+          '<tr><td style="text-align:left">Issued to</td><td style="text-align:left">'+esc(r.recipient||'')+'</td></tr>'+
+          '<tr><td style="text-align:left">Approved by</td><td style="text-align:left">'+esc(r.decidedByName||'')+
+            ' on '+esc(fmtD(String(r.decidedAt||'').slice(0,10)))+'</td></tr>'+
+          '<tr><td style="text-align:left">Downloaded by</td><td style="text-align:left">'+esc(myDisplayName()||'')+
+            ' on '+esc(fmtD(today()))+'</td></tr>'+
+        '</table>'+
+        '<table class="dtable" style="width:100%;margin-bottom:10px">'+
+          '<tr><th>S/N</th><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th>'+
+          '<th style="text-align:left">Company</th><th>Certificates</th></tr>'+
+          men.map((m,i)=>'<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(m.wid||'')+'</td>'+
+            '<td style="text-align:left">'+esc(m.name||'')+'</td><td style="text-align:left">'+esc(m.company||'')+'</td>'+
+            '<td style="text-align:center">'+memberComps(m.id).length+'</td></tr>').join('')+'</table>'+
+        '<div style="font-size:10.5px;color:#555;margin-bottom:12px">Certificate scans are held in the company '+
+          'document library; this pack lists what each man holds and when it expires. It contains personal data '+
+          '\u2014 use it only for the purpose above.</div>'+
+        men.map(wpkPageHtml).join('');
+      await saveOrDownload('Registers', (r.no||'worker-pack')+'.html',
+        reportDocHtml('Worker Records \u2014 '+(r.no||''), body), 'text/html');
+    }
+    r.collectedAt=new Date().toISOString();
+    r.collectedBy=SB.profile?SB.profile.id:'local';
+    r.collectedByName=myDisplayName()||'Local user';
+    audit('DOWNLOAD','docRequests',r.id,null,null,
+      (r.no||'')+' \u00b7 '+men.length+' worker(s) \u00b7 '+kind.toUpperCase());
+    save();
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent=label; }
+  }
 }
 /* ---- Report Library: browse and download everything ever generated ---- */
 const REPORT_CATS=['Monthly Reports','Site Diary','Toolbox Meetings','LMRA','Incidents','Inspections','Near Miss Reports','Infringements','SIC Packs','Checklists','Registers','Expiry Alerts','Quality Defects','Meetings','RA-SWP','Training'];
