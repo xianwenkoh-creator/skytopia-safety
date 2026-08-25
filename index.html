@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-25-1300">
+<meta name="build" content="2026-08-25-1410">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -757,13 +757,17 @@ async function htmlToPdfBlob(docHtml){
 /* storage keys must be plain ASCII */
 function repoKeySafe(x){ return String(x||'').normalize('NFKD').replace(/[—–]/g,'-')
   .replace(/[^\x20-\x7E]/g,'').replace(/[\\/:*?"<>|#%&{}]+/g,'-').replace(/\s+/g,' ').trim(); }
+/* The first path segment must be the project ID: storage RLS compares it to
+   my_project() for anyone pinned to a site. OneDrive gets friendly names back
+   from the relay, which resolves the ID. */
+function repoProjKey(){ return repoKeySafe(root.cur||'Project'); }
 /* upload one generated report into the cloud repository (best effort) */
 async function repoUpload(cat, name, payload, mime){
   try{
     if(!SB.client) return false;                        /* local-only device */
     const {data:{session}}=await SB.client.auth.getSession();
     if(!session) return false;                          /* signed out */
-    const key=repoKeySafe(db.settings.project||root.cur||'Project')+'/'+repoKeySafe(cat)+'/'+repoKeySafe(name);
+    const key=repoProjKey()+'/'+repoKeySafe(cat)+'/'+repoKeySafe(name);
     const body=(payload instanceof Blob)?payload:new Blob([payload],{type:mime||'text/plain'});
     const {error}=await SB.client.storage.from('reports').upload(key, body,
       {contentType:(payload instanceof Blob)?(payload.type||mime):mime, upsert:true});
@@ -1039,24 +1043,25 @@ const PH={cache:{}, lazy:{}, failed:0};
 const PH_BLANK='data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
 function phIsKey(v){ return typeof v==='string' && v.slice(0,3)==='ph:'; }
 function phIsData(v){ return typeof v==='string' && v.slice(0,11)==='data:image/'; }
-/* signatures stay inside the record in this phase — they are small and a printed
-   attendance sheet must never be able to come out without them */
-function phSkipKey(k){ return /sig/i.test(k); }
+/* Signatures go to the bucket too, but into their own folder and with a stricter
+   contract: a printed attendance sheet may never render without them, so every
+   print path preloads first and refuses to file if one is missing. */
+function phIsSigKey(k){ return /sig/i.test(k||''); }
+function phSkipKey(k){ return false; }
 async function phSession(){
   if(!SB.client||!SB.profile) return null;
   try{ return (await SB.client.auth.getSession()).data.session||null; }catch(e){ return null; }
 }
 function phPath(key){ return key.slice(3); }
-function phNewKey(store, recId, i){
-  const proj=repoKeySafe(db.settings.project||root.cur||'Project');
-  return 'ph:'+proj+'/Photos/'+repoKeySafe(store)+'-'+repoKeySafe(String(recId||'x'))+'-'+
-    i+'-'+Math.random().toString(36).slice(2,8)+'.jpg';
+function phNewKey(store, recId, i, cat){
+  return 'ph:'+repoProjKey()+'/'+(cat||'Photos')+'/'+repoKeySafe(store)+'-'+
+    repoKeySafe(String(recId||'x'))+'-'+i+'-'+Math.random().toString(36).slice(2,8)+'.jpg';
 }
-async function phUpload(dataUrl, store, recId, i){
+async function phUpload(dataUrl, store, recId, i, cat){
   const sess=await phSession(); if(!sess) return null;
   try{
     const blob=await (await fetch(dataUrl)).blob();
-    const key=phNewKey(store, recId, i);
+    const key=phNewKey(store, recId, i, cat);
     const {error}=await SB.client.storage.from('reports')
       .upload(phPath(key), blob, {contentType:'image/jpeg', upsert:true});
     if(error){ PH.failed++; return null; }
@@ -1093,6 +1098,18 @@ function photoSrc(v){
 function phAttr(v){ return phIsKey(v)?(' data-ph="'+esc(v)+'"'):''; }
 /* pull every key in a record into the cache — used before building a PDF, so the
    synchronous print code finds real images */
+/* every signature in this record must be in hand before anything is printed */
+async function phSigsReady(obj){
+  const miss=[];
+  (function walk(v,k,sig){
+    if(!v) return;
+    const isSig=sig||phIsSigKey(k);
+    if(typeof v==='string'){ if(phIsKey(v)&&isSig&&!PH.cache[v]) miss.push(v); return; }
+    if(Array.isArray(v)) return v.forEach(x=>walk(x,k,isSig));
+    if(typeof v==='object') return Object.keys(v).forEach(kk=>walk(v[kk],kk,isSig));
+  })(obj,'',false);
+  return miss.length===0;
+}
 async function phPreload(obj){
   const keys=[];
   (function walk(v){
@@ -1107,18 +1124,21 @@ async function phPreload(obj){
   return uniq.length;
 }
 /* swap inline photos for keys on the way to being saved */
-async function phFlushVal(v, store, id, ctr, key){
+async function phFlushVal(v, store, id, ctr, key, isSig){
+  /* a signature map is keyed by member id, so sig-ness has to be inherited from
+     the container ("attendeesSigs") rather than read off each child key */
+  const sig=isSig||phIsSigKey(key);
   if(typeof v==='string'){
-    if(!phIsData(v)||phSkipKey(key||'')) return v;
-    const k=await phUpload(v, store, id, ctr.n++);
+    if(!phIsData(v)) return v;
+    const k=await phUpload(v, store, id, ctr.n++, sig?'Signatures':'Photos');
     return k||v;                                  /* upload failed -> keep inline */
   }
   if(Array.isArray(v)){
-    const out=[]; for(const x of v) out.push(await phFlushVal(x, store, id, ctr, key));
+    const out=[]; for(const x of v) out.push(await phFlushVal(x, store, id, ctr, key, sig));
     return out;
   }
   if(v&&typeof v==='object'&&!(v instanceof Date)){
-    const o={}; for(const k in v) o[k]=await phFlushVal(v[k], store, id, ctr, k);
+    const o={}; for(const k in v) o[k]=await phFlushVal(v[k], store, id, ctr, k, sig);
     return o;
   }
   return v;
@@ -1141,7 +1161,7 @@ async function phSweep(){
     for(const rec of list){
       let has=false;
       (function walk(v,k){ if(has||!v) return;
-        if(typeof v==='string'){ if(phIsData(v)&&!phSkipKey(k||'')) has=true; return; }
+        if(typeof v==='string'){ if(phIsData(v)) has=true; return; }
         if(Array.isArray(v)) return v.forEach(x=>walk(x,k));
         if(typeof v==='object') return Object.keys(v).forEach(kk=>walk(v[kk],kk));
       })(rec,'');
@@ -2239,7 +2259,7 @@ const MODULES={
         cks.map((c,i)=>'<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(c.wid||'')+'</td><td style="text-align:left">'+esc(c.name||'')+'</td>'+
           '<td style="text-align:left">'+esc(c.company||'')+'</td><td>'+esc(hh(c.at))+'</td>'+
           '<td>'+(c.answer===undefined||c.answer===null?'&mdash;':(c.correct?'&#10003; correct':'&#10007; wrong'))+'</td>'+
-          '<td style="height:30px;text-align:center">'+(c.sig?'<img src="'+c.sig+'" style="height:24px">':'<span class="hint" style="font-size:10px">e-checked-in</span>')+'</td></tr>').join('')+'</table></div>';
+          '<td style="height:30px;text-align:center">'+(c.sig?'<img src="'+photoSrc(c.sig)+'"'+phAttr(c.sig)+' style="height:24px">':'<span class="hint" style="font-size:10px">e-checked-in</span>')+'</td></tr>').join('')+'</table></div>';
     /* the manually-ticked attendance list + its signatures is printed by the
        generic members-field renderer (sig:1 on the attendees field) */
     if(t.briefing)
@@ -2694,7 +2714,7 @@ const MODULES={
         '<table class="dtable" style="margin:4px 0"><tr><th style="width:34px">S/N</th><th style="text-align:left">Worker ID</th><th style="text-align:left">Name</th><th style="text-align:left">Company</th><th style="width:110px">Signature</th></tr>'+
         crew.map((id,i)=>{ const m=db.members.find(x=>x.id===id)||{};
           return '<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(m.wid||'')+'</td><td style="text-align:left">'+esc(m.name||id)+'</td>'+
-            '<td style="text-align:left">'+esc(m.company||'')+'</td><td style="height:30px;text-align:center">'+(sg[id]?'<img src="'+sg[id]+'" style="height:24px">':'')+'</td></tr>'; }).join('')+'</table></div>';
+            '<td style="text-align:left">'+esc(m.company||'')+'</td><td style="height:30px;text-align:center">'+(sg[id]?'<img src="'+photoSrc(sg[id])+'"'+phAttr(sg[id])+' style="height:24px">':'')+'</td></tr>'; }).join('')+'</table></div>';
     }
     const ans=(r.answers||[]).filter(a=>a.q);
     if(ans.length)
@@ -2713,7 +2733,7 @@ const MODULES={
          r.photos.map(d=>'<img src="'+photoSrc(d)+'"'+phAttr(d)+' style="width:190px;border:1px solid #999;margin:4px 6px 4px 0">').join('')+'</div>';
     if(r.bySig)
       h+='<div style="margin-bottom:9px"><div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--sub)">Conducted by</div>'+
-         '<div style="font-size:14.5px">'+esc(r.by||'')+'</div><img src="'+r.bySig+'" style="height:34px;border-bottom:1px solid #444">'+'</div>';
+         '<div style="font-size:14.5px">'+esc(r.by||'')+'</div><img src="'+photoSrc(r.bySig)+'"'+phAttr(r.bySig)+' style="height:34px;border-bottom:1px solid #444">'+'</div>';
     return h;
   },
   sort:(a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||'')),
@@ -3137,7 +3157,7 @@ function recordPrintCard(key, id){
           v.map((idm,i)=>{ const m=db.members.find(x=>x.id===idm)||{};
             return '<tr><td style="text-align:center">'+(i+1)+'</td><td style="text-align:left">'+esc(m.wid||'')+'</td>'+
               '<td style="text-align:left">'+esc(m.name||idm)+'</td><td style="text-align:left">'+esc(m.company||'')+'</td>'+
-              '<td style="height:30px;text-align:center">'+(sg[idm]?'<img src="'+sg[idm]+'" style="height:24px">':'')+'</td></tr>'; }).join('')+
+              '<td style="height:30px;text-align:center">'+(sg[idm]?'<img src="'+photoSrc(sg[idm])+'"'+phAttr(sg[idm])+' style="height:24px">':'')+'</td></tr>'; }).join('')+
           '</table>';
       }
       const names=v.map(idm=>{const m=db.members.find(x=>x.id===idm); return m?esc(memberLabel(m)):'';}).filter(Boolean);
@@ -3210,6 +3230,10 @@ async function autoFileRecord(key, id){
     const mod=MODULES[key];
     const item=db[mod.store].find(x=>x.id===id); if(!item) return;
     await phPreload(item);                        /* keys -> real images before render */
+    if(!await phSigsReady(item)){                 /* never file an unsigned-looking sheet */
+      toast('Report not filed — a signature could not be loaded. Try again when online.', true);
+      return;
+    }
     const card=recordPrintCard(key, id); if(!card) return;
     const doc=reportDocHtml(mod.title+' Report', card);
     const pdf=await htmlToPdfBlob(doc); if(!pdf) return;
@@ -3224,6 +3248,10 @@ async function saveRecordHtml(key, id){
   const mod=MODULES[key];
   const item=db[mod.store].find(x=>x.id===id); if(!item) return;
   await phPreload(item);                                   /* keys -> real images first */
+  if(!await phSigsReady(item)){
+    toast('Report not saved — a signature could not be loaded. Try again when online.', true);
+    return;
+  }
   const card=recordPrintCard(key, id); if(!card) return;   /* build from data, not the DOM */
   const name=mod.store+'-'+(item.date||today())+'-'+fileStamp(item.id)+'.html';
   saveOrDownload(DIRMAP[key]||'Registers', name, reportDocHtml(mod.title+' Report', card), 'text/html');
@@ -6789,6 +6817,7 @@ function sigListHtml(ids, sigs, tag){
     '<div class="hint" style="margin:0 0 6px">SS679: each person signs against their own name — tap a name, hand over the phone.</div>'+
     '<div style="display:flex;flex-wrap:wrap;gap:6px">'+ids.map(id=>{
       const m=db.members.find(x=>x.id===id); const nm=m?(m.name||id):id; const ok=!!sigs[id];
+      if(ok&&phIsKey(sigs[id])) phLazy(sigs[id]);
       return '<button type="button" class="btn ghost" data-'+tag+'="'+id+'" style="padding:6px 10px;min-height:34px;font-size:13px'+
         (ok?';border-color:#1c7d3a;color:#1c7d3a':'')+'">'+(ok?'✓ ':'✎ ')+esc(nm)+'</button>'; }).join('')+'</div>';
 }
@@ -7496,7 +7525,7 @@ async function renderReports(){
     box.innerHTML='<div class="empty">The Report Library is available to the main contractor’s team.</div>';
     return;
   }
-  const pid=repoKeySafe(db.settings.project||root.cur||'Project');
+  const pid=repoProjKey();
   let html='';
   for(const cat of REPORT_CATS){
     try{
