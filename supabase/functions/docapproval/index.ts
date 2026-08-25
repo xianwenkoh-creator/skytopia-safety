@@ -253,9 +253,10 @@ async function reqBlock(row: any, who: string, base: string) {
   const age = Math.floor((Date.now() - Date.parse(d.requestedAt ?? "")) / 86400000);
   return `<div style="border:1px solid #e2e2e2;border-radius:10px;padding:14px;margin:12px 0">
   <div style="font-weight:700;font-size:16px">${esc(d.no ?? "Request")} — ${n} worker${n === 1 ? "" : "s"}</div>
-  <div style="color:#555;margin:4px 0 2px">${esc(d.purpose ?? "")} → ${esc(d.recipient ?? "")}</div>
-  <div style="color:#888;font-size:13px">Raised by ${esc(d.requestedByName ?? "")}${
-    Number.isFinite(age) && age >= 1 ? ` · waiting ${age} day${age === 1 ? "" : "s"}` : ""}${
+  <div style="margin:4px 0 2px">Requested by <b>${esc(d.requestedByName ?? "a safety officer")}</b> (Safety)</div>
+  <div style="color:#555;margin:0 0 2px">${esc(d.purpose ?? "")} → ${esc(d.recipient ?? "")}</div>
+  <div style="color:#888;font-size:13px">${
+    Number.isFinite(age) && age >= 1 ? `waiting ${age} day${age === 1 ? "" : "s"}` : "raised today"}${
     d.urgent ? ` · <b style="color:#b06000">marked urgent</b>` : ""}</div>
   <a href="${esc(url)}" style="display:inline-block;margin-top:11px;background:#0a7a3d;color:#fff;
    text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">Review and decide</a>
@@ -286,11 +287,20 @@ async function runSend(mode: string, base: string) {
       const blocks: string[] = [];
       for (const r of list) blocks.push(await reqBlock(r, person.id, base));
       const urgent = mode === "urgent";
+      /* the requester belongs in the subject - it is the first thing the HR
+         manager wants to know. With several requests, name the officers. */
+      const names = [...new Set(list.map((r: any) => r.data?.requestedByName).filter(Boolean))];
+      const whoStr = names.length === 0 ? "Safety"
+        : names.length === 1 ? String(names[0])
+        : names.length === 2 ? `${names[0]} and ${names[1]}`
+        : `${names[0]} and ${names.length - 1} others`;
       const subject = urgent
-        ? `Urgent: worker records need your approval (${list.length})`
+        ? (list.length === 1
+            ? `Urgent: ${whoStr} needs worker records released (${list[0].data?.no ?? ""})`
+            : `Urgent: ${whoStr} need worker records released (${list.length} requests)`)
         : list.length === 1
-          ? `1 worker-record request needs your approval`
-          : `${list.length} worker-record requests need your approval`;
+          ? `${whoStr} requests worker records (${list[0].data?.no ?? ""})`
+          : `${list.length} worker-record requests from ${whoStr}`;
       const lead = urgent
         ? `<p>Safety has marked ${list.length === 1 ? "this request" : "these requests"} urgent.</p>`
         : `<p>These requests are waiting on you. Each one opens a page where you can release or decline it —

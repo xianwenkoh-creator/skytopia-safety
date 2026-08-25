@@ -5,31 +5,32 @@ The app already works without any of this: Safety raises a request at
 downloaded. Everything below just means the HR manager can decide **from his
 inbox**, without opening the app.
 
-Five steps, about half an hour. Steps 1 and 2 are the important ones — nothing
-works until the database side is in.
+Three steps remain, about 15 minutes.
 
 ---
 
-## 1. Apply the database rules  *(required — nothing syncs without it)*
+## 1. Database rules — ✅ DONE (applied 26 Aug 2026)
 
-Supabase dashboard → **SQL Editor** → paste the whole of
-`supabase/doc-requests.sql` → Run.
-
-This adds `docRequests` to the read/write policies **and** installs the trigger
-that is the actual gate: whatever a client sends, only HR or admin can move a
-request out of `Pending` or set the release window. The rule in the app's
-screens is a convenience; this is the enforcement.
+`supabase/doc-requests.sql` is live: `docRequests` is in the read/write
+policies, and the `trg_docreq_guard` trigger is installed and **verified by
+test** — an insert born `Approved` and a non-HR status flip were both rejected
+by the database itself. The rule in the app's screens is a convenience; this
+trigger is the enforcement.
 
 ---
 
-## 2. Deploy the approval function
+## 2. Approval function — ✅ DEPLOYED (26 Aug 2026, verify_jwt off)
+
+Live at `https://wrxyajtopaxgdfuxoxxl.supabase.co/functions/v1/docapproval`.
+`verify_jwt` is off deliberately: the HR manager is **not signed in** when he
+opens the link — the link's own signed token is the credential. Smoke-tested:
+bare GET renders a neutral page, cron endpoint answers 401 without the secret.
+
+It does nothing until the secrets in step 3 exist. To redeploy after editing:
 
 ```
 supabase functions deploy docapproval --project-ref wrxyajtopaxgdfuxoxxl --no-verify-jwt
 ```
-
-`--no-verify-jwt` is deliberate and necessary: the HR manager is **not signed
-in** when he opens the link. The link's own signed token is the credential.
 
 ---
 
@@ -52,7 +53,7 @@ is an approval that doesn't happen.
 
 ---
 
-## 4. Schedule the sending
+## 4. Schedule the sending  *(after step 3 — the cron secret must exist first)*
 
 SQL Editor → paste `supabase/doc-approval-schedule.sql`, **replacing both
 `REPLACE_WITH_CRON_SECRET` placeholders** with the `DOCREQ_CRON_SECRET` from
