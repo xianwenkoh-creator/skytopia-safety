@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-26-0700">
+<meta name="build" content="2026-08-26-0820">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -8359,9 +8359,16 @@ function renderWorkerPack(){
         '<div class="hint">Name the company or officer the pack is going to.</div></div>'+
       '<div class="fld"><label>Notes for HR <span class="hint">(optional)</span></label>'+
         '<textarea id="drNote" rows="2" placeholder="Anything he should know before releasing it"></textarea></div>'+
+      '<label class="pick" style="align-items:flex-start;border-bottom:0;padding:2px 0;cursor:pointer">'+
+        '<input type="checkbox" id="drUrgent" style="margin-top:4px">'+
+        '<span style="min-width:0;white-space:normal;overflow:visible"><b>Needed today</b>'+
+        '<div class="hint">HR is emailed once each evening with everything waiting. '+
+        'Tick this and he is emailed within the quarter hour instead \u2014 so use it when the records are '+
+        'genuinely needed today.</div></span></label>'+
     '</div>'+
     '<div class="card" id="wpkLive">'+wpkLiveHtml()+'</div>'+
-    '<div class="foot">Even a single worker needs HR\u2019s approval. Once released you have '+DR_VALID_DAYS+
+    '<div class="foot">Even a single worker needs HR\u2019s approval \u2014 he decides from his email, '+
+      'without opening this app. Once released you have '+DR_VALID_DAYS+
       ' days to download it. Certificate scans stay in the document library \u2014 the pack lists what each man '+
       'holds and when it expires. <a href="#/docreq">See your requests</a></div>';
   setTimeout(function(){ try{ mpickInitAll(); }catch(e){} wpkSync(); },0);
@@ -8371,10 +8378,12 @@ function renderWorkerPack(){
     wpkSync(); };
   app.addEventListener('change', window._wpkH);
   const keep=function(){ return {p:(document.getElementById('drPurpose')||{}).value,
-    r:(document.getElementById('drRecipient')||{}).value, n:(document.getElementById('drNote')||{}).value}; };
+    r:(document.getElementById('drRecipient')||{}).value, n:(document.getElementById('drNote')||{}).value,
+    u:!!(document.getElementById('drUrgent')||{}).checked}; };
   const restore=function(v){ if(!v) return;
-    const a=document.getElementById('drPurpose'), b=document.getElementById('drRecipient'), c=document.getElementById('drNote');
-    if(a&&v.p) a.value=v.p; if(b) b.value=v.r||''; if(c) c.value=v.n||''; };
+    const a=document.getElementById('drPurpose'), b=document.getElementById('drRecipient'),
+          c=document.getElementById('drNote'), u=document.getElementById('drUrgent');
+    if(a&&v.p) a.value=v.p; if(b) b.value=v.r||''; if(c) c.value=v.n||''; if(u) u.checked=!!v.u; };
   /* a quick-set replaces the selection wholesale, so the picker is rebuilt -
      but the officer's purpose and recipient must survive it */
   app.querySelectorAll('[data-wpkset]').forEach(b=>b.onclick=function(){
@@ -8430,6 +8439,7 @@ async function drSubmit(){
     purpose:document.getElementById('drPurpose').value,
     recipient:recip,
     note:(document.getElementById('drNote').value||'').trim(),
+    urgent:!!(document.getElementById('drUrgent')||{}).checked,
     memberIds:WPK.sel.slice(), status:'Pending' };
   db.docRequests.push(rec);
   audit('REQUEST','docRequests',rec.id,null,null,
@@ -8477,6 +8487,8 @@ function renderDocReq(id){
         row('Requested by', esc(r.requestedByName||''))+
         row('Requested on', esc(fmtD(String(r.requestedAt||'').slice(0,10))))+
         (r.note?row('Notes', esc(r.note)):'')+
+        (r.urgent?row('Marked', 'Needed today \u2014 HR emailed immediately'):'')+
+        (r.decidedVia==='email'?row('Decided', 'By email'):'')+
         (r.decidedAt?row(st==='Declined'?'Declined by':'Released by',
           esc(r.decidedByName||'')+' on '+esc(fmtD(String(r.decidedAt).slice(0,10)))):'')+
         (r.decisionNote?row('HR\u2019s note', esc(r.decisionNote)):'')+
@@ -8496,7 +8508,9 @@ function renderDocReq(id){
           '<textarea id="drDNote" rows="2"></textarea></div>'+
         '<div class="btnrow"><button class="btn" id="drOk" style="flex:1">Release the records</button>'+
         '<button class="btn ghost" id="drNo" style="flex:1">Decline</button></div></div>':'')+
-    (st==='Pending'&&!drCanDecide()?'<div class="foot">Waiting on the HR manager.</div>':'')+
+    (st==='Pending'&&!drCanDecide()?'<div class="foot">Waiting on the HR manager. He is emailed '+
+      (r.urgent?'immediately because you marked this needed today':'this evening with everything waiting')+
+      ', and can decide straight from that email.</div>':'')+
     (st==='Approved'?'<h2 class="sect">Download</h2><div class="card"><div class="btnrow" style="flex-wrap:wrap">'+
       '<button class="btn" id="drPdf" style="flex:1;min-width:150px">Download pack (PDF)</button>'+
       '<button class="btn ghost" id="drCsv" style="flex:1;min-width:150px">Spreadsheet (CSV)</button>'+
