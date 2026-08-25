@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-26-0200">
+<meta name="build" content="2026-08-26-0300">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -7716,7 +7716,10 @@ function wrRecord(m, days){
   const nm=String(m.name||'').trim().toLowerCase();
   const train=db.training.filter(t=>inWin(t.date)&&
     (t.memberId?t.memberId===m.id:String(t.name||'').trim().toLowerCase()===nm)).length;
-  const certs=memberComps(m.id).filter(c=>!c.expiry||c.expiry>=today()).length;
+  /* office and professional-development courses are real training but not safety
+     competencies - they must not inflate a safety review score */
+  const _officeCodes=new Set(db.competencyTypes.filter(t=>['Office','Professional'].includes(t.category)).map(t=>t.code));
+  const certs=memberComps(m.id).filter(c=>(!c.expiry||c.expiry>=today())&&!_officeCodes.has(c.typeCode)).length;
   /* ---- speaking up: reports this worker raised ---- */
   const reports=wrAllProjects('observations').filter(o=>inWin(o.date)&&
     String(o.initiator||'').trim().toLowerCase()===nm).length;
