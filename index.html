@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-26-0300">
+<meta name="build" content="2026-08-26-0400">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1493,6 +1493,20 @@ function buildNav(){
       '<a class="sn-item" href="#/settings" data-nav="settings">'+ic('gear')+'Settings</a>';
     return;
   }
+  if(SB.profile&&SB.profile.role==='supervisor'){
+    nav.innerHTML='<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'Home</a>'+
+      '<div class="sn-group">My workface</div>'+
+      '<a class="sn-item" href="#/lmracheck" data-nav="lmracheck">'+ic('lmra')+'Run LMRA</a>'+
+      '<a class="sn-item" href="#/lmra" data-nav="lmra">'+ic('lmra')+'LMRA Records</a>'+
+      '<a class="sn-item" href="#/observations/new" data-nav="observations">'+ic('obs')+'Report Near Miss</a>'+
+      '<div class="sn-group">Reference</div>'+
+      [['work','Work Activities','work'],['tbm','Toolbox Meetings','tbm'],['members','Workers','members'],
+       ['matrix','Competency Matrix','cert']]
+        .map(t=>'<a class="sn-item" href="#/'+t[0]+'" data-nav="'+t[0]+'">'+ic(t[2])+t[1]+'</a>').join('')+
+      '<div class="sn-group">Account</div>'+
+      '<a class="sn-item" href="#/settings" data-nav="settings">'+ic('gear')+'Settings</a>';
+    return;
+  }
   if(SB.profile&&SB.profile.role==='subcon'){
     nav.innerHTML='<a class="sn-item sn-home" href="#/" data-nav="">'+ic('home')+'My Work</a>'+
       '<div class="sn-group">My Site</div>'+
@@ -1571,6 +1585,31 @@ function initShell(){
 }
 
 function renderHome(){
+  if(SB.profile&&SB.profile.role==='supervisor'){
+    const tile=(href,label,icon)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+
+      '</span><span class="tl">'+label+'</span></a>';
+    const mine=db.lmra.filter(l=>l.date===today()).length;
+    const acts=db.workActivities.filter(w=>w.status==='Active').length;
+    app.innerHTML=header(esc(db.settings.project||'Site'), false)+
+      '<a class="btn" href="#/lmracheck" style="display:block;text-align:center;margin:14px 16px 6px;'+
+        'min-height:52px;line-height:52px;font-size:17px;text-decoration:none">Run LMRA — before work starts</a>'+
+      '<p class="hint" style="margin:0 16px 10px;text-align:center">'+mine+' done today · '+acts+' active work activities</p>'+
+      '<h2 class="sect">Also yours</h2>'+
+      '<div class="grid">'+
+        tile('observations/new','Report Near Miss','obs')+
+        tile('lmra','LMRA Records','lmra')+
+      '</div>'+
+      '<h2 class="sect">Reference</h2>'+
+      '<div class="grid">'+
+        tile('work','Work Activities','work')+
+        tile('tbm','Toolbox Meetings','tbm')+
+        tile('members','Workers','members')+
+        tile('matrix','Competency Matrix','cert')+
+      '</div>'+
+      '<div class="foot">You conduct the LMRA at your workface and report anything unsafe. '+
+        'The rest of the register is readable when you need to check something.</div>';
+    return;
+  }
   if(SB.profile&&SB.profile.role==='hr'){
     const tile=(href,label,icon,badge)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+
       (badge?'<span class="bdg">'+badge+'</span>':'')+'</span><span class="tl">'+label+'</span></a>';
@@ -1607,7 +1646,7 @@ function renderHome(){
         'Safety registers stay available read-only via search or direct links.</div>';
     return;
   }
-  if(isDesktop()&&!(SB.profile&&SB.profile.role==='subcon')) return renderControlCentre();
+  if(isDesktop()&&!(SB.profile&&['subcon','supervisor'].includes(SB.profile.role))) return renderControlCentre();
   if(SB.profile&&SB.profile.role==='subcon'){
     const tile=(href,label,icon)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+'</span><span class="tl">'+label+'</span></a>';
     const myObs=db.observations.filter(o=>o.status!=='Closed').length;
@@ -1892,7 +1931,7 @@ function route(){
     return renderToolbox();
   }
   if(p[0]==='review'){
-    if(SB.profile && ['subcon','viewer'].includes(SB.profile.role)){
+    if(SB.profile && ['subcon','viewer','supervisor'].includes(SB.profile.role)){
       app.innerHTML=header('Workforce Review', true)+
         '<div class="empty">Workforce review is available to management and HR.</div>'; return; }
     return p[1]?renderWorkerReviewOne(p[1]):renderWorkerReview();
@@ -5821,12 +5860,13 @@ function maskIdno(v){
    the server stays the authority; this only declutters the screen so nobody
    is shown a button that would silently do nothing. */
 /* roles that do NOT manage projects or this device's data */
-function liteRole(){ return !!(SB.profile && ['hr','viewer','subcon'].includes(SB.profile.role)); }
+function liteRole(){ return !!(SB.profile && ['hr','viewer','subcon','supervisor'].includes(SB.profile.role)); }
 function canWrite(store){
   if(!SB.profile) return true;                             /* local device */
   const r=SB.profile.role;
   if(r==='admin') return true;
   if(r==='viewer') return false;
+  if(r==='supervisor') return ['lmra','observations'].includes(store);
   if(r==='hr') return ['members','memberPrivate','workerCompetencies','training','organisations'].includes(store);
   if(r==='subcon') return ['observations','defects','members','equipment','training','workerCompetencies'].includes(store);
   if(r==='wsho'){
@@ -9093,7 +9133,7 @@ async function sbTeamCall(body){
   if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status));
   return d;
 }
-const ROLES=['admin','wsho','hr','subcon','viewer'];
+const ROLES=['admin','wsho','supervisor','hr','subcon','viewer'];
 const ROLEHELP={admin:'everything + manage team', wsho:'safety ops (project or HQ)', hr:'workforce & HR records (HQ)', subcon:'only their company’s items', viewer:'read-only'};
 async function renderTeam(){
   if(!SB.profile){
