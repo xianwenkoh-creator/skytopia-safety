@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-26-0820">
+<meta name="build" content="2026-08-27-0830">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -207,6 +207,8 @@
   input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--blue); outline-offset:1px;}
   input.err,select.err,textarea.err{border-color:var(--bad-ink); outline:2px solid var(--bad-ink);}
   .hint{font-size:12px; color:var(--sub); margin-top:4px;}
+.greet{margin:14px 16px -4px; font-size:15.5px; color:var(--sub);}
+.greet b{color:var(--ink); font-weight:700;}
   .fgrid{display:grid; grid-template-columns:1fr 1fr; gap:0 14px; align-items:start;}
   .fgrid .fld{grid-column:1/-1; min-width:0;}
   .fgrid .fld.half{grid-column:auto;}
@@ -1609,7 +1611,7 @@ function renderHome(){
       '</span><span class="tl">'+label+'</span></a>';
     const acts=db.workActivities.filter(w=>w.status==='Active').length;
     const plan=db.workActivities.filter(w=>w.status==='Planned').length;
-    app.innerHTML=header(esc(db.settings.project||'Site'), false)+
+    app.innerHTML=header(esc(db.settings.project||'Site'), false)+greetHtml()+
       '<a class="btn" href="#/work" style="display:block;text-align:center;margin:14px 16px 6px;'+
         'min-height:52px;line-height:52px;font-size:17px;text-decoration:none">Work Activities — plan the work</a>'+
       '<p class="hint" style="margin:0 16px 10px;text-align:center">'+acts+' active · '+plan+' planned</p>'+
@@ -1631,7 +1633,7 @@ function renderHome(){
       '</span><span class="tl">'+label+'</span></a>';
     const mine=db.lmra.filter(l=>l.date===today()).length;
     const acts=db.workActivities.filter(w=>w.status==='Active').length;
-    app.innerHTML=header(esc(db.settings.project||'Site'), false)+
+    app.innerHTML=header(esc(db.settings.project||'Site'), false)+greetHtml()+
       '<a class="btn" href="#/lmracheck" style="display:block;text-align:center;margin:14px 16px 6px;'+
         'min-height:52px;line-height:52px;font-size:17px;text-decoration:none">Run LMRA — before work starts</a>'+
       '<p class="hint" style="margin:0 16px 10px;text-align:center">'+mine+' done today · '+acts+' active work activities</p>'+
@@ -1663,7 +1665,7 @@ function renderHome(){
     const mk=today().slice(0,7);
     const trainM=db.training.filter(t=>t.date&&t.date.slice(0,7)===mk).length;
     const ov=(href,v,l,cls)=>'<a class="stile" href="#/'+href+'"><div class="v'+(cls&&v?' '+cls:'')+'">'+v+'</div><div class="l">'+l+'</div></a>';
-    app.innerHTML=header('HR — '+esc(root.company.name||'Workforce'), false)+
+    app.innerHTML=header('HR — '+esc(root.company.name||'Workforce'), false)+greetHtml()+
       '<h2 class="sect">Today</h2>'+
       '<div class="tiles">'+
         ov('members', active, 'Active workers')+
@@ -1694,7 +1696,7 @@ function renderHome(){
   if(SB.profile&&SB.profile.role==='subcon'){
     const tile=(href,label,icon)=>'<a class="tile" href="#/'+href+'"><span class="ic">'+ic(icon)+'</span><span class="tl">'+label+'</span></a>';
     const myObs=db.observations.filter(o=>o.status!=='Closed').length;
-    app.innerHTML=header(db.settings.project||'My Work', false)+
+    app.innerHTML=header(db.settings.project||'My Work', false)+greetHtml()+
       '<h2 class="sect">Today</h2>'+
       '<div class="tiles">'+
         '<a class="stile" href="#/observations"><div class="v'+(myObs?' w':'')+'">'+myObs+'</div><div class="l">Open near miss / unsafe</div></a>'+
@@ -1729,6 +1731,7 @@ function renderHome(){
   app.innerHTML =
     '<header class="top"><h1>'+esc(s.project||'Project Home')+'</h1><div class="spacer"></div>'+
     '<button class="iconbtn" aria-label="Settings" onclick="location.hash=\'#/settings\'">'+ic('gear')+'</button></header>'+
+    greetHtml()+
     '<h2 class="sect">Project overview</h2>'+
     '<div class="tiles">'+
       ov('actions',ob.total,'Open actions','w')+
@@ -6199,6 +6202,15 @@ function renderSicReadiness(memberIds){
   document.getElementById('sicPack').onclick=()=>sicPack(rows, prof);
 }
 /* the person holding the phone — used to prefill "conducted by" fields */
+/* the home screen greets its owner by name - ownership starts with seeing
+   yourself in the thing */
+function greetHtml(){
+  const n=myDisplayName(); if(!n) return '';
+  const h=new Date().getHours();
+  const g=h<12?'Good morning':(h<18?'Good afternoon':'Good evening');
+  const nice=n.replace(/(^|\s)[a-z]/g, m=>m.toUpperCase());
+  return '<div class="greet">'+g+', <b>'+esc(nice)+'</b></div>';
+}
 function myDisplayName(){
   const p=SB&&SB.profile; if(!p) return '';
   return (p.display_name||'').trim() || (p.email||'').split('@')[0].replace(/[._-]+/g,' ').trim();
@@ -9406,6 +9418,7 @@ function renderControlCentre(){
   app.innerHTML=
     '<header class="top"><h1>'+esc(s.project||'Control Centre')+'</h1>'+
     '<div class="spacer"></div><span class="hint">'+esc(fmtD(today()))+'</span></header>'+
+    greetHtml()+
     '<div class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr))">'+order.map(k=>cards[k]).join('')+'</div>'+
     '<div class="cc-grid">'+
       '<div>'+
@@ -9595,7 +9608,7 @@ async function sbTeamCall(body){
   return d;
 }
 const ROLES=['admin','wsho','supervisor','engineer','hr','subcon','viewer'];
-const ROLEHELP={admin:'everything + manage team', wsho:'safety ops (project or HQ)', hr:'workforce & HR records (HQ)', subcon:'only their company’s items', viewer:'read-only'};
+const ROLEHELP={admin:'everything + manage team', wsho:'safety ops (project or HQ)', supervisor:'runs LMRA, toolbox, inspections', engineer:'plans work activities', hr:'workforce & HR records (HQ)', subcon:'only their company’s items', viewer:'read-only'};
 async function renderTeam(){
   if(!SB.profile){
     app.innerHTML=header('Team', true)+'<div class="empty">Sign in first (Settings &rarr; Cloud sync) to manage the team.</div>';
@@ -9629,6 +9642,7 @@ async function renderTeam(){
       ROLES.map(r=>'<b>'+r+'</b> = '+ROLEHELP[r]).join(' &nbsp;·&nbsp; ')+
       '.<br><b>HQ</b> users see company-level data and all projects; <b>project-level</b> users see only their assigned project (enforced by the server).</p>'+
     '<div class="fgrid">'+
+      '<div class="fld half"><label>Name</label><input id="invName" placeholder="e.g. Ahmad Shah"></div>'+
       '<div class="fld half"><label>Email</label><input id="invEmail" type="email" placeholder="name@company.com.sg"></div>'+
       '<div class="fld half"><label>Role</label><select id="invRole">'+ROLES.map(r=>'<option'+(r==='wsho'?' selected':'')+'>'+r+'</option>').join('')+'</select></div>'+
       '<div class="fld half" id="invHqWrap"><label>Access level</label><select id="invHq">'+
@@ -9640,7 +9654,7 @@ async function renderTeam(){
     '</div><div class="btnrow"><button class="btn" id="invGo">Send invite</button></div></div>'+
     '<div class="card"><label style="margin-top:0">Members ('+rows.length+')</label>'+
     rows.map(r=>'<div class="lrow" style="cursor:default;flex-wrap:wrap"><div class="lmain">'+
-      '<div class="lt" style="color:var(--ink)">'+esc(r.email||r.id)+(r.id===SB.profile.id?' <span class="chip">you</span>':'')+'</div>'+
+      '<div class="lt" style="color:var(--ink)">'+(r.display_name?'<b>'+esc(r.display_name)+'</b> · ':'')+esc(r.email||r.id)+(r.id===SB.profile.id?' <span class="chip">you</span>':'')+'</div>'+
       '<div class="ls">'+(r.subcon?esc(r.subcon)+' · ':'')+
         ((r.hq||['admin','hr'].includes(r.role))?'HQ · ':(r.project_id?esc(projName(r.project_id))+' · ':'all projects · '))+
         'joined '+fmtD((r.created_at||'').slice(0,10))+'</div></div>'+
@@ -9663,6 +9677,7 @@ async function renderTeam(){
     const btn=document.getElementById('invGo'); btn.disabled=true; btn.textContent='Sending…';
     try{
       await sbTeamCall({action:'invite', email, role, subcon:role==='subcon'?subcon:null,
+        displayName:document.getElementById('invName').value.trim()||null,
         hq:document.getElementById('invHq').value==='1',
         projectId:document.getElementById('invProj').value||null,
         redirectTo:location.origin+location.pathname});

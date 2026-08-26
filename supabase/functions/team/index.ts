@@ -29,7 +29,9 @@ Deno.serve(async (req) => {
     if (b.action === "invite") {
       const email = String(b.email || "").trim().toLowerCase();
       if (!/^\S+@\S+\.\S+$/.test(email)) return json({ error: "Invalid email" }, 400);
-      const role = ["admin", "wsho", "hr", "subcon", "viewer"].includes(b.role) ? b.role : "viewer";
+      // keep in step with ROLES in the app - a role missing here silently
+      // demotes the invitee to viewer
+      const role = ["admin", "wsho", "supervisor", "engineer", "hr", "subcon", "viewer"].includes(b.role) ? b.role : "viewer";
       const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
         redirectTo: b.redirectTo || undefined,
       });
@@ -39,12 +41,14 @@ Deno.serve(async (req) => {
         role, subcon: role === "subcon" ? (b.subcon || null) : null,
         hq: ["admin", "hr"].includes(role) ? false : !!b.hq, // admin/hr are HQ by role
         project_id: b.projectId ? String(b.projectId) : null,
+        // the home screen greets people by name - capture it at invite time
+        display_name: b.displayName ? String(b.displayName).trim().slice(0, 80) : null,
       }).eq("id", data.user.id);
       return json({ ok: true, userId: data.user.id });
     }
 
     if (b.action === "setRole") {
-      const role = ["admin", "wsho", "hr", "subcon", "viewer"].includes(b.role) ? b.role : null;
+      const role = ["admin", "wsho", "supervisor", "engineer", "hr", "subcon", "viewer"].includes(b.role) ? b.role : null;
       if (!role || !b.userId) return json({ error: "Bad request" }, 400);
       if (b.userId === user.id) return json({ error: "Change your own role via another admin" }, 400);
       const { data: target } = await admin.from("profiles").select("org_id").eq("id", b.userId).single();
