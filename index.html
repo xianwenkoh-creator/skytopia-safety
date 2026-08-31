@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-27-0830">
+<meta name="build" content="2026-08-31-0900">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1988,7 +1988,29 @@ function route(){
   if(window._keepScroll){ window._keepScroll=false; }
   else window.scrollTo(0,0);
   curEdit=null;
-  if(/^#access_token=|^#error/.test(location.hash)){ /* Supabase invite/recovery link landing */
+  if(/^#error/.test(location.hash) && !window._authErr){
+    /* a failed sign-in link (expired, already used, malformed): capture the
+       reason NOW - the sync library strips the hash moments later */
+    const q=new URLSearchParams(location.hash.slice(1));
+    window._authErr={ code:q.get('error_code')||'',
+      desc:(q.get('error_description')||'').replace(/\+/g,' ') };
+  }
+  if(window._authErr){
+    const e=window._authErr;
+    const expired=/otp_expired|expired|invalid/i.test(e.code+' '+e.desc);
+    app.innerHTML='<div class="card" style="margin:60px 16px auto;max-width:430px">'+
+      '<h2 style="margin:0 0 8px">'+(expired?'This sign-in link has expired':'This sign-in link did not work')+'</h2>'+
+      '<p style="margin:0 0 6px">'+(expired
+        ?'Links work once and last 24 hours from when they were sent.'
+        :esc(e.desc||'The link is no longer valid.'))+'</p>'+
+      '<p class="hint" style="margin:0">Ask the admin for a fresh link, then open it on this phone. '+
+        'Nothing is wrong with your account.</p>'+
+      '<div class="btnrow" style="margin-top:14px">'+
+        '<button class="btn" onclick="window._authErr=null;history.replaceState(null,\'\',location.pathname);location.hash=\'#/\';route()">OK</button>'+
+      '</div></div>';
+    return;
+  }
+  if(/^#access_token=/.test(location.hash)){ /* Supabase invite/recovery link landing */
     app.innerHTML='<div class="empty" style="margin-top:60px">Completing sign-in&hellip;</div>';
     return;
   }
@@ -9571,7 +9593,8 @@ async function syncInit(){
   try{
     const {data:{session}}=await SB.client.auth.getSession();
     if(fromAuthLink && session){ location.hash='#/setpw'; return; }
-    if(/^#access_token=|^#error/.test(location.hash)){ location.hash='#/settings'; }
+    if(/^#error/.test(location.hash)){ route(); return; } /* route() explains the dead link */
+    if(/^#access_token=/.test(location.hash)){ location.hash='#/settings'; }
     if(!session){ sbSetStatus('off','Connected to Supabase — <b>not signed in</b>. Sign in below to sync.'); return; }
     await sbAfterLogin();
   }catch(e){ sbSetStatus('err','Sync init failed: '+esc(e.message||e)); }
