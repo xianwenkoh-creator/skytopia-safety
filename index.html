@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-08-31-0900">
+<meta name="build" content="2026-08-31-1010">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -2020,6 +2020,7 @@ function route(){
       'If you need it, ask the admin to change your role.</div>';
     buildNav(); return;
   }
+  if(p[0]==='claim') return renderClaim(p[1]||'', p[2]||'');
   if(p[0]==='setpw') return renderSetPw();
   if(p[0]==='team') return renderTeam();
   if(p[0]==='toolbox'){
@@ -9599,6 +9600,53 @@ async function syncInit(){
     await sbAfterLogin();
   }catch(e){ sbSetStatus('err','Sync init failed: '+esc(e.message||e)); }
 }
+/* ---- tap-to-claim sign-in: the link itself is inert ----
+   WhatsApp and mail scanners prefetch links, and Supabase's verify endpoint
+   consumes the one-time token on that fetch. So invite links now land here,
+   carrying the token in the page address, and NOTHING happens until the
+   person taps the button - the same opening-a-link-must-not-act rule as the
+   HR approval emails. */
+function renderClaim(ty, th){
+  const kind=(ty==='recovery')?'recovery':'invite';
+  if(!th){
+    app.innerHTML='<div class="card" style="margin:60px 16px auto;max-width:430px">'+
+      '<h2 style="margin:0 0 8px">This link is incomplete</h2>'+
+      '<p class="hint" style="margin:0">Part of the link went missing when it was copied. '+
+      'Ask the admin to send it again, and open it directly.</p></div>';
+    return;
+  }
+  app.innerHTML='<div class="card" style="margin:60px 16px auto;max-width:430px">'+
+    '<h2 style="margin:0 0 8px">'+(kind==='recovery'?'Set a new password':'Welcome to KKL CMS')+'</h2>'+
+    '<p style="margin:0 0 6px">'+(kind==='recovery'
+      ?'Tap the button and choose a new password for your account.'
+      :'Your account is ready. Tap the button, choose your own password, and you are in.')+'</p>'+
+    '<p class="hint" style="margin:0">The button works once. If it says expired, ask the admin for a fresh link.</p>'+
+    '<div class="btnrow" style="margin-top:14px">'+
+      '<button class="btn" id="claimGo" style="flex:1;min-height:48px">'+
+        (kind==='recovery'?'Set my new password':'Set my password')+'</button>'+
+    '</div>'+
+    '<div id="claimMsg"></div></div>';
+  document.getElementById('claimGo').onclick=async function(){
+    const btn=this, msg=document.getElementById('claimMsg');
+    btn.disabled=true; btn.textContent='One moment\u2026';
+    try{
+      const cfg=sbCfg();
+      if(!cfg||!cfg.url||!cfg.anon) throw new Error('This device has no connection settings. Open the app once normally first.');
+      await sbLoadLib();
+      if(!SB.client) SB.client=window.supabase.createClient(cfg.url,cfg.anon);
+      let r=await SB.client.auth.verifyOtp({type:kind, token_hash:th});
+      if(r.error) r=await SB.client.auth.verifyOtp({type:'email', token_hash:th}); /* newer GoTrue folds types into email */
+      if(r.error) throw r.error;
+      location.hash='#/setpw'; route();
+    }catch(e){
+      const expired=/expired|invalid/i.test(String(e.message||e));
+      msg.innerHTML='<p style="margin:12px 0 0;color:#c5221f"><b>'+
+        (expired?'This link has already been used or has expired.':'Could not sign you in.')+'</b> '+
+        esc(expired?'Ask the admin for a fresh link \u2014 nothing is wrong with your account.':String(e.message||e))+'</p>';
+      btn.disabled=false; btn.textContent='Try again';
+    }
+  };
+}
 /* invite / password-reset landing: user sets their own password, then syncs */
 function renderSetPw(){
   app.innerHTML = header('Welcome — set your password', false)+
@@ -10056,7 +10104,7 @@ function unGate(){ GATED=false; document.body.classList.remove('gated'); }
 
 initShell();
 (async()=>{
-  const authLink=/^#access_token=|^#error/.test(location.hash) || /^#\/(checkin|hazard)\//.test(location.hash);
+  const authLink=/^#access_token=|^#error/.test(location.hash) || /^#\/(checkin|hazard|claim)\//.test(location.hash);
   const cfg=sbCfg();
   if(cfg && cfg.url && !authLink && !localStorage.getItem('kkl-local-ok')){
     renderLanding();
