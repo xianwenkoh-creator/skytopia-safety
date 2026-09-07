@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-09-01-1100">
+<meta name="build" content="2026-09-07-0900">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -9881,6 +9881,13 @@ function canPushRow(r){
     if(r.project_id==='_company') return WSHO_COMPANY_WRITABLE.includes(r.store);
     if(pr.project_id && r.project_id!==pr.project_id) return false;
     return true;                                          /* their project's records */
+  }
+  if(role==='supervisor'||role==='engineer'){
+    /* site roles: their own project's records, in the stores the server lets
+       them write (rec_supervisor_* / rec_engineer_*). Mirrors canWrite. */
+    if(r.project_id==='_company') return false;
+    if(pr.project_id && r.project_id!==pr.project_id) return false;
+    return canWrite(r.store);
   }
   return false;
 }
