@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-09-07-1400">
+<meta name="build" content="2026-09-07-1700">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -288,6 +288,25 @@
 .ractladd{width:100%;margin-top:4px;font-size:11.5px;min-height:30px;padding:3px 6px;}
 .rata{width:100%;min-height:46px;font-size:12px;padding:4px;resize:vertical;}
 .rasel{min-height:30px;padding:2px 3px;}
+.ratable td.rachg{background:rgba(176,96,0,.14);}
+.ratable tr.raadd>td{background:rgba(10,122,61,.07);}
+.ramob{display:none;}
+/* under 760px the same table re-flows into stacked, labelled blocks - the
+   form stays readable on a phone with zero sideways scrolling */
+@media (max-width:760px){
+  .ratable{min-width:0;}
+  .ratable thead{display:none;}
+  .ratable tbody tr{display:block;border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden;}
+  .ratable tbody tr.rasec{border:0;margin:14px 0 8px;}
+  .ratable tbody td{display:block;border:0 !important;border-bottom:1px dashed var(--line) !important;padding:7px 9px;min-width:0 !important;}
+  .ratable tbody tr td:last-child{border-bottom:0 !important;}
+  .ratable tbody td::before{content:attr(data-th);display:block;font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--sub);margin-bottom:2px;}
+  .ratable tbody td[data-th=""]::before,.ratable tr.rasec td::before{display:none;}
+  .ratable td.rasn{display:flex;align-items:center;gap:8px;background:var(--chip,#eef1f3);width:auto;font-weight:700;}
+  .ratable td.rq,.ratable td.rar{display:inline-block;width:33.33%;text-align:center;vertical-align:top;}
+  .ratable td.radesk{display:none;}
+  .ramob{display:inline;}
+}
   .dtable th,.dtable td{border-bottom:1px solid var(--line); padding:5px 6px; text-align:right; font-variant-numeric:tabular-nums;}
   .dtable th:first-child,.dtable td:first-child{text-align:left;}
   .dtable th{color:var(--sub); font-weight:700; font-size:11px; letter-spacing:.04em; text-transform:uppercase;}
@@ -4746,6 +4765,10 @@ function audit(action,entity,entityId,prev,next,reason){
 }
 function itemPrefix(title){ return (title||'RA').replace(/[^A-Za-z]/g,'').slice(0,3).toUpperCase()||'RA'; }
 function raApprovedStatuses(){ return ['APPROVED','LEGACY-APPROVED']; }
+/* approval is a named appointment - the Safety Manager and Deputy Safety
+   Manager - not a role. The admin designates them on the Team page, and the
+   database enforces it whatever the screens show. */
+function canRaApprove(){ return !SB.profile || SB.profile.ra_approver===true; }
 function verLocked(v){ return raApprovedStatuses().concat(['SUPERSEDED']).includes(v.status); }
 function verStore(v){ return v.rev&&v.rev[0]==='M'?'raMasterVersions':'raProjectVersions'; }
 function findVer(id){ return db.raMasterVersions.find(v=>v.id===id)||db.raProjectVersions.find(v=>v.id===id); }
@@ -4784,7 +4807,7 @@ function raCreateDraftFrom(ver){
   save(); return cp;
 }
 function raApprove(ver){
-  if(!canRA()){ alert('Only company safety personnel can approve.'); return false; }
+  if(!canRaApprove()){ alert('Only the Safety Manager or Deputy Safety Manager can approve an RA revision.'); return false; }
   if(verLocked(ver)){ alert('This revision is locked.'); return false; }
   const isM=verStore(ver)==='raMasterVersions';
   const list=isM?db.raMasterVersions:db.raProjectVersions;
@@ -4959,11 +4982,40 @@ function waPinnedRaItems(wa){
 /* ---- screens ---- */
 function raItemsHtml(ver, editable){
   /* The classic RA table, grouped into numbered work-activity sections like
-     the paper form. Editing happens in the table itself. */
+     the paper form. Editing happens in the table itself. On any unapproved
+     revision, every difference against the last APPROVED revision is marked:
+     the approver sees at a glance what he is being asked to sign. */
   const items=ver.items||[];
   if(!items.length&&!editable) return '<div class="card"><div class="hint">No hazard items in this revision.</div></div>';
-  const rcell=(sv,lv)=>{ const n=(+sv||0)*(+lv||0); const bd=riskBand(n);
-    return '<td class="rar rar-'+bd[0]+'">'+n+'<div class="rarb">'+bd[1]+'</div></td>'; };
+
+  /* ---- diff against the last approved revision ---- */
+  let dv=null, prevRev='';
+  if(!verLocked(ver)){
+    const isM=!!ver.masterId;
+    const head=isM?db.raMasters.find(m=>m.id===ver.masterId):db.raAdoptions.find(a=>a.id===ver.adoptionId);
+    if(head&&head.currentVerId&&head.currentVerId!==ver.id){
+      const prev=findVer(head.currentVerId);
+      if(prev){ dv=raDiff(prev,ver); prevRev=prev.rev; }
+    }
+  }
+  const addedIds=new Set(dv?dv.added.map(i=>i.itemId):[]);
+  const chg=dv?Object.fromEntries(dv.changed.map(c=>[c.itemId,c])):{};
+  const FLBL={activity:'work activity',hazard:'hazard',consequence:'possible accident',resp:'risk owner',
+              s0:'initial S',l0:'initial L',s1:'residual S',l1:'residual L'};
+  const cellCls=(it,f)=>{ const c=chg[it.itemId];
+    return c&&c.changes.some(x=>x.field===f)?' class="rachg"':''; };
+  const ctlCls=(it)=>{ const c=chg[it.itemId];
+    return c&&(c.ctrlAdded.length||c.ctrlRemoved.length)?' rachg':''; };
+  const mark=it=>addedIds.has(it.itemId)
+    ?'<div class="chip g" style="margin-top:3px" title="New in this revision">NEW</div>'
+    :chg[it.itemId]
+      ?'<div class="chip w" style="margin-top:3px" title="Changed: '+esc(chg[it.itemId].changes.map(x=>FLBL[x.field]||x.field).join(', ')+
+        (chg[it.itemId].ctrlAdded.length?', +'+chg[it.itemId].ctrlAdded.length+' control(s)':'')+
+        (chg[it.itemId].ctrlRemoved.length?', −'+chg[it.itemId].ctrlRemoved.length+' control(s)':''))+'">Δ</div>'
+      :'';
+
+  const rcell=(sv,lv,lbl)=>{ const n=(+sv||0)*(+lv||0); const bd=riskBand(n);
+    return '<td class="rar rq rar-'+bd[0]+'" data-th="'+lbl+' R">'+n+'<div class="rarb">'+bd[1]+'</div></td>'; };
   const ctlCell=(list,i,kind)=>
     (list||[]).map((c,ci)=>'<div class="ractl">'+esc(c)+
       (editable?' <a data-rmctl'+kind+'="'+i+':'+ci+'" class="ractlx" title="Remove control">×</a>':'')+'</div>').join('')+
@@ -4971,7 +5023,7 @@ function raItemsHtml(ver, editable){
   const sel=(f,i,v)=>'<select data-if="'+f+'" data-idx="'+i+'" class="rasel">'+
     [1,2,3,4,5].map(n=>'<option'+(String(n)===String(v)?' selected':'')+'>'+n+'</option>').join('')+'</select>';
   const ta=(f,i,v)=>'<textarea data-if="'+f+'" data-idx="'+i+'" rows="2" class="rata">'+esc(v||'')+'</textarea>';
-  /* consecutive items sharing an activity form one numbered section */
+
   const groups=[];
   items.forEach((it,idx)=>{
     const g=groups[groups.length-1];
@@ -4990,20 +5042,21 @@ function raItemsHtml(ver, editable){
       '</td></tr>';
     return sec+g.rows.map(idx=>{
       const it=items[idx]; sn++;
-      return '<tr>'+
-        '<td class="rasn" title="'+esc(it.itemId||'')+'">'+sn+'</td>'+
-        '<td style="min-width:150px">'+(editable?ta('hazard',idx,it.hazard):esc(it.hazard||''))+'</td>'+
-        '<td style="min-width:130px">'+(editable?ta('consequence',idx,it.consequence):esc(it.consequence||''))+'</td>'+
-        '<td style="min-width:210px">'+ctlCell(it.controls,idx,'a')+'</td>'+
-        '<td>'+(editable?sel('s0',idx,it.s0):esc(String(it.s0||'')))+'</td>'+
-        '<td>'+(editable?sel('l0',idx,it.l0):esc(String(it.l0||'')))+'</td>'+
-        rcell(it.s0,it.l0)+
-        '<td style="min-width:200px">'+ctlCell(it.addControls,idx,'b')+'</td>'+
-        '<td>'+(editable?sel('s1',idx,it.s1):esc(String(it.s1||'')))+'</td>'+
-        '<td>'+(editable?sel('l1',idx,it.l1):esc(String(it.l1||'')))+'</td>'+
-        rcell(it.s1,it.l1)+
-        '<td style="min-width:110px">'+(editable?ta('resp',idx,it.resp):esc(it.resp||''))+'</td>'+
-        (editable?'<td class="rasn"><a data-rmitem="'+idx+'" class="ractlx" title="Remove hazard row">×</a></td>':'')+
+      return '<tr'+(addedIds.has(it.itemId)?' class="raadd"':'')+'>'+
+        '<td class="rasn" data-th="" title="'+esc(it.itemId||'')+'">'+sn+mark(it)+
+          (editable?'<a data-rmitem="'+idx+'" class="ractlx ramob" title="Remove hazard row" style="margin-left:auto">×</a>':'')+'</td>'+
+        '<td style="min-width:150px" data-th="Hazard Identified"'+cellCls(it,'hazard')+'>'+(editable?ta('hazard',idx,it.hazard):esc(it.hazard||''))+'</td>'+
+        '<td style="min-width:130px" data-th="Possible Accident / Ill-Health"'+cellCls(it,'consequence')+'>'+(editable?ta('consequence',idx,it.consequence):esc(it.consequence||''))+'</td>'+
+        '<td style="min-width:210px" data-th="Existing Risk Controls" class="'+ctlCls(it).trim()+'">'+ctlCell(it.controls,idx,'a')+'</td>'+
+        '<td class="rq'+(cellCls(it,'s0')?' rachg':'')+'" data-th="Initial S">'+(editable?sel('s0',idx,it.s0):esc(String(it.s0||'')))+'</td>'+
+        '<td class="rq'+(cellCls(it,'l0')?' rachg':'')+'" data-th="Initial L">'+(editable?sel('l0',idx,it.l0):esc(String(it.l0||'')))+'</td>'+
+        rcell(it.s0,it.l0,'Initial')+
+        '<td style="min-width:200px" data-th="Additional Control Measures" class="'+ctlCls(it).trim()+'">'+ctlCell(it.addControls,idx,'b')+'</td>'+
+        '<td class="rq'+(cellCls(it,'s1')?' rachg':'')+'" data-th="Residual S">'+(editable?sel('s1',idx,it.s1):esc(String(it.s1||'')))+'</td>'+
+        '<td class="rq'+(cellCls(it,'l1')?' rachg':'')+'" data-th="Residual L">'+(editable?sel('l1',idx,it.l1):esc(String(it.l1||'')))+'</td>'+
+        rcell(it.s1,it.l1,'Residual')+
+        '<td style="min-width:110px" data-th="Risk Owner"'+cellCls(it,'resp')+'>'+(editable?ta('resp',idx,it.resp):esc(it.resp||''))+'</td>'+
+        (editable?'<td class="rasn radesk" data-th=""><a data-rmitem="'+idx+'" class="ractlx" title="Remove hazard row">×</a></td>':'')+
       '</tr>';
     }).join('');
   }).join('');
@@ -5015,13 +5068,39 @@ function raItemsHtml(ver, editable){
     (editable?'<th rowspan="2"></th>':'')+
     '</tr><tr><th title="Severity">S</th><th title="Likelihood / frequency">L</th><th title="Risk = S × L">R</th>'+
     '<th title="Severity">S</th><th title="Likelihood / frequency">L</th><th title="Risk = S × L">R</th></tr></thead>';
+
+  /* what-changed summary for the approver */
+  let diffCard='';
+  if(dv&&(dv.added.length||dv.removed.length||dv.changed.length)){
+    const ctlAdd=dv.changed.reduce((n,c)=>n+c.ctrlAdded.length,0)+dv.added.reduce((n,i)=>n+(i.controls||[]).length+(i.addControls||[]).length,0);
+    const ctlRem=dv.changed.reduce((n,c)=>n+c.ctrlRemoved.length,0);
+    diffCard='<div class="card" style="border-left:4px solid var(--acc)">'+
+      '<b>Changes vs approved '+esc(prevRev)+'</b>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">'+
+        (dv.added.length?'<span class="chip g">'+dv.added.length+' hazard(s) added</span>':'')+
+        (dv.changed.length?'<span class="chip w">'+dv.changed.length+' item(s) edited</span>':'')+
+        (dv.removed.length?'<span class="chip b">'+dv.removed.length+' hazard(s) removed</span>':'')+
+        (ctlAdd?'<span class="chip g">+'+ctlAdd+' control(s)</span>':'')+
+        (ctlRem?'<span class="chip b">−'+ctlRem+' control(s)</span>':'')+
+      '</div>'+
+      '<div class="hint" style="margin-top:6px">Green rows are new; Δ rows changed — the amber cells are exactly what moved. Removed hazards are listed under the table.</div>'+
+    '</div>';
+  }else if(dv){
+    diffCard='<div class="card"><div class="hint">No differences against approved '+esc(prevRev)+' yet.</div></div>';
+  }
+  const removedStrip=(dv&&dv.removed.length)
+    ?'<div class="card" style="border-left:4px solid var(--bad-ink,#c5221f)"><b>Removed in this revision ('+dv.removed.length+')</b>'+
+      dv.removed.map(i=>'<div class="hint">− '+esc(i.hazard||i.itemId||'')+'</div>').join('')+'</div>'
+    :'';
+
   const hist=[];
   if(!editable) items.forEach(it=>(it.changeLog||[]).forEach(cl=>
     hist.push('<div class="hint"><b>'+esc(it.itemId||'')+'</b> · '+esc(cl.rev||'')+': '+esc(cl.change||'')+
       (cl.reason?' — '+esc(cl.reason):'')+'</div>')));
-  return '<div class="card" style="overflow-x:auto;padding:8px">'+
+  return diffCard+
+    '<div class="card" style="overflow-x:auto;padding:8px">'+
       '<table class="ratable">'+headRow+'<tbody>'+body+'</tbody></table>'+
-    '</div>'+
+    '</div>'+removedStrip+
     (hist.length?'<details class="card" style="padding:12px"><summary>Change history ('+hist.length+')</summary>'+
       hist.join('')+'</details>':'');
 }
@@ -5103,7 +5182,7 @@ function renderRaVer(verId){
     '<div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
       statusChip(v.status)+
       (v.basedOnMasterRev?'<span class="chip n">based on master '+esc(v.basedOnMasterRev)+'</span>':'')+
-      (v.approvedAt?'<span class="chip g">approved '+fmtD(v.approvedAt.slice(0,10))+' by '+esc(v.approvedBy)+'</span>':'')+
+      (v.approvedAt?'<span class="chip g" style="white-space:normal;min-width:0">approved '+fmtD(v.approvedAt.slice(0,10))+' by '+esc(v.approvedBy)+'</span>':'')+
       (verLocked(v)?'<span class="chip b">LOCKED — create a revision to change</span>':'')+
     '</div>'+(v.note?'<div class="hint" style="margin-top:6px">'+esc(v.note)+'</div>':'')+
     (v.provenance?'<div class="hint">Source: legacy record '+esc(v.provenance.store)+'/'+esc(v.provenance.id)+' (retained unchanged)</div>':'')+
@@ -5115,7 +5194,8 @@ function renderRaVer(verId){
     '<div class="btnrow">'+
       (editable?'<button class="btn" id="raSaveDraft">Save draft</button>':'')+
       (editable&&v.status==='DRAFT'?'<button class="btn ghost" id="raSubmitBtn">Submit for approval</button>':'')+
-      (v.status==='SUBMITTED'&&canRA()?'<button class="btn" id="raApproveBtn">Approve &amp; lock '+esc(v.rev)+'</button>':'')+
+      (v.status==='SUBMITTED'&&canRaApprove()?'<button class="btn" id="raApproveBtn">Approve &amp; lock '+esc(v.rev)+'</button>':'')+
+      (v.status==='SUBMITTED'&&!canRaApprove()?'<span class="chip w" style="align-self:center">Awaiting the Safety Manager / Deputy</span>':'')+
       (verLocked(v)?'<button class="btn" id="raReviseBtn">Revise this RA</button>':'')+
       '<button class="btn ghost" id="raPrintBtn">Print / PDF</button>'+
       '<button class="btn ghost" onclick="history.back()">Back</button>'+
@@ -5212,6 +5292,8 @@ function raBindComments(ver, verId){
   });
 }
 function renderRaSys(){
+  /* the approver sees at once what is waiting on him */
+  window._raPend=db.raProjectVersions.filter(v=>v.status==='SUBMITTED').length;
   raWrapLegacy();
   const subconMode=SB.profile&&SB.profile.role==='subcon';
   let ads=db.raAdoptions;
@@ -5240,7 +5322,22 @@ function renderRaSys(){
       '<button class="btn ghost" style="flex:1" onclick="location.hash=\'#/rareviews\'">Review triggers'+
         (db.reviewTriggers.filter(t=>t.status==='OPEN').length?' ('+db.reviewTriggers.filter(t=>t.status==='OPEN').length+')':'')+'</button>'+
     '</div>':'')+
-    (rows||'<div class="empty">No versioned RA/SWPs in this project yet.<br>Adopt one from the company master library, or your legacy register was empty.</div>');
+    (window._raPend&&canRaApprove()
+      ?'<div class="card" style="border-color:#b06000"><b>'+window._raPend+' revision'+(window._raPend===1?'':'s')+
+        ' awaiting your approval</b><div class="hint">Open the adoption, then the SUBMITTED revision — the changes are highlighted for you.</div></div>'
+      :'')+
+    (rows||(function(){
+      /* empty here, but not everywhere: point at the project that has them -
+         an HQ phone parked on the wrong project looks exactly like "no RAs" */
+      const els=root.projects.filter(pp=>pp.id!==root.cur&&(pp.raAdoptions||[]).length);
+      if(!els.length) return '<div class="empty">No versioned RA/SWPs in this project yet.<br>Adopt one from the company master library, or your legacy register was empty.</div>';
+      return '<div class="empty">No RA/SWPs in <b>'+esc(db.settings.project||'this project')+'</b>.</div>'+
+        '<div class="card"><b>They exist in another project:</b><div class="btnrow" style="margin-top:8px;flex-wrap:wrap">'+
+        els.map(pp=>'<button class="btn ghost" style="flex:1;min-width:170px" data-goproj="'+pp.id+'">'+
+          esc(pp.settings.project||'(unnamed)')+' — '+(pp.raAdoptions||[]).length+' RA/SWP(s)</button>').join('')+
+        '</div></div>';
+    })());
+  app.querySelectorAll('[data-goproj]').forEach(b=>b.onclick=()=>{ switchProject(b.dataset.goproj); route(); });
 }
 function renderRaDetail(adoptionId){
   const a=db.raAdoptions.find(x=>x.id===adoptionId);
@@ -9870,6 +9967,11 @@ async function renderTeam(){
   const hqSel=r=>['admin','hr'].includes(r.role)?'<span class="chip g">HQ</span>':
     (r.role==='subcon'?'':'<select data-hq="'+r.id+'" style="'+selSt+'">'+
       '<option value=""'+(r.hq?'':' selected')+'>Project</option><option value="1"'+(r.hq?' selected':'')+'>HQ</option></select>');
+  const raapSel=r=>(['wsho','admin'].includes(r.role))
+    ?'<select data-raap="'+r.id+'" style="'+selSt+'" title="Who may approve RA revisions — the Safety Manager and Deputy only">'+
+      '<option value=""'+(r.ra_approver?'':' selected')+'>—</option>'+
+      '<option value="1"'+(r.ra_approver?' selected':'')+'>RA approver</option></select>'
+    :'';
   const pjSel=r=>(['admin','hr'].includes(r.role)||r.hq)?'':
     '<select data-proj4="'+r.id+'" style="'+selSt+';max-width:130px">'+
     '<option value="">All projects</option>'+root.projects.map(p=>'<option value="'+p.id+'"'+(r.project_id===p.id?' selected':'')+'>'+esc(p.settings.project||'(unnamed)')+'</option>').join('')+'</select>';
@@ -9896,7 +9998,7 @@ async function renderTeam(){
         ((r.hq||['admin','hr'].includes(r.role))?'HQ · ':(r.project_id?esc(projName(r.project_id))+' · ':'all projects · '))+
         'joined '+fmtD((r.created_at||'').slice(0,10))+'</div></div>'+
       '<div class="lmeta" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+(r.id===SB.profile.id?'<span class="chip">'+esc(r.role)+'</span>':
-        roleSel(r.role,r.id)+hqSel(r)+pjSel(r)+' <button class="btn danger" style="min-height:34px;padding:5px 10px" data-rm="'+r.id+'" data-em="'+esc(r.email||'')+'">Remove</button>')+
+        roleSel(r.role,r.id)+hqSel(r)+pjSel(r)+raapSel(r)+' <button class="btn danger" style="min-height:34px;padding:5px 10px" data-rm="'+r.id+'" data-em="'+esc(r.email||'')+'">Remove</button>')+
       '</div></div>').join('')+
     '</div>';
   const invRole=document.getElementById('invRole'), invSubWrap=document.getElementById('invSubWrap');
@@ -9932,7 +10034,9 @@ async function renderTeam(){
       role:roleEl?roleEl.value:r.role,
       subcon:r.subcon||null,
       hq:hqEl?hqEl.value==='1':!!r.hq,
-      projectId:pjEl?(pjEl.value||null):(r.project_id||null)};
+      projectId:pjEl?(pjEl.value||null):(r.project_id||null),
+      raApprover:(()=>{ const e=app.querySelector('[data-raap="'+id+'"]');
+        return e?e.value==='1':r.ra_approver===true; })()};
     Object.assign(payload, patch||{});
     if(payload.role==='subcon'&&!payload.subcon){
       payload.subcon=prompt('Subcontractor company name (exactly as typed on records):');
@@ -9945,6 +10049,7 @@ async function renderTeam(){
   app.querySelectorAll('[data-role]').forEach(sel=>sel.onchange=()=>updateUser(sel.dataset.role,{role:sel.value}));
   app.querySelectorAll('[data-hq]').forEach(sel=>sel.onchange=()=>updateUser(sel.dataset.hq,{hq:sel.value==='1'}));
   app.querySelectorAll('[data-proj4]').forEach(sel=>sel.onchange=()=>updateUser(sel.dataset.proj4,{projectId:sel.value||null}));
+  app.querySelectorAll('[data-raap]').forEach(sel=>sel.onchange=()=>updateUser(sel.dataset.raap,{raApprover:sel.value==='1'}));
   app.querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{
     if(!confirm('Remove '+(b.dataset.em||'this user')+'? They lose access immediately; records they created stay.')) return;
     try{ await sbTeamCall({action:'remove', userId:b.dataset.rm}); toast('Removed'); }

@@ -53,11 +53,15 @@ Deno.serve(async (req) => {
       if (b.userId === user.id) return json({ error: "Change your own role via another admin" }, 400);
       const { data: target } = await admin.from("profiles").select("org_id").eq("id", b.userId).single();
       if (!target || target.org_id !== me.org_id) return json({ error: "Not in your org" }, 404);
-      await admin.from("profiles").update({
+      const upd: Record<string, unknown> = {
         role, subcon: role === "subcon" ? (b.subcon || null) : null,
         hq: ["admin", "hr"].includes(role) ? false : !!b.hq,
         project_id: b.projectId ? String(b.projectId) : null,
-      }).eq("id", b.userId);
+      };
+      // RA approval is a named appointment (Safety Manager / Deputy) the
+      // admin grants here; only touch it when the client actually sent it
+      if ("raApprover" in b) upd.ra_approver = b.raApprover === true;
+      await admin.from("profiles").update(upd).eq("id", b.userId);
       return json({ ok: true });
     }
 
