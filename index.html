@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-09-07-0900">
+<meta name="build" content="2026-09-07-1400">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -274,6 +274,20 @@
   .tip{position:fixed; display:none; z-index:50; background:var(--ink); color:var(--bg); font-size:12.5px; font-weight:600;
        padding:5px 9px; border-radius:4px; pointer-events:none; max-width:240px;}
   .dtable{width:100%; border-collapse:collapse; font-size:12.5px; margin-top:6px;}
+/* the classic RA table - mirrors the paper form */
+.ratable{border-collapse:collapse;width:100%;min-width:1100px;font-size:12px;}
+.ratable th,.ratable td{border:1px solid var(--line);padding:5px 6px;vertical-align:top;text-align:left;}
+.ratable thead th{background:var(--chip,#eef1f3);font-size:10px;text-transform:uppercase;letter-spacing:.04em;text-align:center;color:var(--sub);}
+.ratable td.rasn{text-align:center;color:var(--sub);width:34px;}
+.ratable td.rar{text-align:center;font-weight:800;width:42px;}
+.rar-b{background:rgba(197,34,31,.16);} .rar-w{background:rgba(176,96,0,.16);} .rar-g{background:rgba(10,122,61,.13);}
+.rarb{font-size:9px;font-weight:600;color:var(--sub);}
+.rasec td{background:var(--chip,#eef1f3);font-size:12.5px;}
+.ractl{padding:2px 0;border-bottom:1px dashed var(--line);} .ractl:last-of-type{border-bottom:0;}
+.ractlx{cursor:pointer;color:var(--bad-ink,#c5221f);font-weight:700;padding:0 4px;}
+.ractladd{width:100%;margin-top:4px;font-size:11.5px;min-height:30px;padding:3px 6px;}
+.rata{width:100%;min-height:46px;font-size:12px;padding:4px;resize:vertical;}
+.rasel{min-height:30px;padding:2px 3px;}
   .dtable th,.dtable td{border-bottom:1px solid var(--line); padding:5px 6px; text-align:right; font-variant-numeric:tabular-nums;}
   .dtable th:first-child,.dtable td:first-child{text-align:left;}
   .dtable th{color:var(--sub); font-weight:700; font-size:11px; letter-spacing:.04em; text-transform:uppercase;}
@@ -4719,7 +4733,12 @@ function renderRaImport(){
 /* ---- helpers ---- */
 function raNow(){ return new Date().toISOString(); }
 function raWho(){ return SB.profile?(SB.profile.email||SB.profile.id):'local-device'; }
-function revNext(rev){ const m=/^([MP])(\d+)$/.exec(rev||''); return m?m[1]+String(+m[2]+1).padStart(2,'0'):(rev||'')+'+1'; }
+function revNext(rev){
+  const m=/^([MP])(\d+)$/.exec(rev||'');
+  if(m) return m[1]+String(+m[2]+1).padStart(2,'0');
+  const t=/^(.*?)(\d+)\s*$/.exec(rev||'');        /* 'Rev 2' -> 'Rev 3' (migrated docs) */
+  return t?t[1]+(+t[2]+1):(rev||'Rev 0')+' A';
+}
 function riskBand(n){ return n>=15?['b','High']:n>=6?['w','Med']:['g','Low']; }
 function audit(action,entity,entityId,prev,next,reason){
   db.auditEvents.push({id:uid(), at:raNow(), who:raWho(), action, entity, entityId,
@@ -4939,45 +4958,124 @@ function waPinnedRaItems(wa){
 
 /* ---- screens ---- */
 function raItemsHtml(ver, editable){
-  const risk=(s,l)=>{ const n=(+s||0)*(+l||0); const b=riskBand(n);
-    return '<span class="chip '+b[0]+'">'+n+' '+b[1]+'</span>'; };
-  return (ver.items||[]).map((it,idx)=>{
-    const ctl=[...(it.controls||[]).map(c=>[c,0]),...(it.addControls||[]).map(c=>[c,1])];
-    return '<div class="card" data-item="'+idx+'" style="border-left:3px solid var(--acc)">'+
-      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
-        '<span class="chip">'+esc(it.itemId)+'</span>'+
-        (it.origin==='project'?'<span class="chip w">project-specific</span>':'')+
-        '<div class="spacer" style="flex:1"></div>'+
-        'Initial '+risk(it.s0,it.l0)+' &rarr; Residual '+risk(it.s1,it.l1)+
-        (editable?' <button class="iconbtn" data-rmitem="'+idx+'" title="Remove" style="width:30px;height:30px;color:var(--bad-ink)">×</button>':'')+
-      '</div>'+
+  /* The classic RA table, grouped into numbered work-activity sections like
+     the paper form. Editing happens in the table itself. */
+  const items=ver.items||[];
+  if(!items.length&&!editable) return '<div class="card"><div class="hint">No hazard items in this revision.</div></div>';
+  const rcell=(sv,lv)=>{ const n=(+sv||0)*(+lv||0); const bd=riskBand(n);
+    return '<td class="rar rar-'+bd[0]+'">'+n+'<div class="rarb">'+bd[1]+'</div></td>'; };
+  const ctlCell=(list,i,kind)=>
+    (list||[]).map((c,ci)=>'<div class="ractl">'+esc(c)+
+      (editable?' <a data-rmctl'+kind+'="'+i+':'+ci+'" class="ractlx" title="Remove control">×</a>':'')+'</div>').join('')+
+    (editable?'<input data-newctl'+kind+'="'+i+'" class="ractladd" placeholder="+ add measure, press Enter">':'');
+  const sel=(f,i,v)=>'<select data-if="'+f+'" data-idx="'+i+'" class="rasel">'+
+    [1,2,3,4,5].map(n=>'<option'+(String(n)===String(v)?' selected':'')+'>'+n+'</option>').join('')+'</select>';
+  const ta=(f,i,v)=>'<textarea data-if="'+f+'" data-idx="'+i+'" rows="2" class="rata">'+esc(v||'')+'</textarea>';
+  /* consecutive items sharing an activity form one numbered section */
+  const groups=[];
+  items.forEach((it,idx)=>{
+    const g=groups[groups.length-1];
+    if(g&&(it.activity||'')===g.activity) g.rows.push(idx);
+    else groups.push({activity:it.activity||'', rows:[idx]});
+  });
+  const cols=editable?13:12;
+  let sn=0;
+  const body=groups.map((g,gi)=>{
+    const sec='<tr class="rasec"><td colspan="'+cols+'">'+
       (editable
-        ?'<div class="fgrid">'+
-          '<div class="fld"><label>Work activity</label><input data-if="activity" data-idx="'+idx+'" value="'+esc(it.activity)+'"></div>'+
-          '<div class="fld half"><label>Hazard</label><textarea data-if="hazard" data-idx="'+idx+'" rows="2">'+esc(it.hazard)+'</textarea></div>'+
-          '<div class="fld half"><label>Possible consequence</label><textarea data-if="consequence" data-idx="'+idx+'" rows="2">'+esc(it.consequence)+'</textarea></div>'+
-          '<div class="fld half"><label>Initial S × L</label><div style="display:flex;gap:6px">'+
-            '<select data-if="s0" data-idx="'+idx+'">'+[1,2,3,4,5].map(n=>'<option'+(String(n)===String(it.s0)?' selected':'')+'>'+n+'</option>').join('')+'</select>'+
-            '<select data-if="l0" data-idx="'+idx+'">'+[1,2,3,4,5].map(n=>'<option'+(String(n)===String(it.l0)?' selected':'')+'>'+n+'</option>').join('')+'</select></div></div>'+
-          '<div class="fld half"><label>Residual S × L</label><div style="display:flex;gap:6px">'+
-            '<select data-if="s1" data-idx="'+idx+'">'+[1,2,3,4,5].map(n=>'<option'+(String(n)===String(it.s1)?' selected':'')+'>'+n+'</option>').join('')+'</select>'+
-            '<select data-if="l1" data-idx="'+idx+'">'+[1,2,3,4,5].map(n=>'<option'+(String(n)===String(it.l1)?' selected':'')+'>'+n+'</option>').join('')+'</select></div></div>'+
-          '<div class="fld"><label>Controls</label><div class="tbx-chips">'+
-            ctl.map((c,ci)=>'<span class="tbx-chip" style="cursor:default">'+esc(c[0])+
-              ' <a data-rmctl="'+idx+':'+ci+'" style="cursor:pointer;color:var(--bad-ink)">×</a></span>').join('')+
-            '</div><div style="display:flex;gap:6px;margin-top:6px">'+
-            '<input data-newctl="'+idx+'" placeholder="Add a control and press Enter" style="flex:1">'+
-          '</div></div>'+
-          '<div class="fld half"><label>Responsible</label><input data-if="resp" data-idx="'+idx+'" value="'+esc(it.resp)+'"></div>'+
-        '</div>'
-        :'<div style="margin-top:8px"><b>'+esc(it.hazard||'(hazard)')+'</b>'+
-          (it.consequence?'<div class="hint">'+esc(it.consequence)+'</div>':'')+
-          '<div class="tbx-chips" style="margin-top:6px">'+ctl.map(c=>'<span class="tbx-chip" style="cursor:default">'+esc(c[0])+'</span>').join('')+'</div>'+
-          (it.resp?'<div class="hint" style="margin-top:4px">Responsible: '+esc(it.resp)+'</div>':'')+'</div>')+
-      ((it.changeLog||[]).length?'<details style="margin-top:8px"><summary>History ('+(it.changeLog||[]).length+')</summary>'+
-        (it.changeLog||[]).map(cl=>'<div class="hint">'+esc(cl.rev)+': '+esc(cl.change)+(cl.reason?' — '+esc(cl.reason):'')+'</div>').join('')+'</details>':'')+
-    '</div>';
+        ?'<div style="display:flex;gap:8px;align-items:center"><span class="chip n" style="flex:none">'+(gi+1)+'</span>'+
+          '<input data-actgrp="'+g.rows.join(',')+'" value="'+esc(g.activity)+'" placeholder="Work activity / process" style="flex:1;font-weight:700">'+
+          '<button class="minor" data-additem="'+g.rows[g.rows.length-1]+'" style="flex:none;margin:0">+ hazard</button></div>'
+        :'<b>'+(gi+1)+' — '+esc(g.activity||'(general)')+'</b>')+
+      '</td></tr>';
+    return sec+g.rows.map(idx=>{
+      const it=items[idx]; sn++;
+      return '<tr>'+
+        '<td class="rasn" title="'+esc(it.itemId||'')+'">'+sn+'</td>'+
+        '<td style="min-width:150px">'+(editable?ta('hazard',idx,it.hazard):esc(it.hazard||''))+'</td>'+
+        '<td style="min-width:130px">'+(editable?ta('consequence',idx,it.consequence):esc(it.consequence||''))+'</td>'+
+        '<td style="min-width:210px">'+ctlCell(it.controls,idx,'a')+'</td>'+
+        '<td>'+(editable?sel('s0',idx,it.s0):esc(String(it.s0||'')))+'</td>'+
+        '<td>'+(editable?sel('l0',idx,it.l0):esc(String(it.l0||'')))+'</td>'+
+        rcell(it.s0,it.l0)+
+        '<td style="min-width:200px">'+ctlCell(it.addControls,idx,'b')+'</td>'+
+        '<td>'+(editable?sel('s1',idx,it.s1):esc(String(it.s1||'')))+'</td>'+
+        '<td>'+(editable?sel('l1',idx,it.l1):esc(String(it.l1||'')))+'</td>'+
+        rcell(it.s1,it.l1)+
+        '<td style="min-width:110px">'+(editable?ta('resp',idx,it.resp):esc(it.resp||''))+'</td>'+
+        (editable?'<td class="rasn"><a data-rmitem="'+idx+'" class="ractlx" title="Remove hazard row">×</a></td>':'')+
+      '</tr>';
+    }).join('');
   }).join('');
+  const headRow='<thead><tr>'+
+    '<th rowspan="2">S/N</th><th rowspan="2">Hazard Identified</th>'+
+    '<th rowspan="2">Possible Accident / Ill-Health</th><th rowspan="2">Existing Risk Controls</th>'+
+    '<th colspan="3">Initial Risk</th><th rowspan="2">Additional Control Measures</th>'+
+    '<th colspan="3">Residual Risk</th><th rowspan="2">Risk Owner</th>'+
+    (editable?'<th rowspan="2"></th>':'')+
+    '</tr><tr><th title="Severity">S</th><th title="Likelihood / frequency">L</th><th title="Risk = S × L">R</th>'+
+    '<th title="Severity">S</th><th title="Likelihood / frequency">L</th><th title="Risk = S × L">R</th></tr></thead>';
+  const hist=[];
+  if(!editable) items.forEach(it=>(it.changeLog||[]).forEach(cl=>
+    hist.push('<div class="hint"><b>'+esc(it.itemId||'')+'</b> · '+esc(cl.rev||'')+': '+esc(cl.change||'')+
+      (cl.reason?' — '+esc(cl.reason):'')+'</div>')));
+  return '<div class="card" style="overflow-x:auto;padding:8px">'+
+      '<table class="ratable">'+headRow+'<tbody>'+body+'</tbody></table>'+
+    '</div>'+
+    (hist.length?'<details class="card" style="padding:12px"><summary>Change history ('+hist.length+')</summary>'+
+      hist.join('')+'</details>':'');
+}
+/* per-item change history, written automatically when a draft is saved */
+function raLogDraftChanges(){
+  if(!RAED||!RAED.orig) return;
+  const before=Object.fromEntries((RAED.orig.items||[]).map(i=>[i.itemId,i]));
+  const who=raWho();
+  (RAED.ver.items||[]).forEach(it=>{
+    const o=before[it.itemId];
+    const log=m=>{ (it.changeLog=it.changeLog||[]).push({rev:RAED.ver.rev, change:m, reason:'edited by '+who}); };
+    if(!o){ log('Hazard added'); return; }
+    [['activity','work activity'],['hazard','hazard'],['consequence','possible accident'],['resp','risk owner']]
+      .forEach(([f,lbl])=>{ if((o[f]||'')!==(it[f]||'')) log(lbl+' updated'); });
+    if(String(o.s0)!==String(it.s0)||String(o.l0)!==String(it.l0)) log('initial risk '+o.s0+'×'+o.l0+' → '+it.s0+'×'+it.l0);
+    if(String(o.s1)!==String(it.s1)||String(o.l1)!==String(it.l1)) log('residual risk '+o.s1+'×'+o.l1+' → '+it.s1+'×'+it.l1);
+    [['controls','existing control'],['addControls','additional control']].forEach(([k,lbl])=>{
+      (it[k]||[]).filter(c=>!(o[k]||[]).includes(c)).forEach(c=>log(lbl+' added: '+c.slice(0,60)));
+      (o[k]||[]).filter(c=>!(it[k]||[]).includes(c)).forEach(c=>log(lbl+' removed: '+c.slice(0,60)));
+    });
+  });
+  const nowIds=new Set((RAED.ver.items||[]).map(i=>i.itemId));
+  (RAED.orig.items||[]).filter(i=>!nowIds.has(i.itemId)).forEach(i=>
+    audit('item-removed','raVersion',RAED.ver.id,null,{itemId:i.itemId, hazard:(i.hazard||'').slice(0,60)}));
+  RAED.orig=structuredClone(RAED.ver);
+}
+/* a real document: the same classic table through the normal PDF pipeline */
+async function raPrintDoc(v, head){
+  const style='<style>'+
+    '.ratable{border-collapse:collapse;width:100%;min-width:0;font-size:9px}'+
+    '.ratable th,.ratable td{border:1px solid #9aa0a6;padding:3px 4px;vertical-align:top;text-align:left}'+
+    '.ratable thead th{background:#e8ebee;font-size:8px;text-transform:uppercase;text-align:center}'+
+    '.ratable td.rasn{text-align:center}.ratable td.rar{text-align:center;font-weight:700}'+
+    '.rar-b{background:#f6d3d1}.rar-w{background:#f8e3c2}.rar-g{background:#d9eee1}'+
+    '.rarb{font-size:7px;color:#555}.rasec td{background:#e8ebee;font-weight:700}'+
+    '.ractl{padding:1px 0;border-bottom:1px dashed #ccc}.ractl:last-of-type{border-bottom:0}'+
+    '.ratable .card{border:0;padding:0;margin:0}'+
+    '</style>';
+  const row=(k,val)=>'<tr><td style="width:26%;text-align:left">'+k+'</td><td style="text-align:left">'+val+'</td></tr>';
+  const metaT='<table class="dtable" style="width:100%;margin-bottom:8px">'+
+    row('Activity / Process','<b>'+esc(head.title||'')+'</b>')+
+    row('Revision',esc(v.rev||'')+' · '+esc(v.status||''))+
+    row('Project',esc(db.settings.project||''))+
+    (v.approvedBy?row('Approved by',esc(v.approvedBy)+(v.approvedAt?' on '+esc(fmtD(String(v.approvedAt).slice(0,10))):'')):'')+
+    (v.note?row('Notes',esc(v.note)):'')+
+    '</table>';
+  const body=style+'<div class="doctitle">Risk Assessment — '+esc(head.title||'')+' ('+esc(v.rev||'')+')</div>'+
+    metaT+raItemsHtml(v,false)+
+    ((v.swpSteps||[]).length?'<div style="font-size:11px;font-weight:800;text-transform:uppercase;color:#666;margin-top:10px">Safe work procedure</div>'+
+      '<table class="dtable" style="width:100%">'+(v.swpSteps||[]).map(sp=>'<tr><td style="width:60px">'+esc(sp.stepId||'')+
+      '</td><td style="text-align:left">'+esc(sp.text||'')+'</td></tr>').join('')+'</table>':'');
+  audit('export-generated','raVersion',v.id,null,{format:'pdf-doc', rev:v.rev});
+  await saveOrDownload('RA-SWP','RA - '+(head.title||'ra').replace(/[\\/:*?"<>|]/g,' ')+' '+(v.rev||'')+'.html',
+    reportDocHtml('Risk Assessment — '+(head.title||''), body),'text/html');
 }
 function raStepsHtml(ver, editable){
   const steps=(ver.swpSteps||[]);
@@ -4998,7 +5096,7 @@ function renderRaVer(verId){
   const isM=verStore(ver)==='raMasterVersions';
   const head=isM?db.raMasters.find(m=>m.id===ver.masterId):db.raAdoptions.find(a=>a.id===ver.adoptionId);
   const editable=!verLocked(ver)&&canRA()||(!verLocked(ver)&&SB.profile&&SB.profile.role==='subcon');
-  if(editable){ if(!RAED||RAED.ver.id!==ver.id) RAED={ver}; }
+  if(editable){ if(!RAED||RAED.ver.id!==ver.id) RAED={ver, orig:structuredClone(ver)}; }
   else RAED=null;
   const v=editable?RAED.ver:ver;
   app.innerHTML=header((head?head.title:'RA')+' — '+v.rev, true)+
@@ -5011,28 +5109,40 @@ function renderRaVer(verId){
     (v.provenance?'<div class="hint">Source: legacy record '+esc(v.provenance.store)+'/'+esc(v.provenance.id)+' (retained unchanged)</div>':'')+
     '</div>'+
     raItemsHtml(v, editable)+
-    (editable?'<button class="minor" id="raAddItem" style="margin-bottom:12px">+ Add hazard item</button>':'')+
+    (editable?'<button class="minor" id="raAddItem" style="margin-bottom:12px">+ Add work activity section</button>':'')+
     raStepsHtml(v, editable)+
     raCommentsHtml(v)+
     '<div class="btnrow">'+
       (editable?'<button class="btn" id="raSaveDraft">Save draft</button>':'')+
       (editable&&v.status==='DRAFT'?'<button class="btn ghost" id="raSubmitBtn">Submit for approval</button>':'')+
       (v.status==='SUBMITTED'&&canRA()?'<button class="btn" id="raApproveBtn">Approve &amp; lock '+esc(v.rev)+'</button>':'')+
-      (verLocked(v)?'<button class="btn ghost" id="raReviseBtn">Create revision</button>':'')+
+      (verLocked(v)?'<button class="btn" id="raReviseBtn">Revise this RA</button>':'')+
+      '<button class="btn ghost" id="raPrintBtn">Print / PDF</button>'+
       '<button class="btn ghost" onclick="history.back()">Back</button>'+
     '</div>';
   if(editable){
     app.querySelectorAll('[data-if]').forEach(el=>el.addEventListener('change',()=>{
-      RAED.ver.items[+el.dataset.idx][el.dataset.if]=el.value; }));
-    app.querySelectorAll('[data-newctl]').forEach(el=>el.addEventListener('keydown',e=>{
-      if(e.key==='Enter'&&el.value.trim()){ const it=RAED.ver.items[+el.dataset.newctl];
-        (it.addControls=it.addControls||[]).push(el.value.trim()); renderRaVer(verId); } }));
-    app.querySelectorAll('[data-rmctl]').forEach(el=>el.onclick=()=>{
-      const [i,ci]=el.dataset.rmctl.split(':').map(Number);
-      const it=RAED.ver.items[i]; const all=[...(it.controls||[]),...(it.addControls||[])];
-      const val=all[ci];
-      it.controls=(it.controls||[]).filter(c=>c!==val); it.addControls=(it.addControls||[]).filter(c=>c!==val);
+      RAED.ver.items[+el.dataset.idx][el.dataset.if]=el.value;
+      /* score changes repaint so the R cell recomputes */
+      if(['s0','l0','s1','l1'].includes(el.dataset.if)) renderRaVer(verId); }));
+    app.querySelectorAll('[data-newctla],[data-newctlb]').forEach(el=>el.addEventListener('keydown',e=>{
+      if(e.key==='Enter'&&el.value.trim()){
+        const ex=el.dataset.newctla!==undefined;
+        const it=RAED.ver.items[+(ex?el.dataset.newctla:el.dataset.newctlb)];
+        const k=ex?'controls':'addControls';
+        (it[k]=it[k]||[]).push(el.value.trim()); renderRaVer(verId); } }));
+    app.querySelectorAll('[data-rmctla],[data-rmctlb]').forEach(el=>el.onclick=()=>{
+      const ex=el.dataset.rmctla!==undefined;
+      const parts=(ex?el.dataset.rmctla:el.dataset.rmctlb).split(':').map(Number);
+      (RAED.ver.items[parts[0]][ex?'controls':'addControls']||[]).splice(parts[1],1);
       renderRaVer(verId); });
+    app.querySelectorAll('[data-actgrp]').forEach(el=>el.addEventListener('change',()=>{
+      el.dataset.actgrp.split(',').forEach(i=>{ RAED.ver.items[+i].activity=el.value; }); }));
+    app.querySelectorAll('[data-additem]').forEach(el=>el.onclick=()=>{
+      const after=+el.dataset.additem;
+      const ni=raNewItem(head);
+      ni.activity=RAED.ver.items[after]?RAED.ver.items[after].activity||'':'';
+      RAED.ver.items.splice(after+1,0,ni); save(); renderRaVer(verId); });
     app.querySelectorAll('[data-rmitem]').forEach(el=>el.onclick=()=>{
       if(confirm('Remove this hazard item from the draft?')){ RAED.ver.items.splice(+el.dataset.rmitem,1); renderRaVer(verId); } });
     app.querySelectorAll('[data-step]').forEach(el=>el.addEventListener('change',()=>{
@@ -5040,13 +5150,17 @@ function renderRaVer(verId){
     app.querySelectorAll('[data-rmstep]').forEach(el=>el.onclick=()=>{
       RAED.ver.swpSteps.splice(+el.dataset.rmstep,1); renderRaVer(verId); });
     const ai=document.getElementById('raAddItem');
-    if(ai) ai.onclick=()=>{ RAED.ver.items.push(raNewItem(head)); save(); renderRaVer(verId); };
+    if(ai) ai.onclick=()=>{
+      const nm=prompt('Name of the work activity / process for the new section:'); if(nm===null) return;
+      const ni=raNewItem(head); ni.activity=(nm||'').trim();
+      RAED.ver.items.push(ni); save(); renderRaVer(verId); };
     const as=document.getElementById('raAddStep');
     if(as) as.onclick=()=>{ RAED.ver.swpSteps=RAED.ver.swpSteps||[];
       RAED.ver.swpSteps.push({stepId:'S'+String(RAED.ver.swpSteps.length+1).padStart(2,'0'), text:''}); renderRaVer(verId); };
     const sd=document.getElementById('raSaveDraft');
-    if(sd) sd.onclick=()=>{ Object.assign(ver,RAED.ver); audit('edited', 'raVersion', ver.id, null, {rev:ver.rev});
-      save(); toast('Draft saved'); };
+    if(sd) sd.onclick=()=>{ raLogDraftChanges(); Object.assign(ver,RAED.ver);
+      audit('edited', 'raVersion', ver.id, null, {rev:ver.rev});
+      save(); toast('Draft saved'); renderRaVer(verId); };
     const sb=document.getElementById('raSubmitBtn');
     if(sb) sb.onclick=()=>{ Object.assign(ver,RAED.ver); raSubmit(ver); renderRaVer(verId); };
   }
@@ -5054,6 +5168,9 @@ function renderRaVer(verId){
   if(ap) ap.onclick=()=>{ if(confirm('Approve and permanently lock '+ver.rev+'? Superseded revisions stay retrievable.')){ raApprove(ver); renderRaVer(verId); } };
   const rv=document.getElementById('raReviseBtn');
   if(rv) rv.onclick=()=>{ const d=raCreateDraftFrom(ver); if(d) location.hash='#/raver/'+d.id; };
+  const pb=document.getElementById('raPrintBtn');
+  if(pb) pb.onclick=async()=>{ pb.disabled=true; const t=pb.textContent; pb.textContent='Building …';
+    try{ await raPrintDoc(v, head||{title:'RA'}); }finally{ pb.disabled=false; pb.textContent=t; } };
   raBindComments(ver, verId);
 }
 function raCommentsHtml(v){
