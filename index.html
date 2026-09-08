@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-09-08-1500">
+<meta name="build" content="2026-09-08-1800">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -2015,6 +2015,9 @@ const ROLE_ROUTES={
 };
 function roleBlocked(key){
   const pr=SB.profile; if(!pr) return false;
+  /* a designated RA approver reads and signs the RA register whatever role
+     they otherwise hold - the appointment carries its own doors */
+  if(pr.ra_approver===true && ['rasys','raver','raworker','radiff','raexport'].includes(key||'')) return false;
   const list=ROLE_ROUTES[pr.role]; if(!list) return false;
   return !list.includes(key||'');
 }
@@ -4688,7 +4691,8 @@ async function exportAllWorkerDocs(){
 
 /* RA/SWP register is restricted to the company's own safety personnel.
    Unsigned local-only devices see only their own local data, so they pass. */
-function canRA(){ return !SB.profile || ['admin','wsho'].includes(SB.profile.role); }
+function canRA(){ return !SB.profile || ['admin','wsho'].includes(SB.profile.role)
+  || SB.profile.ra_approver===true; }   /* the site PM is designated, not roled */
 /* Company (HQ) level: admins and HR always; others via the per-user HQ toggle.
    Local/unsigned devices see only their own local data, so they count as HQ. */
 function isHQ(){ return !SB.profile || SB.profile.hq===true || ['admin','hr'].includes(SB.profile.role); }
@@ -4811,7 +4815,7 @@ function raCreateDraftFrom(ver){
   save(); return cp;
 }
 function raApprove(ver){
-  if(!canRaApprove()){ alert('Only the Safety Manager or Deputy Safety Manager can approve an RA revision.'); return false; }
+  if(!canRaApprove()){ alert('Only the designated RA approver (the site Project Manager) can approve a revision.'); return false; }
   if(verLocked(ver)){ alert('This revision is locked.'); return false; }
   const isM=verStore(ver)==='raMasterVersions';
   const list=isM?db.raMasterVersions:db.raProjectVersions;
@@ -5199,7 +5203,7 @@ function renderRaVer(verId){
       (editable?'<button class="btn" id="raSaveDraft">Save draft</button>':'')+
       (editable&&v.status==='DRAFT'?'<button class="btn ghost" id="raSubmitBtn">Submit for approval</button>':'')+
       (v.status==='SUBMITTED'&&canRaApprove()?'<button class="btn" id="raApproveBtn">Approve &amp; lock '+esc(v.rev)+'</button>':'')+
-      (v.status==='SUBMITTED'&&!canRaApprove()?'<span class="chip w" style="align-self:center">Awaiting the Safety Manager / Deputy</span>':'')+
+      (v.status==='SUBMITTED'&&!canRaApprove()?'<span class="chip w" style="align-self:center">Awaiting the Project Manager\u2019s approval</span>':'')+
       (verLocked(v)?'<button class="btn" id="raReviseBtn">Revise this RA</button>':'')+
       '<button class="btn ghost" id="raPrintBtn">Print / PDF</button>'+
       '<button class="btn ghost" onclick="history.back()">Back</button>'+
@@ -5328,7 +5332,7 @@ function renderRaSys(){
     '</div>':'')+
     (window._raPend&&canRaApprove()
       ?'<div class="card" style="border-color:#b06000"><b>'+window._raPend+' revision'+(window._raPend===1?'':'s')+
-        ' awaiting your approval</b><div class="hint">Open the adoption, then the SUBMITTED revision — the changes are highlighted for you.</div></div>'
+        ' awaiting your approval</b><div class="hint">Open the RA, then the SUBMITTED revision — what changed since the approved version is highlighted for you.</div></div>'
       :'')+
     (rows||(function(){
       /* empty here, but not everywhere: point at the project that has them -
@@ -9971,10 +9975,12 @@ async function renderTeam(){
   const hqSel=r=>['admin','hr'].includes(r.role)?'<span class="chip g">HQ</span>':
     (r.role==='subcon'?'':'<select data-hq="'+r.id+'" style="'+selSt+'">'+
       '<option value=""'+(r.hq?'':' selected')+'>Project</option><option value="1"'+(r.hq?' selected':'')+'>HQ</option></select>');
-  const raapSel=r=>(['wsho','admin'].includes(r.role))
-    ?'<select data-raap="'+r.id+'" style="'+selSt+'" title="Who may approve RA revisions — the Safety Manager and Deputy only">'+
+  /* the RA approver is an appointment (the site PM), not a role - so it can
+     be given to any staff account the admin chooses */
+  const raapSel=r=>(['wsho','admin','engineer','hr'].includes(r.role))
+    ?'<select data-raap="'+r.id+'" style="'+selSt+'" title="Who signs off RA revisions — normally the site Project Manager">'+
       '<option value=""'+(r.ra_approver?'':' selected')+'>—</option>'+
-      '<option value="1"'+(r.ra_approver?' selected':'')+'>RA approver</option></select>'
+      '<option value="1"'+(r.ra_approver?' selected':'')+'>RA approver (PM)</option></select>'
     :'';
   const pjSel=r=>(['admin','hr'].includes(r.role)||r.hq)?'':
     '<select data-proj4="'+r.id+'" style="'+selSt+';max-width:130px">'+
