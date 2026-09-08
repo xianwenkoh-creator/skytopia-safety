@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-09-07-1700">
+<meta name="build" content="2026-09-08-1500">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1541,6 +1541,9 @@ function buildNav(){
       '<a class="sn-item" href="#/observations/new" data-nav="observations">'+ic('obs')+'Report Near Miss</a>'+
       '<a class="sn-item" href="#/lmra" data-nav="lmra">'+ic('lmra')+'LMRA Records</a>'+
       '<a class="sn-item" href="#/tbm" data-nav="tbm">'+ic('tbm')+'Toolbox Records</a>'+
+      /* the reports themselves, not just the blank form: a supervisor who
+         files a near miss must be able to read it back, and read safety's */
+      '<a class="sn-item" href="#/observations" data-nav="observations">'+ic('obs')+'Near Miss Records</a>'+
       '<div class="sn-group">Reference</div>'+
       [['work','Work Activities','work'],['members','Workers','members'],
        ['matrix','Competency Matrix','cert']]
@@ -1678,6 +1681,7 @@ function renderHome(){
         tile('observations/new','Report Near Miss','obs')+
         tile('lmra','LMRA Records','lmra')+
         tile('tbm','Toolbox Records','tbm')+
+        tile('observations','Near Miss Records','obs')+
       '</div>'+
       '<h2 class="sect">Reference</h2>'+
       '<div class="grid">'+
