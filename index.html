@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-09-09-1000">
+<meta name="build" content="2026-09-09-1300">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1036,8 +1036,12 @@ function subRow(f, r){
     const v=r[c.k]===undefined?'':r[c.k];
     let inp;
     if(c.type==='select'){
-      const optArr=typeof c.opts==='function'?c.opts():(c.opts||[]);
+      let optArr=typeof c.opts==='function'?c.opts():(c.opts||[]);
       const sp=otherSplit(v), hasOther=optArr.some(o=>(Array.isArray(o)?o[0]:o)==='Others');
+      /* a value already on the record that is not in the list stays selectable -
+         a strict list must never blank an existing entry on the next save */
+      if(sp.opt && !optArr.some(o=>String(Array.isArray(o)?o[0]:o)===String(sp.opt)))
+        optArr=[[sp.opt, sp.opt+' \u2014 not on the current list']].concat(optArr);
       inp='<select data-c="'+c.k+'"><option value=""></option>'+
         optArr.map(o=>{ const ov=Array.isArray(o)?o[0]:o, ol=Array.isArray(o)?o[1]:o;
           return '<option value="'+esc(ov)+'"'+(String(ov)===String(sp.opt)?' selected':'')+'>'+esc(ol)+'</option>'; }).join('')+'</select>'+
@@ -1357,9 +1361,27 @@ function collectRows(wrap){
 }
 
 function collectForm(mod){
-  const obj={}; let ok=true, first=null;
+  const obj={}; let ok=true, first=null, firstLabel='';
   for(const f of mod.fields){
-    if(f.type==='rows'){ obj[f.k]=collectRows(app.querySelector('[data-rows="'+f.k+'"]')); continue; }
+    if(f.type==='rows'){
+      const wrap=app.querySelector('[data-rows="'+f.k+'"]');
+      obj[f.k]=collectRows(wrap);
+      /* a required column must be filled on every row that exists - otherwise
+         a finding can be raised with nobody responsible for it */
+      (f.cols||[]).filter(c=>c.req).forEach(c=>{
+        const rows=wrap?[...wrap.querySelectorAll('.subrow')]:[];
+        obj[f.k].forEach((row,ri)=>{
+          const el=rows[ri]?rows[ri].querySelector('[data-c="'+c.k+'"]'):null;
+          if(el) el.classList.remove('err');
+          if(!String(row[c.k]||'').trim()){
+            ok=false;
+            if(!firstLabel) firstLabel=c.label+(obj[f.k].length>1?' (row '+(ri+1)+')':'');
+            if(el){ el.classList.add('err'); first=first||el; }
+          }
+        });
+      });
+      continue;
+    }
     if(f.type==='photos'){
       const pw=app.querySelector('[data-photos="'+f.k+'"]');
       obj[f.k]=pw?[...pw.querySelectorAll('img')].map(im=>im.dataset.ph||im.src):[];
@@ -1385,9 +1407,13 @@ function collectForm(mod){
     }
     obj[f.k]=v;
     if(el) el.classList.remove('err');
-    if(f.req && !v){ ok=false; if(el){el.classList.add('err'); first=first||el;} }
+    if(f.req && !v){ ok=false; firstLabel=firstLabel||f.label; if(el){el.classList.add('err'); first=first||el;} }
   }
-  if(!ok){ if(first) first.scrollIntoView({behavior:'smooth',block:'center'}); return null; }
+  if(!ok){
+    if(first) first.scrollIntoView({behavior:'smooth',block:'center'});
+    toast(firstLabel?'Fill in \u201c'+firstLabel+'\u201d before saving':'Fill in the highlighted field before saving');
+    return null;
+  }
   return obj;
 }
 
@@ -2489,7 +2515,8 @@ const MODULES={
      {k:'desc',label:'Finding / observation',type:'textarea',w:'full'},
      {k:'action',label:'Corrective action required',type:'textarea',w:'full'},
      {k:'severity',label:'Severity',type:'select',opts:SEVHDB},
-     {k:'by',label:'Action by',list:siteSupervisorList,ph:'Supervisor responsible'},
+     {k:'by',label:'Action by',type:'select',req:1,opts:()=>siteSupervisorList(),
+      hint:'The supervisor who must put it right \u2014 the finding appears on his What needs action list.'},
      {k:'due',label:'Due',type:'date'},
      {k:'status',label:'Status',type:'select',opts:['Open','Rectified','Verified','Closed']},
      {k:'closedDate',label:'Closed on (date)',type:'date'},
