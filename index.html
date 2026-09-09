@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-09-08-1800">
+<meta name="build" content="2026-09-09-1000">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1536,6 +1536,7 @@ function buildNav(){
       '<div class="sn-group">My workface</div>'+
       '<a class="sn-item" href="#/lmracheck" data-nav="lmracheck">'+ic('lmra')+'Run LMRA</a>'+
       '<a class="sn-item" href="#/toolbox" data-nav="toolbox">'+ic('tbm')+'Run Toolbox Meeting</a>'+
+      '<a class="sn-item" href="#/actions" data-nav="actions">'+ic('act')+'What needs action</a>'+
       '<a class="sn-item" href="#/inspections" data-nav="inspections">'+ic('insp')+'Inspections</a>'+
       '<a class="sn-item" href="#/checklists" data-nav="checklists">'+ic('check')+'Checklists</a>'+
       '<a class="sn-item" href="#/observations/new" data-nav="observations">'+ic('obs')+'Report Near Miss</a>'+
@@ -1675,6 +1676,7 @@ function renderHome(){
       '<p class="hint" style="margin:0 16px 10px;text-align:center">'+mine+' done today · '+acts+' active work activities</p>'+
       '<h2 class="sect">Also yours</h2>'+
       '<div class="grid">'+
+        tile('actions','What needs action','act',openActionCounts().total||'')+
         tile('toolbox','Run Toolbox','tbm')+
         tile('inspections','Inspections','insp')+
         tile('checklists','Checklists','check')+
@@ -2005,11 +2007,11 @@ const ROLE_ROUTES={
      RA/SWP stays out of the UI for both (their database read exists so LMRA
      control lines work, but the register itself is Safety's workspace) */
   supervisor:['','home','lmracheck','lmra','toolbox','tbm','inspections','checklists',
-              'observations','incidents','defects','demerits','infringements','work',
+              'observations','actions','incidents','defects','demerits','infringements','work',
               'members','matrix','passport','finder','certexp','training','equipment',
               'reports','settings','setpw','checkin','hazard','hazardqr','eq','connect'],
   engineer:  ['','home','work','tbm','lmra','inspections','checklists','observations',
-              'incidents','defects','demerits','infringements','members','matrix',
+              'actions','incidents','defects','demerits','infringements','members','matrix',
               'passport','finder','certexp','training','equipment','reports','settings',
               'setpw','checkin','hazard','hazardqr','eq','connect']
 };
