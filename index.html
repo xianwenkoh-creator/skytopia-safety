@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-09-09-1300">
+<meta name="build" content="2026-09-16-0900">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -7809,7 +7809,7 @@ function lmraBlocksFor(waId, memberId, extra){
 let LMX=null;
 function renderLmraCheck(){
   geoCapture();
-  if(!LMX) LMX={waId:'', by:'', ans:{}, hazard:'', action:'', crew:[], photos:[], locId:'', sigs:{}, bySig:null, roles:{}, roleAns:{}};
+  if(!LMX) LMX={waId:'', by:'', ans:{}, hazard:'', action:'', remarks:'', crew:[], photos:[], locId:'', sigs:{}, bySig:null, roles:{}, roleAns:{}};
   LMX.roles=LMX.roles||{}; LMX.roleAns=LMX.roleAns||{}; LMX.extra=LMX.extra||{};
   /* the screen re-renders on every tap — hold what the user already entered */
   const _grab=()=>{
@@ -7819,9 +7819,27 @@ function renderLmraCheck(){
     if(pw) LMX.photos=[...pw.querySelectorAll('img')].map(im=>im.dataset.ph||im.src);
     const h=app.querySelector('#lmHaz'), a=app.querySelector('#lmAct');
     if(h) LMX.hazard=h.value; if(a) LMX.action=a.value;
+    const rm=app.querySelector('#lmRem'); if(rm) LMX.remarks=rm.value;
     const lc=app.querySelector('#lmLoc'); if(lc) LMX.locId=lc.value;
   };
   if(app.querySelector('#lmBy')) _grab();
+  /* The notes block, rendered by BOTH the first paint and every repaint. It
+     lives in one place because when the two copies drifted apart a man's typed
+     hazard vanished the moment he changed an answer back to YES. It is always
+     on screen now - optional on an all-clear, because something worth writing
+     down is not always something that stops the job. */
+  const _notes=(bad, ready)=>
+    '<div class="card"'+(bad?' style="border-color:var(--bad-ink)"':'')+'>'+
+      '<label style="margin-top:0">'+(bad?'Something is not right':'Anything worth noting')+'</label>'+
+      (bad?'':'<div class="hint" style="margin:-4px 0 8px">Leave blank if there is nothing to add.</div>')+
+      '<div class="fld"><label>What is the hazard / issue?</label><input id="lmHaz" value="'+esc(LMX.hazard||'')+'"></div>'+
+      '<div class="fld"><label>Control / action taken</label><input id="lmAct" value="'+esc(LMX.action||'')+'"></div>'+
+      '<div class="fld"><label>Remarks</label><textarea id="lmRem" rows="2">'+esc(LMX.remarks||'')+'</textarea></div>'+
+      '<div class="btnrow" style="margin-top:10px">'+
+      (bad?'<button class="btn danger" id="lmStop" style="flex:1">STOP WORK \u2014 escalate</button>'+
+           '<button class="btn" id="lmCtrl" style="flex:1">Controls in place \u2014 proceed</button>'
+          :'<button class="btn" id="lmGo" style="flex:1"'+(ready?'':' disabled')+'>All clear \u2014 start work</button>')+
+      '</div></div>';
   const was=db.workActivities.filter(w=>w.status!=='Completed');
   const QS=lmraAllQs(LMX.waId);
   const BASEN=lmraEveryoneQs().length;
@@ -7928,14 +7946,7 @@ function renderLmraCheck(){
           '<select data-lmadd="'+esc(id)+'" style="margin-top:6px"><option value="">+ Add an appointed role…</option>'+
           Object.keys(LMRA_APPT_QS).map(c=>'<option value="'+c+'">'+esc(lmraApptName(c))+'</option>').join('')+
           '</select></div>'; }).join(''):'')+
-    (anyNo?'<div class="card" style="border-color:var(--bad-ink)">'+
-      '<label style="margin-top:0">Something is not right</label>'+
-      '<div class="fld"><label>What is the hazard / issue?</label><input id="lmHaz" value="'+esc(LMX.hazard)+'"></div>'+
-      '<div class="fld"><label>Control / action taken</label><input id="lmAct" value="'+esc(LMX.action)+'"></div>'+
-      '<div class="btnrow" style="margin-top:10px">'+
-      '<button class="btn danger" id="lmStop" style="flex:1">STOP WORK — escalate</button>'+
-      '<button class="btn" id="lmCtrl" style="flex:1">Controls in place — proceed</button></div></div>'
-     :'<div class="btnrow"><button class="btn" id="lmGo" style="flex:1"'+(allAnswered?'':' disabled')+'>All clear — start work</button></div>')+
+    _notes(anyNo, allAnswered)+
     '</div>';
   /* rebuild the live part of the screen without touching the crew picker */
   window._lmRepaint=()=>{
@@ -7988,14 +7999,7 @@ function renderLmraCheck(){
             '<select data-lmadd="'+esc(id)+'" style="margin-top:6px"><option value="">+ Add an appointed role…</option>'+
             Object.keys(LMRA_APPT_QS).map(c=>'<option value="'+c+'">'+esc(lmraApptName(c))+'</option>').join('')+
             '</select></div>'; }).join(''):'')+
-      (no2?'<div class="card" style="border-color:var(--bad-ink)">'+
-        '<label style="margin-top:0">Something is not right</label>'+
-        '<div class="fld"><label>What is the hazard / issue?</label><input id="lmHaz" value="'+esc(LMX.hazard||'')+'"></div>'+
-        '<div class="fld"><label>Control / action taken</label><input id="lmAct" value="'+esc(LMX.action||'')+'"></div>'+
-        '<div class="btnrow" style="margin-top:10px">'+
-        '<button class="btn danger" id="lmStop" style="flex:1">STOP WORK — escalate</button>'+
-        '<button class="btn" id="lmCtrl" style="flex:1">Controls in place — proceed</button></div></div>'
-       :'<div class="btnrow"><button class="btn" id="lmGo" style="flex:1"'+(done2?'':' disabled')+'>All clear — start work</button></div>');
+      _notes(no2, done2);
     _lmWireLive();
   };
   document.getElementById('lmWa').onchange=e=>{
@@ -8038,8 +8042,7 @@ function renderLmraCheck(){
   const doSave=safe=>{
     if(!LMX.waId){ alert('Select the work activity.'); return; }
     if(!LMX.by.trim()){ alert('Enter who carried out this LMRA.'); return; }
-    const h=document.getElementById('lmHaz'), a=document.getElementById('lmAct');
-    _grab();
+    _grab();   /* LMX survives a repaint; the input elements do not */
     const rec={id:uid(), date:today(), time:new Date().toTimeString().slice(0,5),
       geo:geoStamp(), waId:LMX.waId, by:LMX.by.trim(),
       locationId:(LMX.locId&&locById(LMX.locId))?LMX.locId:'',
@@ -8061,11 +8064,17 @@ function renderLmraCheck(){
         });
         return out;
       })(),
-      hazard:h?h.value.trim():'', action:a?a.value.trim():'',
+      hazard:(LMX.hazard||'').trim(), action:(LMX.action||'').trim(),
+      remarks:(LMX.remarks||'').trim(),
       safe, resolved:safe!=='STOP'?'Resolved':'Open'};
     db.lmra.push(rec);
     audit('lmra','workActivity',LMX.waId,null,{safe, by:rec.by});
     save(); EV.emit('record:changed',{store:'lmra', id:rec.id});
+    /* Every other module swaps inline photos for uploaded keys on the way to
+       being saved; this one never did, so an LMRA row carried a whole base64
+       JPEG into localStorage and into every sync. Record first and upload
+       after: a failed upload leaves the photo inline rather than losing it. */
+    phFlush(rec,'lmra').then(out=>{ Object.assign(rec,out); save(); }).catch(()=>{});
     setTimeout(()=>autoFileRecord('lmra', rec.id), 400);
     toast(safe==='STOP'?'STOP WORK recorded — activity is now blocked':'LMRA recorded — safe to start');
     LMX=null; location.hash='#/lmra';
@@ -10188,9 +10197,11 @@ async function pushNow(){
       const slice=up.slice(i,i+100);
       const {error}=await SB.client.from('records').upsert(slice.map(strip));
       if(!error) continue;
-      if(!/row-level security|42501/i.test(error.message||'')) throw error;
-      /* the server refused something in this batch — save the rest one by one
-         instead of losing everyone's work to a single bad row */
+      /* The server refused something in this batch — save the rest one by one
+         instead of losing everyone's work to a single bad row. This used to
+         rethrow anything that was not an RLS refusal, which skipped the hash
+         write below: one oversized row then stalled the entire queue, silently,
+         until the app was reloaded. Nothing is worth that. */
       for(const row of slice){
         const {error:e2}=await SB.client.from('records').upsert([strip(row)]);
         if(e2){ refused.push(row.store); if(row._k) delete seen[row._k]; }  /* retry next push */
@@ -10200,7 +10211,7 @@ async function pushNow(){
     const okCount=up.length-refused.length;
     if(refused.length){
       const kinds=[...new Set(refused)].join(', ');
-      sbSetStatus('err','Synced '+okCount+' change(s); '+refused.length+' not permitted for your account ('+esc(kinds)+') — kept on this device.');
+      sbSetStatus('err','Synced '+okCount+' change(s); '+refused.length+' not accepted by the server ('+esc(kinds)+') — kept on this device, retried on the next sync.');
     }else if(up.length){
       sbSetStatus('ok','Synced '+up.length+' change(s) · '+new Date().toLocaleTimeString());
     }
