@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="build" content="2026-09-16-0900">
+<meta name="build" content="2026-09-24-1000">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -4943,10 +4943,15 @@ function raDiff(a,b){
 
 /* ---- one-time wrap of the legacy flat registers (Phase 1 data safety) ---- */
 function raWrapLegacy(){
-  if(root.raV2Wrapped) return;
+  /* Runs on every RA screen open and converts only what is not yet converted.
+     It used to run once per phone behind a local flag - an RA that arrived
+     after that first open was never converted on that phone. Ids are derived
+     from the legacy record so two phones converting before they sync produce
+     the same row, not two. */
+  let n=0;
   db.raLibrary.forEach(l=>{
     if(db.raMasters.some(m=>m.legacySrc===l.id)) return;
-    const head={id:uid(), legacySrc:l.id, title:l.activity||'(untitled master)', tags:[], itemSeq:0,
+    const head={id:'wrapm-'+l.id, legacySrc:l.id, title:l.activity||'(untitled master)', tags:[], itemSeq:0,
       currentRev:null, currentVerId:null, status:'ACTIVE'};
     const items=(l.hazards||[]).map(h=>{ head.itemSeq++;
       return {itemId:itemPrefix(head.title)+'-'+String(head.itemSeq).padStart(3,'0'),
@@ -4955,18 +4960,18 @@ function raWrapLegacy(){
         addControls:[], s1:h.s||'3', l1:h.l||'1', resp:'', origin:null,
         changeLog:[{rev:'M01', change:'Wrapped from legacy library record', reason:'v2 migration', srcType:'raLibrary', srcId:l.id}]};
     });
-    const ver={id:uid(), masterId:head.id, rev:'M01', status:'LEGACY-APPROVED', items, swpSteps:[], links:[],
+    const ver={id:'wrapmv-'+l.id, masterId:head.id, rev:'M01', status:'LEGACY-APPROVED', items, swpSteps:[], links:[],
       createdAt:raNow(), createdBy:'migration', approvedBy:'(legacy)', approvedAt:raNow(),
       note:'Wrapped from legacy RA library — original record retained', provenance:{store:'raLibrary', id:l.id}};
     head.currentRev='M01'; head.currentVerId=ver.id;
-    db.raMasters.push(head); db.raMasterVersions.push(ver);
+    db.raMasters.push(head); db.raMasterVersions.push(ver); n++;
     audit('created','raMaster',head.id,null,{title:head.title, from:'legacy raLibrary'});
   });
   root.projects.forEach(p=>{
     (p.ra||[]).forEach(l=>{
       p.raAdoptions=p.raAdoptions||[]; p.raProjectVersions=p.raProjectVersions||[];
       if(p.raAdoptions.some(a=>a.legacySrc===l.id)) return;
-      const head={id:uid(), legacySrc:l.id, masterId:null, title:l.activity||'(untitled RA)', subcon:'',
+      const head={id:'wrap-'+l.id, legacySrc:l.id, masterId:null, title:l.activity||'(untitled RA)', subcon:'',
         baseMasterVerId:null, baseMasterRev:null, currentRev:null, currentVerId:null, status:'ACTIVE', itemSeq:0};
       const items=(l.hazards||[]).map(h=>{ head.itemSeq++;
         return {itemId:itemPrefix(head.title)+'-'+String(head.itemSeq).padStart(3,'0'),
@@ -4975,7 +4980,7 @@ function raWrapLegacy(){
           addControls:[], s1:h.s||'3', l1:h.l||'1', resp:l.prepared||'', origin:null,
           changeLog:[{rev:'P01', change:'Wrapped from legacy project register', reason:'v2 migration', srcType:'ra', srcId:l.id}]};
       });
-      const ver={id:uid(), adoptionId:head.id, rev:'P01',
+      const ver={id:'wrapv-'+l.id, adoptionId:head.id, rev:'P01',
         status:raApprovedStatuses().includes('LEGACY-APPROVED')&&l.approved?'LEGACY-APPROVED':'DRAFT',
         basedOnMasterVerId:null, basedOnMasterRev:null, items, swpSteps:[], links:[],
         overrides:{added:[],excluded:[],modified:[]}, comments:[],
@@ -4984,11 +4989,10 @@ function raWrapLegacy(){
         note:'Wrapped from legacy register (was Rev '+(l.rev||'?')+', status '+(l.status||'?')+')',
         provenance:{store:'ra', id:l.id, projectId:p.id}};
       if(ver.status==='LEGACY-APPROVED'){ head.currentRev='P01'; head.currentVerId=ver.id; }
-      p.raAdoptions.push(head); p.raProjectVersions.push(ver);
+      p.raAdoptions.push(head); p.raProjectVersions.push(ver); n++;
     });
   });
-  root.raV2Wrapped=true;
-  save();
+  if(n) save();                       /* nothing converted, nothing to push */
 }
 
 /* ---- linkage helpers (§15/§17) ---- */
